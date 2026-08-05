@@ -58,8 +58,11 @@ impl TilingLayout {
 
     /// Reapplies the active layout to every managed window in the usable
     /// area of `output` — that area already excludes the exclusive zone
-    /// reserved by layer-surfaces (the Utumno bar, for example), via
-    /// `layer_map_for_output`.
+    /// reserved by layer-surfaces (a client bar, for example), via
+    /// `layer_map_for_output`, and `bar_height` (the optional built-in bar,
+    /// Phase 8, `spitfire.bar.enable` — 0 when it's off) on top of that,
+    /// since it isn't a layer-surface and so isn't in that exclusive zone
+    /// at all.
     ///
     /// Windows matched by a `spitfire.rule({ floating = true, ... })` are
     /// left out of the arrangement entirely — their geometry is never
@@ -69,7 +72,13 @@ impl TilingLayout {
     /// dedicated "window destroyed" hook, so this runs every frame,
     /// alongside the `space.refresh()` call that already existed in
     /// anvil's render loop.
-    pub fn arrange(&mut self, space: &mut Space<WindowElement>, output: &Output, rules: &[WindowRule]) {
+    pub fn arrange(
+        &mut self,
+        space: &mut Space<WindowElement>,
+        output: &Output,
+        rules: &[WindowRule],
+        bar_height: i32,
+    ) {
         self.order.retain(|w| w.alive());
         if self.order.is_empty() {
             return;
@@ -92,12 +101,15 @@ impl TilingLayout {
             let map = layer_map_for_output(output);
             map.non_exclusive_zone()
         };
-        let area = Rect::new(
+        let mut area = Rect::new(
             output_geo.loc.x + zone.loc.x,
             output_geo.loc.y + zone.loc.y,
             zone.size.w,
             zone.size.h,
         );
+        let bar_height = bar_height.max(0).min(area.h);
+        area.y += bar_height;
+        area.h -= bar_height;
 
         let Some(placements) = layout_arrange(&tiled, area, &self.params) else {
             // Floating layout mode: the engine deliberately doesn't touch
@@ -151,6 +163,14 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             return;
         };
         let rules = self.config.rules().clone();
-        self.workspaces.active_mut().tiling.arrange(&mut self.space, &output, &rules);
+        let bar_height = if self.config.bar.enabled {
+            self.config.bar.height
+        } else {
+            0
+        };
+        self.workspaces
+            .active_mut()
+            .tiling
+            .arrange(&mut self.space, &output, &rules, bar_height);
     }
 }

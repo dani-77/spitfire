@@ -40,14 +40,15 @@ use smithay::{
     wayland::{
         compositor,
         dmabuf::{
-            DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
+            DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState,
+            ImportNotifier,
         },
         presentation::Refresh,
     },
 };
 use tracing::{error, info, warn};
 
-use crate::state::{take_presentation_feedback, SpitfireState, Backend};
+use crate::state::{take_presentation_feedback, Backend, SpitfireState};
 use crate::{drawing::*, render::*};
 
 pub const OUTPUT_NAME: &str = "winit";
@@ -66,7 +67,12 @@ impl DmabufHandler for SpitfireState<WinitData> {
         &mut self.backend_data.dmabuf_state.0
     }
 
-    fn dmabuf_imported(&mut self, _global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
+    fn dmabuf_imported(
+        &mut self,
+        _global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+        notifier: ImportNotifier,
+    ) {
         if self
             .backend_data
             .backend
@@ -122,15 +128,22 @@ pub fn run_winit() {
         },
     );
     let _global = output.create_global::<SpitfireState<WinitData>>(&display.handle());
-    output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
+    output.change_current_state(
+        Some(mode),
+        Some(Transform::Flipped180),
+        None,
+        Some((0, 0).into()),
+    );
     output.set_preferred(mode);
 
     #[cfg(feature = "debug")]
     #[allow(deprecated)]
-    let fps_image =
-        image::io::Reader::with_format(std::io::Cursor::new(FPS_NUMBERS_PNG), image::ImageFormat::Png)
-            .decode()
-            .unwrap();
+    let fps_image = image::io::Reader::with_format(
+        std::io::Cursor::new(FPS_NUMBERS_PNG),
+        image::ImageFormat::Png,
+    )
+    .decode()
+    .unwrap();
     #[cfg(feature = "debug")]
     let fps_texture = backend
         .renderer()
@@ -169,21 +182,26 @@ pub fn run_winit() {
     // Note: egl on Mesa requires either v4 or wl_drm (initialized with bind_wl_display)
     let dmabuf_state = if let Some(default_feedback) = dmabuf_default_feedback {
         let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global = dmabuf_state.create_global_with_default_feedback::<SpitfireState<WinitData>>(
-            &display.handle(),
-            &default_feedback,
-        );
+        let dmabuf_global = dmabuf_state
+            .create_global_with_default_feedback::<SpitfireState<WinitData>>(
+                &display.handle(),
+                &default_feedback,
+            );
         (dmabuf_state, dmabuf_global, Some(default_feedback))
     } else {
         let dmabuf_formats = backend.renderer().dmabuf_formats();
         let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global =
-            dmabuf_state.create_global::<SpitfireState<WinitData>>(&display.handle(), dmabuf_formats);
+        let dmabuf_global = dmabuf_state
+            .create_global::<SpitfireState<WinitData>>(&display.handle(), dmabuf_formats);
         (dmabuf_state, dmabuf_global, None)
     };
 
     #[cfg(feature = "egl")]
-    if backend.renderer().bind_wl_display(&display.handle()).is_ok() {
+    if backend
+        .renderer()
+        .bind_wl_display(&display.handle())
+        .is_ok()
+    {
         info!("EGL hardware-acceleration enabled");
     };
 
@@ -250,6 +268,17 @@ pub fn run_winit() {
             let border_rects = state.border_rects();
             let border = state.config.border;
 
+            let bar_config = state.config.bar;
+            let bar_data = state.bar_data();
+            let bar_output_width = state
+                .space
+                .output_geometry(&output)
+                .map(|geo| geo.size.w)
+                .unwrap_or(0);
+            state.bar.tick();
+            let bar_time_text = state.bar.time_text().to_string();
+            let bar_date_text = state.bar.date_text().to_string();
+
             let backend = &mut state.backend_data.backend;
 
             // draw the cursor as relevant
@@ -281,19 +310,20 @@ pub fn run_winit() {
             let dnd_icon = state.dnd_icon.as_ref();
 
             let scale = Scale::from(output.current_scale().fractional_scale());
-            let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
-                compositor::with_states(surface, |states| {
-                    states
-                        .data_map
-                        .get::<Mutex<CursorImageAttributes>>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .hotspot
-                })
-            } else {
-                (0, 0).into()
-            };
+            let cursor_hotspot =
+                if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
+                    compositor::with_states(surface, |states| {
+                        states
+                            .data_map
+                            .get::<Mutex<CursorImageAttributes>>()
+                            .unwrap()
+                            .lock()
+                            .unwrap()
+                            .hotspot
+                    })
+                } else {
+                    (0, 0).into()
+                };
             let cursor_pos = state.pointer.current_location();
 
             #[cfg(feature = "debug")]
@@ -319,7 +349,10 @@ pub fn run_winit() {
             let render_res = backend.bind().and_then(|(renderer, mut fb)| {
                 #[cfg(feature = "debug")]
                 if let Some(renderdoc) = renderdoc.as_mut() {
-                    renderdoc.start_frame_capture(renderer.egl_context().get_context_handle(), window_handle);
+                    renderdoc.start_frame_capture(
+                        renderer.egl_context().get_context_handle(),
+                        window_handle,
+                    );
                 }
 
                 let mut elements = Vec::<CustomRenderElements<GlesRenderer>>::new();
@@ -353,6 +386,23 @@ pub fn run_winit() {
 
                 #[cfg(feature = "debug")]
                 elements.push(CustomRenderElements::Fps(fps_element.clone()));
+
+                // The optional built-in bar (Phase 8) — pushed into the same
+                // element list as the cursor/dnd icon above rather than
+                // threaded through `render_output` like `spitfire.border`,
+                // since it always sits on top with no occlusion-avoidance
+                // concerns. Hidden while locked: it must never show live
+                // clock/workspace info over the lock screen.
+                if !locked {
+                    elements.extend(crate::bar::bar_elements::<GlesRenderer>(
+                        &bar_config,
+                        bar_output_width,
+                        &bar_data,
+                        &bar_time_text,
+                        &bar_date_text,
+                        scale,
+                    ));
+                }
 
                 let locked_surface = locked
                     .then(|| lock_surfaces.first())
@@ -420,7 +470,9 @@ pub fn run_winit() {
                             output
                                 .current_mode()
                                 .map(|mode| {
-                                    Refresh::fixed(Duration::from_secs_f64(1_000f64 / mode.refresh as f64))
+                                    Refresh::fixed(Duration::from_secs_f64(
+                                        1_000f64 / mode.refresh as f64,
+                                    ))
                                 })
                                 .unwrap_or(Refresh::Unknown),
                             0,

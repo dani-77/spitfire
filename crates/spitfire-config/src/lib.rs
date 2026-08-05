@@ -27,10 +27,6 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc};
 use tracing::warn;
 
 /// `spitfire.border = { width = 2, active = "#7aa2f7", inactive = "#414868" }`.
-///
-/// Parsed and available already in Phase 2 — the actual rendering (drawing
-/// the border around each window) is left for when the existing
-/// server-side decoration code (`shell/ssd.rs`) gets extended to do it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BorderConfig {
     pub width: i32,
@@ -48,6 +44,32 @@ impl Default for BorderConfig {
     }
 }
 
+/// `spitfire.bar = { enable = true, height = 24, bg = "#1e1e2e", fg = "#6c7086", fg_active = "#cdd6f4" }`.
+///
+/// Phase 8, off by default. Drawn by the compositor itself, not a client —
+/// see `crate::bar` in the `spitfire` crate (there is no protocol/IPC
+/// involved, so nothing to expose from this crate beyond these colors).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarConfig {
+    pub enabled: bool,
+    pub height: i32,
+    pub bg: u32,
+    pub fg: u32,
+    pub fg_active: u32,
+}
+
+impl Default for BarConfig {
+    fn default() -> Self {
+        BarConfig {
+            enabled: false,
+            height: 24,
+            bg: 0x1e1e2e,
+            fg: 0x6c7086,
+            fg_active: 0xcdd6f4,
+        }
+    }
+}
+
 /// A loaded Lua config: keeps the Lua interpreter alive (binds keep
 /// closures in its registry) plus the data already extracted from the
 /// global `spitfire` table after the script has run.
@@ -59,6 +81,7 @@ pub struct Config {
     pub autostart: Vec<String>,
     pub gaps: spitfire_layout::Gaps,
     pub border: BorderConfig,
+    pub bar: BarConfig,
 }
 
 impl Config {
@@ -102,7 +125,7 @@ impl Config {
             }
         }
 
-        let (gaps, border) = api::read_gaps_and_border(&lua)?;
+        let (gaps, border, bar) = api::read_gaps_border_bar(&lua)?;
         // Can't `Rc::try_unwrap` here: the `spitfire.autostart` closure kept
         // inside `lua` holds a live reference to this Rc for as long as
         // `lua` exists. `autostart` only ever gets filled in the script's
@@ -118,6 +141,7 @@ impl Config {
             autostart,
             gaps,
             border,
+            bar,
         })
     }
 
@@ -163,6 +187,7 @@ impl std::fmt::Debug for Config {
             .field("autostart", &self.autostart)
             .field("gaps", &self.gaps)
             .field("border", &self.border)
+            .field("bar", &self.bar)
             .finish_non_exhaustive()
     }
 }
@@ -229,6 +254,26 @@ mod tests {
         assert_eq!(config.border.width, 3);
         assert_eq!(config.border.active, 0xff0000);
         assert_eq!(config.border.inactive, 0x00ff00);
+    }
+
+    #[test]
+    fn bar_is_disabled_by_default() {
+        let config = load_str("");
+        assert!(!config.bar.enabled);
+    }
+
+    #[test]
+    fn reads_bar_table() {
+        let config = load_str(
+            r##"
+            spitfire.bar = { enable = true, height = 30, bg = "#000000", fg = "#ffffff", fg_active = "#ff00ff" }
+            "##,
+        );
+        assert!(config.bar.enabled);
+        assert_eq!(config.bar.height, 30);
+        assert_eq!(config.bar.bg, 0x000000);
+        assert_eq!(config.bar.fg, 0xffffff);
+        assert_eq!(config.bar.fg_active, 0xff00ff);
     }
 
     #[test]

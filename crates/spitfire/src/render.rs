@@ -33,7 +33,9 @@ smithay::backend::renderer::element::render_elements! {
         R: ImportAll + ImportMem;
     Pointer=PointerRenderElement<R>,
     Surface=WaylandSurfaceRenderElement<R>,
-    Border=SolidColorRenderElement,
+    // Solid-color rectangles — shared by spitfire.border and the optional
+    // built-in bar (Phase 8), both just stacks of colored rects.
+    Solid=SolidColorRenderElement,
     #[cfg(feature = "debug")]
     // Note: We would like to borrow this element instead, but that would introduce
     // a feature-dependent lifetime, which introduces a lot more feature bounds
@@ -47,7 +49,7 @@ impl<R: Renderer> std::fmt::Debug for CustomRenderElements<R> {
         match self {
             Self::Pointer(arg0) => f.debug_tuple("Pointer").field(arg0).finish(),
             Self::Surface(arg0) => f.debug_tuple("Surface").field(arg0).finish(),
-            Self::Border(arg0) => f.debug_tuple("Border").field(arg0).finish(),
+            Self::Solid(arg0) => f.debug_tuple("Solid").field(arg0).finish(),
             #[cfg(feature = "debug")]
             Self::Fps(arg0) => f.debug_tuple("Fps").field(arg0).finish(),
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
@@ -114,7 +116,7 @@ where
             strips.into_iter().map(move |strip: Rectangle<i32, smithay::utils::Logical>| {
                 let buffer = SolidColorBuffer::new(strip.size, color);
                 let loc: Point<i32, Physical> = strip.loc.to_f64().to_physical(output_scale).to_i32_round();
-                CustomRenderElements::Border(SolidColorRenderElement::from_buffer(
+                CustomRenderElements::Solid(SolidColorRenderElement::from_buffer(
                     &buffer,
                     loc,
                     output_scale,

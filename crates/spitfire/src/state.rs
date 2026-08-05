@@ -144,6 +144,10 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     pub ext_workspace_state: crate::ext_workspace::ExtWorkspaceState,
     /// Phase 2: Lua config loaded from `spitfire_config::Config::default_path()`.
     pub config: spitfire_config::Config,
+    /// Phase 8: the optional built-in bar's own runtime state (currently
+    /// just the clock/date text) — off entirely unless `spitfire.bar.enable`
+    /// is set, see `crate::bar`.
+    pub bar: crate::bar::Bar,
 
     // smithay state
     pub compositor_state: CompositorState,
@@ -712,6 +716,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         SpitfireState {
             backend_data,
             config,
+            bar: crate::bar::Bar::default(),
             workspaces,
             ext_workspace_state,
             display_handle: dh,

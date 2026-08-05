@@ -31,7 +31,7 @@ still open, and the full phase-by-phase implementation history at
   (`$XDG_CONFIG_HOME/spitfire/config.lua`, falling back to
   `~/.config/spitfire/config.lua`), reloadable at runtime with `spitfire.reload()` — no
   recompile. `spitfire.bind`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`rule`/
-  `autostart`/`gaps`/`border`. Mod4/Super and Mod1/Alt are both first-class modifiers,
+  `autostart`/`gaps`/`border`/`bar`. Mod4/Super and Mod1/Alt are both first-class modifiers,
   freely mixable per bind. See `examples/config.lua` for the default bindings.
 - **Control socket** (`spitfire-ipc` + the `spitfirectl` CLI, JSON lines at
   `$XDG_RUNTIME_DIR/spitfire.sock`, one request/response per connection — niri
@@ -65,12 +65,20 @@ still open, and the full phase-by-phase implementation history at
   `assets/logo/`), installable via `make install` — see [Packaging](#packaging).
   `XDG_CURRENT_DESKTOP=spitfire` is set for autostarted clients, same convention as
   niri/Hyprland/sway.
+- **Optional built-in bar** (`crate::bar`, swaybar/i3bar-style, off by default —
+  `spitfire.bar = { enable, height, bg, fg, fg_active }`). Not a client or a protocol:
+  drawn by the compositor itself as solid-color rectangles, the same
+  `SolidColorRenderElement` primitive as `spitfire.border`, reserving `height` at the top
+  of the tiling area the same way a layer-shell exclusive zone would. No font — digits
+  are 7-segment glyphs and the layout-mode indicator is a small geometric icon, both built
+  from rectangles. Workspace list + active layout mode on the left, clock/date on the
+  right; hidden while the session is locked. Confirmed against a running compositor
+  (caught and fixed a real bug this way: the background strip was painted after the
+  digits/icon in element order, which — same render-order lesson as `spitfire.border` —
+  made it draw on top of them instead of behind).
 
 ## Known limitations / pending work
 
-- **Optional built-in bar** (swaybar/i3bar-style, off by default, `spitfire.bar.enable`)
-  — idea discussed, not built: a layer-surface owned by the compositor itself, workspace
-  list + active layout mode on the left, clock/date on the right.
 - **DRM/KMS backend** (running as the real login session, not nested) and **XWayland**:
   out of scope for the current plan, no work started.
 - Not a spitfire bug, but worth knowing: Utumno's `modules/Bar.qml` overlaps its
@@ -95,7 +103,7 @@ examples/config.lua     # default config.lua
 
 ```sh
 cargo build --workspace
-cargo test --workspace             # 62 tests across the workspace, no Wayland needed
+cargo test --workspace             # 64 tests across the workspace, no Wayland needed
 cargo run -p spitfire -- --winit   # or no arguments at all, --winit is the default
 ```
 

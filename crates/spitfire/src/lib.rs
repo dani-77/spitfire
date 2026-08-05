@@ -1,5 +1,6 @@
 #![warn(rust_2018_idioms)]
 
+pub mod bar;
 pub mod drawing;
 pub mod ext_workspace;
 pub mod focus;

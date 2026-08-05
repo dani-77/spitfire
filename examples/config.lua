@@ -45,6 +45,19 @@ spitfire.bind("Mod4+Shift", "r", function() spitfire.reload() end)
 -- entirely (their geometry is never touched).
 spitfire.rule({ app_id = "pavucontrol", floating = true })
 
+-- Optional built-in bar (Phase 8) — off by default. Not a client, not a
+-- protocol: drawn by spitfire itself, a swaybar/i3bar-style strip with the
+-- workspace list + active layout mode on the left and the clock/date on the
+-- right (7-segment digits, no font). Coexists fine with a client bar (e.g.
+-- Utumno's own) — just leave `enable` false if you're using one of those.
+-- spitfire.bar = {
+--   enable = true,
+--   height = 24,
+--   bg = "#1e1e2e",
+--   fg = "#6c7086",
+--   fg_active = "#cdd6f4",
+-- }
+
 -- Autostart — spitfire has no opinion on which frontend/shell you use.
 -- Point this at whatever draws your bar/launcher/wallpaper/lockscreen: a
 -- wlr-layer-shell-v1 client is all that's required (waybar, eww, a plain

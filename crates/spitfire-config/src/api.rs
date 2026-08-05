@@ -15,7 +15,7 @@ use crate::{
     bind::{Bind, Modifiers},
     command::Command,
     rule::WindowRule,
-    BorderConfig,
+    BarConfig, BorderConfig,
 };
 
 pub(crate) fn install(
@@ -205,12 +205,13 @@ fn parse_layout_mode(name: &str) -> Option<spitfire_layout::LayoutMode> {
     }
 }
 
-/// Reads `spitfire.gaps`/`spitfire.border` from the globals after the Lua
-/// script runs — they're plain table assignments, not function calls, so
-/// they never go through the `Command` queue.
-pub(crate) fn read_gaps_and_border(lua: &Lua) -> mlua::Result<(spitfire_layout::Gaps, BorderConfig)> {
+/// Reads `spitfire.gaps`/`spitfire.border`/`spitfire.bar` from the globals
+/// after the Lua script runs — they're plain table assignments, not
+/// function calls, so they never go through the `Command` queue.
+pub(crate) fn read_gaps_border_bar(lua: &Lua) -> mlua::Result<(spitfire_layout::Gaps, BorderConfig, BarConfig)> {
     let mut gaps = spitfire_layout::Gaps::default();
     let mut border = BorderConfig::default();
+    let mut bar = BarConfig::default();
 
     let spitfire: Table = lua.globals().get("spitfire")?;
 
@@ -243,7 +244,34 @@ pub(crate) fn read_gaps_and_border(lua: &Lua) -> mlua::Result<(spitfire_layout::
         }
     }
 
-    Ok((gaps, border))
+    if let Ok(t) = spitfire.get::<Table>("bar") {
+        if let Ok(v) = t.get::<bool>("enable") {
+            bar.enabled = v;
+        }
+        if let Ok(v) = t.get::<i32>("height") {
+            bar.height = v;
+        }
+        if let Ok(v) = t.get::<String>("bg") {
+            match parse_hex_color(&v) {
+                Some(c) => bar.bg = c,
+                None => warn!(value = v, "spitfire.bar.bg: invalid color, keeping the default"),
+            }
+        }
+        if let Ok(v) = t.get::<String>("fg") {
+            match parse_hex_color(&v) {
+                Some(c) => bar.fg = c,
+                None => warn!(value = v, "spitfire.bar.fg: invalid color, keeping the default"),
+            }
+        }
+        if let Ok(v) = t.get::<String>("fg_active") {
+            match parse_hex_color(&v) {
+                Some(c) => bar.fg_active = c,
+                None => warn!(value = v, "spitfire.bar.fg_active: invalid color, keeping the default"),
+            }
+        }
+    }
+
+    Ok((gaps, border, bar))
 }
 
 fn parse_hex_color(s: &str) -> Option<u32> {
