@@ -70,6 +70,23 @@ impl Default for BarConfig {
     }
 }
 
+/// `spitfire.keyboard = { layout = "pt", variant = "", model = "", options = "", rules = "" }`.
+///
+/// Same fields/meaning as `xkbcommon`'s `XkbConfig` (and `setxkbmap`'s
+/// flags of the same names) — empty string means "let xkbcommon pick its
+/// own default", which for `layout` in practice resolves to "us". Applied
+/// once at startup and again on every `spitfire.reload()` (the keyboard
+/// isn't recreated, just re-keymapped — see `KeyboardHandle::set_xkb_config`
+/// in the `spitfire` crate).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeyboardConfig {
+    pub rules: String,
+    pub model: String,
+    pub layout: String,
+    pub variant: String,
+    pub options: Option<String>,
+}
+
 /// A loaded Lua config: keeps the Lua interpreter alive (binds keep
 /// closures in its registry) plus the data already extracted from the
 /// global `spitfire` table after the script has run.
@@ -82,6 +99,7 @@ pub struct Config {
     pub gaps: spitfire_layout::Gaps,
     pub border: BorderConfig,
     pub bar: BarConfig,
+    pub keyboard: KeyboardConfig,
 }
 
 impl Config {
@@ -110,7 +128,13 @@ impl Config {
         let autostart = Rc::new(RefCell::new(Vec::new()));
         let rules = Rc::new(RefCell::new(Vec::new()));
 
-        api::install(&lua, commands.clone(), binds.clone(), autostart.clone(), rules.clone())?;
+        api::install(
+            &lua,
+            commands.clone(),
+            binds.clone(),
+            autostart.clone(),
+            rules.clone(),
+        )?;
 
         match std::fs::read_to_string(path) {
             Ok(src) => {
@@ -125,7 +149,7 @@ impl Config {
             }
         }
 
-        let (gaps, border, bar) = api::read_gaps_border_bar(&lua)?;
+        let (gaps, border, bar, keyboard) = api::read_globals(&lua)?;
         // Can't `Rc::try_unwrap` here: the `spitfire.autostart` closure kept
         // inside `lua` holds a live reference to this Rc for as long as
         // `lua` exists. `autostart` only ever gets filled in the script's
@@ -142,6 +166,7 @@ impl Config {
             gaps,
             border,
             bar,
+            keyboard,
         })
     }
 
@@ -156,7 +181,10 @@ impl Config {
     /// exactly — returns an index, not the `Bind` itself, so callers never
     /// need to see `mlua::RegistryKey`.
     pub fn find_bind(&self, mods: Modifiers, keysym: Keysym) -> Option<usize> {
-        self.binds.borrow().iter().position(|b| b.matches(mods, keysym))
+        self.binds
+            .borrow()
+            .iter()
+            .position(|b| b.matches(mods, keysym))
     }
 
     /// Invokes bind `idx` (calls the Lua closure) and returns the
@@ -188,6 +216,7 @@ impl std::fmt::Debug for Config {
             .field("gaps", &self.gaps)
             .field("border", &self.border)
             .field("bar", &self.bar)
+            .field("keyboard", &self.keyboard)
             .finish_non_exhaustive()
     }
 }
@@ -235,7 +264,8 @@ mod tests {
 
     #[test]
     fn missing_config_file_falls_back_to_defaults() {
-        let config = Config::load(std::path::Path::new("/nonexistent/spitfire/config.lua")).unwrap();
+        let config =
+            Config::load(std::path::Path::new("/nonexistent/spitfire/config.lua")).unwrap();
         assert!(config.drain_commands().is_empty());
         assert_eq!(config.gaps, spitfire_layout::Gaps::default());
         assert_eq!(config.autostart, Vec::<String>::new());
@@ -327,6 +357,25 @@ mod tests {
         };
         let keysym = xkbcommon::xkb::keysym_from_name("t", xkbcommon::xkb::KEYSYM_NO_FLAGS);
         assert!(config.find_bind(mods, keysym).is_none());
+    }
+
+    #[test]
+    fn bind_with_shift_matches_the_shifted_uppercase_keysym() {
+        // Real key events report the *shifted* keysym while Shift is held
+        // (uppercase R, not lowercase r) — every config spells keys
+        // lowercase, so this has to match anyway. Regression test for a
+        // real-hardware bug: Mod4+Shift+r (spitfire.reload()) silently
+        // never fired, only the nested --winit path had happened to be
+        // tested before.
+        let config = load_str(r#"spitfire.bind("Mod4+Shift", "r", function() spitfire.reload() end)"#);
+        let mods = Modifiers {
+            logo: true,
+            shift: true,
+            ..Default::default()
+        };
+        let shifted_keysym = xkbcommon::xkb::keysym_from_name("R", xkbcommon::xkb::KEYSYM_NO_FLAGS);
+        let idx = config.find_bind(mods, shifted_keysym).expect("bind not found");
+        assert_eq!(config.invoke_bind(idx).unwrap(), vec![Command::ReloadConfig]);
     }
 
     #[test]

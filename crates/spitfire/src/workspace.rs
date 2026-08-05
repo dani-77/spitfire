@@ -9,6 +9,8 @@
 //! so that moving to real multi-output later means keying a
 //! `HashMap<Output, WorkspaceSet>` instead of rewriting this.
 
+use smithay::{desktop::WindowSurface, utils::SERIAL_COUNTER};
+
 use crate::{
     focus::KeyboardFocusTarget,
     layout::TilingLayout,
@@ -216,6 +218,67 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         self.space.unmap_elem(&window);
         self.arrange_tiling();
         self.sync_ext_workspace_state();
+    }
+
+    /// `spitfire.window.close()` — closes whichever window currently has
+    /// keyboard focus: `xdg_toplevel.close` for a Wayland client, the
+    /// equivalent X11 request for an XWayland one. A no-op if nothing is
+    /// focused (e.g. an empty workspace).
+    pub fn close_focused_window(&mut self) {
+        let Some(KeyboardFocusTarget::Window(window)) =
+            self.seat.get_keyboard().and_then(|kb| kb.current_focus())
+        else {
+            return;
+        };
+        match window.underlying_surface() {
+            WindowSurface::Wayland(w) => w.send_close(),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(w) => {
+                let _ = w.close();
+            }
+        }
+    }
+
+    /// `spitfire.window.focus_next()` / `.focus_prev()` — dwm-style
+    /// MODKEY+j/k: moves keyboard focus to the next/previous window in the
+    /// active workspace's tiling order (wraps around). If nothing was
+    /// focused (or focus was on something other than a window, e.g. a
+    /// layer-shell surface), lands on the first window instead. A no-op
+    /// with fewer than 2 windows in the workspace.
+    pub fn cycle_window_focus(&mut self, forward: bool) {
+        let windows = self.workspaces.active().tiling.windows();
+        if windows.len() < 2 {
+            return;
+        }
+        let windows: Vec<WindowElement> = windows.to_vec();
+
+        let current_idx = self
+            .seat
+            .get_keyboard()
+            .and_then(|kb| kb.current_focus())
+            .and_then(|f| match f {
+                KeyboardFocusTarget::Window(w) => Some(WindowElement(w)),
+                _ => None,
+            })
+            .and_then(|current| windows.iter().position(|w| w == &current));
+
+        let next_idx = match current_idx {
+            Some(idx) if forward => (idx + 1) % windows.len(),
+            Some(idx) => (idx + windows.len() - 1) % windows.len(),
+            None => 0,
+        };
+        let window = windows[next_idx].clone();
+
+        self.space.raise_element(&window, true);
+        #[cfg(feature = "xwayland")]
+        if let Some(surface) = window.0.x11_surface() {
+            self.xwm.as_mut().unwrap().raise_window(surface).unwrap();
+        }
+        let serial = SERIAL_COUNTER.next_serial();
+        self.seat
+            .get_keyboard()
+            .unwrap()
+            .set_focus(self, Some(window.into()), serial);
     }
 
     /// The active workspace's windows, current on-screen geometry plus

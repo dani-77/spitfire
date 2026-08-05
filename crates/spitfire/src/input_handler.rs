@@ -184,6 +184,18 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 self.move_focused_window_to_workspace(n.saturating_sub(1));
             }
 
+            ConfigCommand::WindowClose => {
+                self.close_focused_window();
+            }
+
+            ConfigCommand::WindowFocusNext => {
+                self.cycle_window_focus(true);
+            }
+
+            ConfigCommand::WindowFocusPrev => {
+                self.cycle_window_focus(false);
+            }
+
             ConfigCommand::Quit => {
                 info!("spitfire.quit");
                 self.running.store(false, Ordering::SeqCst);
@@ -226,6 +238,13 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 for ws in self.workspaces.iter_mut() {
                     ws.tiling.params.gaps = new_config.gaps;
                 }
+                if let Some(keyboard) = self.seat.get_keyboard() {
+                    if let Err(err) = keyboard
+                        .set_xkb_config(self, crate::state::xkb_config_from(&new_config.keyboard))
+                    {
+                        error!(%err, "spitfire.keyboard: invalid XKB config, keeping the previous layout");
+                    }
+                }
                 self.config = new_config;
                 self.arrange_tiling();
                 info!(path = %path.display(), "Config reloaded");
@@ -245,28 +264,36 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let mut suppressed_keys = self.suppressed_keys.clone();
         let keyboard = self.seat.get_keyboard().unwrap();
 
-        for layer in self.layer_shell_state.layer_surfaces().rev() {
-            let data = with_states(layer.wl_surface(), |states| {
-                *states
-                    .cached_state
-                    .get::<LayerSurfaceCachedState>()
-                    .current()
-            });
-            if data.keyboard_interactivity == KeyboardInteractivity::Exclusive
-                && (data.layer == WlrLayer::Top || data.layer == WlrLayer::Overlay)
-            {
-                let surface = self.space.outputs().find_map(|o| {
-                    let map = layer_map_for_output(o);
-                    let cloned = map.layers().find(|l| l.layer_surface() == &layer).cloned();
-                    cloned
+        // While locked, nothing gets to steal focus away from the lock
+        // surface — not even an exclusive-keyboard layer-shell surface
+        // (a launcher/OSD left mapped from before the lock, say). Without
+        // this, the loop right below would happily hand every keypress —
+        // including whatever's being typed into the lock screen's password
+        // field — to that layer surface instead.
+        if !self.locked {
+            for layer in self.layer_shell_state.layer_surfaces().rev() {
+                let data = with_states(layer.wl_surface(), |states| {
+                    *states
+                        .cached_state
+                        .get::<LayerSurfaceCachedState>()
+                        .current()
                 });
-                if let Some(surface) = surface {
-                    keyboard.set_focus(self, Some(surface.into()), serial);
-                    keyboard.input::<(), _>(self, keycode, state, serial, time, |_, _, _| {
-                        FilterResult::Forward
+                if data.keyboard_interactivity == KeyboardInteractivity::Exclusive
+                    && (data.layer == WlrLayer::Top || data.layer == WlrLayer::Overlay)
+                {
+                    let surface = self.space.outputs().find_map(|o| {
+                        let map = layer_map_for_output(o);
+                        let cloned = map.layers().find(|l| l.layer_surface() == &layer).cloned();
+                        cloned
                     });
-                    return KeyAction::None;
-                };
+                    if let Some(surface) = surface {
+                        keyboard.set_focus(self, Some(surface.into()), serial);
+                        keyboard.input::<(), _>(self, keycode, state, serial, time, |_, _, _| {
+                            FilterResult::Forward
+                        });
+                        return KeyAction::None;
+                    };
+                }
             }
         }
 
@@ -303,6 +330,32 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                     // so that we can decide on a release if the key
                     // should be forwarded to the client or not.
                     if let KeyState::Pressed = state {
+                        // While locked, no `spitfire.bind()` or built-in
+                        // shortcut gets to intercept a key — every keypress
+                        // goes straight to the lock surface (password entry
+                        // needs *every* key, digits and letters included,
+                        // and those are exactly what layout/workspace/etc.
+                        // binds are usually mapped to). VT-switch is the
+                        // one exception: it's the escape hatch if the lock
+                        // surface itself is stuck, and it doesn't share any
+                        // keys with normal typing (XF86Switch_VT_*).
+                        if cstate.locked {
+                            let action = matches!(
+                                keysym.raw(),
+                                xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12
+                            )
+                            .then(|| process_keyboard_shortcut(*modifiers, keysym))
+                            .flatten();
+
+                            if action.is_some() {
+                                suppressed_keys.push(keysym);
+                            }
+
+                            return action
+                                .map(FilterResult::Intercept)
+                                .unwrap_or(FilterResult::Forward);
+                        }
+
                         if !inhibited {
                             // A `spitfire.bind(...)` from the Lua config takes
                             // priority over the built-in fallbacks below, so a
@@ -483,10 +536,34 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         // guard confines all of them at once. See also
         // `update_keyboard_focus`, which does the same for the keyboard.
         if self.locked {
+            // The second element of the returned tuple is the surface's
+            // *origin* in the same (global/output) coordinate space as
+            // `pos` — every `PointerTarget` handler subtracts it from the
+            // event location to get surface-local coordinates. Passing
+            // `pos` itself here (as this used to) made that subtraction
+            // always land on (0, 0), so every click/motion on the lock
+            // surface was reported at its top-left corner regardless of
+            // where the pointer actually was — enough to make a lock
+            // screen impossible to unlock by clicking/typing into a field
+            // that was never actually under the pointer. Use the output's
+            // origin instead, matching where the fullscreen lock surface
+            // is actually placed.
+            let output_loc = self
+                .space
+                .outputs()
+                .find(|o| {
+                    self.space
+                        .output_geometry(o)
+                        .is_some_and(|geo| geo.contains(pos.to_i32_round()))
+                })
+                .or_else(|| self.space.outputs().next())
+                .and_then(|o| self.space.output_geometry(o))
+                .map(|geo| geo.loc)
+                .unwrap_or_default();
             return self.lock_surfaces.first().map(|lock_surface| {
                 (
                     PointerFocusTarget::from(lock_surface.wl_surface().clone()),
-                    pos,
+                    output_loc.to_f64(),
                 )
             });
         }
@@ -911,9 +988,19 @@ impl SpitfireState<UdevData> {
                     KeyAction::None
                     | KeyAction::Quit
                     | KeyAction::TogglePreview
-                    | KeyAction::ToggleDecorations => self.process_common_key_action(action),
+                    | KeyAction::ToggleDecorations
+                    | KeyAction::LuaBind(_) => self.process_common_key_action(action),
 
-                    _ => unreachable!(),
+                    // Same non-fatal fallback as process_input_event_windowed
+                    // for this arm: anything genuinely unhandled here is a
+                    // missing feature, not a reason to crash the whole
+                    // session — this is the real DRM/KMS backend, unlike
+                    // the nested --winit one, so a `unreachable!()` here
+                    // previously took the entire compositor down over a
+                    // single stray keybind (spitfire.bind and its
+                    // KeyAction::LuaBind didn't exist yet when this match
+                    // was written, inherited from anvil).
+                    _ => tracing::warn!(?action, "Key action unsupported on this backend."),
                 },
             },
             InputEvent::PointerMotion { event, .. } => self.on_pointer_move::<B>(dh, event),
@@ -1503,13 +1590,13 @@ enum KeyAction {
 }
 
 fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Option<KeyAction> {
-    if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace
-        || modifiers.logo && keysym == Keysym::q
-    {
-        // ctrl+alt+backspace = quit
-        // logo + q = quit
-        Some(KeyAction::Quit)
-    } else if (xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12).contains(&keysym.raw()) {
+    // No hardcoded quit shortcut here (anvil's own demo keybinds had
+    // ctrl+alt+backspace and logo+q) — quit is entirely config-driven
+    // (spitfire.quit(), see examples/config.lua's Mod4+Shift+q), same
+    // "no built-in defaults" rule as the terminal bind. A silent, always-on
+    // logo+q was a real surprise: it fired even though nothing in
+    // config.lua bound that combo, ending the whole session.
+    if (xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12).contains(&keysym.raw()) {
         // VTSwitch
         Some(KeyAction::VtSwitch(
             (keysym.raw() - xkb::KEY_XF86Switch_VT_1 + 1) as i32,

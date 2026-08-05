@@ -64,6 +64,12 @@ impl<BackendData: Backend> XdgShellHandler for SpitfireState<BackendData> {
         self.workspaces.active_mut().tiling.push(window);
         self.arrange_tiling();
 
+        // Queued for keyboard focus the moment it has an actual buffer to
+        // show (see `commit()` in shell/mod.rs) — dwm-style "new window
+        // just opens focused", instead of forcing a pointer hover/click
+        // first (the only thing that ever granted focus before).
+        self.pending_initial_focus.push(surface.wl_surface().clone());
+
         compositor::add_post_commit_hook(surface.wl_surface(), |state: &mut Self, _, surface| {
             handle_toplevel_commit(&mut state.space, surface);
         });

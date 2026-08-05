@@ -463,8 +463,16 @@ pub fn run_winit() {
 
                     let states = render_output_result.states;
                     if has_rendered {
-                        let mut output_presentation_feedback =
-                            take_presentation_feedback(&output, &state.space, &states);
+                        let locked_surface = locked
+                            .then(|| lock_surfaces.first())
+                            .flatten()
+                            .map(|s| s.wl_surface());
+                        let mut output_presentation_feedback = take_presentation_feedback(
+                            &output,
+                            &state.space,
+                            locked_surface,
+                            &states,
+                        );
                         output_presentation_feedback.presented(
                             frame_target,
                             output

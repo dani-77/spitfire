@@ -119,7 +119,21 @@ impl TilingLayout {
         };
 
         for (window, rect) in placements {
-            let size = Size::from((rect.w.max(1), rect.h.max(1)));
+            // A server-side-decorated window's on-screen footprint is its
+            // content size *plus* HEADER_BAR_HEIGHT — see
+            // shell/element.rs's AsRenderElements impl, which grows the
+            // bbox by exactly that much and draws the header above the
+            // content. `rect.h` here is the whole tile slot (content +
+            // header), so the content itself has to be configured shorter
+            // by that much, or the header sits on top of the full tile
+            // height and the window ends up taller than its slot —
+            // visibly overflowing past the next window/gap/screen edge.
+            let ssd_height = if window.decoration_state().is_ssd {
+                crate::shell::ssd::HEADER_BAR_HEIGHT
+            } else {
+                0
+            };
+            let size = Size::from((rect.w.max(1), (rect.h - ssd_height).max(1)));
             if let Some(toplevel) = window.0.toplevel() {
                 toplevel.with_pending_state(|state| {
                     state.size = Some(size);

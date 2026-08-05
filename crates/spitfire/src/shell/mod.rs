@@ -7,7 +7,7 @@ use smithay::xwayland::XWaylandClientData;
 use smithay::wayland::drm_syncobj::DrmSyncobjCachedState;
 
 use smithay::{
-    backend::renderer::utils::on_commit_buffer_handler,
+    backend::renderer::utils::{on_commit_buffer_handler, with_renderer_surface_state},
     desktop::{
         layer_map_for_output, space::SpaceElement, LayerSurface, PopupKind, PopupManager, Space,
         WindowSurfaceType,
@@ -202,7 +202,46 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                     if let Some(buffer_offset) = buffer_offset {
                         let current_loc = self.space.element_location(&window).unwrap();
                         self.space
-                            .map_element(window, current_loc + buffer_offset, false);
+                            .map_element(window.clone(), current_loc + buffer_offset, false);
+                    }
+
+                    // First-map focus: the moment a queued toplevel (see
+                    // `new_toplevel` in shell/xdg.rs) actually commits a
+                    // buffer, it's visibly "open" — hand it keyboard focus
+                    // right away instead of leaving the previous window
+                    // focused until the pointer happens to hover/click the
+                    // new one. Skipped while locked: the lock surface keeps
+                    // focus no matter what maps underneath it.
+                    if let Some(pos) = self
+                        .pending_initial_focus
+                        .iter()
+                        .position(|s| s == surface)
+                    {
+                        // NB: `SurfaceAttributes.buffer` is *not* usable
+                        // here — `on_commit_buffer_handler` above already
+                        // `take()`s it into the renderer's own
+                        // `RendererSurfaceState` on every commit, so by
+                        // this point it's always back to `None` (that bit
+                        // me on the first attempt at this check: it never
+                        // fired). `RendererSurfaceState::buffer()` is the
+                        // durable copy that actually reflects "does this
+                        // surface have contents right now".
+                        let has_buffer = with_renderer_surface_state(surface, |state| {
+                            state.buffer().is_some()
+                        })
+                        .unwrap_or(false);
+                        if has_buffer {
+                            self.pending_initial_focus.remove(pos);
+                            if !self.locked {
+                                if let Some(keyboard) = self.seat.get_keyboard() {
+                                    keyboard.set_focus(
+                                        self,
+                                        Some(KeyboardFocusTarget::from(window)),
+                                        SERIAL_COUNTER.next_serial(),
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }

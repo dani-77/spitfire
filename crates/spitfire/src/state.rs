@@ -25,9 +25,10 @@ use smithay::{
     desktop::{
         space::SpaceElement,
         utils::{
+            send_dmabuf_feedback_surface_tree, send_frames_surface_tree,
             surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
-            update_surface_primary_scanout_output, with_surfaces_surface_tree,
-            OutputPresentationFeedback,
+            take_presentation_feedback_surface_tree, update_surface_primary_scanout_output,
+            with_surfaces_surface_tree, OutputPresentationFeedback,
         },
         PopupKind, PopupManager, Space,
     },
@@ -149,6 +150,13 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     // desktop
     pub space: Space<WindowElement>,
     pub popups: PopupManager,
+    /// Toplevels waiting for their first buffer commit — the moment a
+    /// window in here actually has something to show, it gets keyboard
+    /// focus (see `shell/mod.rs`'s `commit()`), dwm-style, instead of
+    /// requiring the pointer to hover or click it first. Populated in
+    /// `new_toplevel`, drained on that first commit (or on destroy, so a
+    /// toplevel closed before ever mapping doesn't linger here).
+    pub pending_initial_focus: Vec<WlSurface>,
     /// Phase 5: dynamic per-output workspace list (v1: a single output, so
     /// a single `WorkspaceSet`) — each workspace owns its own
     /// tile/floating/fibonacci/monocle layout state. See `crate::workspace`.
@@ -630,6 +638,23 @@ smithay::delegate_fifo!(@<BackendData: Backend + 'static> SpitfireState<BackendD
 
 smithay::delegate_commit_timing!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
 
+/// `spitfire.keyboard = { layout, variant, model, options, rules }` →
+/// smithay/xkbcommon's own `XkbConfig` — same fields, just borrowed
+/// instead of owned (`XkbConfig` borrows its strings, so this can't be a
+/// `From` impl on the config type itself without giving it a lifetime).
+/// Used both at startup (`SpitfireState::init`) and on every
+/// `spitfire.reload()` (`reload_config`, so a layout change takes effect
+/// without restarting the compositor).
+pub(crate) fn xkb_config_from(keyboard: &spitfire_config::KeyboardConfig) -> XkbConfig<'_> {
+    XkbConfig {
+        rules: &keyboard.rules,
+        model: &keyboard.model,
+        layout: &keyboard.layout,
+        variant: &keyboard.variant,
+        options: keyboard.options.clone(),
+    }
+}
+
 impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     pub fn init(
         display: Display<SpitfireState<BackendData>>,
@@ -713,22 +738,8 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                 .map_or(true, |client_state| client_state.security_context.is_none())
         });
 
-        // init input
-        let seat_name = backend_data.seat_name();
-        let mut seat = seat_state.new_wl_seat(&dh, seat_name.clone());
-
-        let pointer = seat.add_pointer();
-        seat.add_keyboard(XkbConfig::default(), 200, 25)
-            .expect("Failed to initialize the keyboard");
-
-        let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
-
-        #[cfg(feature = "xwayland")]
-        let xwayland_shell_state = xwayland_shell::XWaylandShellState::new::<Self>(&dh.clone());
-
-        #[cfg(feature = "xwayland")]
-        XWaylandKeyboardGrabState::new::<Self>(&dh.clone());
-
+        // Loaded before the keyboard below needs it (spitfire.keyboard =
+        // { layout, variant, ... }).
         let config_path = spitfire_config::Config::default_path();
         let config = spitfire_config::Config::load(&config_path).unwrap_or_else(|err| {
             error!(path = %config_path.display(), %err, "error in Lua config, starting with defaults");
@@ -739,6 +750,22 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             spitfire_config::Config::load(std::path::Path::new("/dev/null"))
                 .expect("loading an empty config should never fail")
         });
+
+        // init input
+        let seat_name = backend_data.seat_name();
+        let mut seat = seat_state.new_wl_seat(&dh, seat_name.clone());
+
+        let pointer = seat.add_pointer();
+        seat.add_keyboard(xkb_config_from(&config.keyboard), 200, 25)
+            .expect("Failed to initialize the keyboard");
+
+        let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
+
+        #[cfg(feature = "xwayland")]
+        let xwayland_shell_state = xwayland_shell::XWaylandShellState::new::<Self>(&dh.clone());
+
+        #[cfg(feature = "xwayland")]
+        XWaylandKeyboardGrabState::new::<Self>(&dh.clone());
 
         let mut workspaces = crate::workspace::WorkspaceSet::default();
         workspaces.active_mut().tiling.params.gaps = config.gaps;
@@ -756,6 +783,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             handle,
             space: Space::default(),
             popups: PopupManager::default(),
+            pending_initial_focus: Vec::new(),
             compositor_state,
             data_device_state,
             layer_shell_state,
@@ -929,6 +957,22 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                     clients.insert(client.id(), client);
                 }
             });
+        }
+
+        if self.locked {
+            if let Some(surface) = self.lock_surfaces.first().map(|s| s.wl_surface().clone()) {
+                with_surfaces_surface_tree(&surface, |surface, states| {
+                    if let Some(mut commit_timer_state) = states
+                        .data_map
+                        .get::<CommitTimerBarrierStateUserData>()
+                        .map(|commit_timer| commit_timer.lock().unwrap())
+                    {
+                        commit_timer_state.signal_until(frame_target);
+                        let client = surface.client().unwrap();
+                        clients.insert(client.id(), client);
+                    }
+                });
+            }
         }
 
         let dh = self.display_handle.clone();
@@ -1116,6 +1160,68 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             });
         }
 
+        // Session lock: the actual fix for "typing into the lock screen
+        // never shows anything" — `send_frames_surface_tree` below is what
+        // sends the `wl_surface.frame` done callback a frame-throttled
+        // client (Quickshell/Qt among them) waits on before painting its
+        // next frame. The lock surface never went through any of
+        // `window`/`layer_surface`'s equivalent (it's neither), so it got
+        // exactly one paint — the first one, at map time — and then stuck
+        // forever afterwards: the password dots, a shake-on-failure
+        // animation, all of it silently never rendered again under a
+        // backend that (unlike winit's continuous redraw loop) only
+        // repaints in response to real frame/vblank scheduling.
+        if self.locked {
+            if let Some(surface) = self.lock_surfaces.first().map(|s| s.wl_surface().clone()) {
+                with_surfaces_surface_tree(&surface, |surface, states| {
+                    let primary_scanout_output = surface_primary_scanout_output(surface, states);
+
+                    if let Some(output) = primary_scanout_output.as_ref() {
+                        with_fractional_scale(states, |fraction_scale| {
+                            fraction_scale
+                                .set_preferred_scale(output.current_scale().fractional_scale());
+                        });
+                    }
+
+                    if primary_scanout_output
+                        .as_ref()
+                        .map(|o| o == output)
+                        .unwrap_or(true)
+                    {
+                        let fifo_barrier = states
+                            .cached_state
+                            .get::<FifoBarrierCachedState>()
+                            .current()
+                            .barrier
+                            .take();
+
+                        if let Some(fifo_barrier) = fifo_barrier {
+                            fifo_barrier.signal();
+                            let client = surface.client().unwrap();
+                            clients.insert(client.id(), client);
+                        }
+                    }
+                });
+
+                send_frames_surface_tree(&surface, output, time, throttle, surface_primary_scanout_output);
+                if let Some(dmabuf_feedback) = dmabuf_feedback.as_ref() {
+                    send_dmabuf_feedback_surface_tree(
+                        &surface,
+                        output,
+                        surface_primary_scanout_output,
+                        |surface, _| {
+                            select_dmabuf_feedback(
+                                surface,
+                                render_element_states,
+                                &dmabuf_feedback.render_feedback,
+                                &dmabuf_feedback.scanout_feedback,
+                            )
+                        },
+                    );
+                }
+            }
+        }
+
         let dh = self.display_handle.clone();
         for client in clients.into_values() {
             self.client_compositor_state(&client)
@@ -1129,6 +1235,7 @@ pub fn update_primary_scanout_output(
     output: &Output,
     dnd_icon: &Option<DndIcon>,
     cursor_status: &CursorImageStatus,
+    locked_surface: Option<&WlSurface>,
     render_element_states: &RenderElementStates,
 ) {
     space.elements().for_each(|window| {
@@ -1178,6 +1285,26 @@ pub fn update_primary_scanout_output(
             );
         });
     }
+
+    // Session lock: without this, the lock surface never got a primary
+    // scanout output, and — more to the point — the `send_frame`/
+    // `take_presentation_feedback` calls below key off exactly this same
+    // set of surfaces, so it never received frame-done callbacks either.
+    // A frame-throttled client (Qt/Quickshell among them) waits for that
+    // callback before painting its next frame, so every redraw after the
+    // first (typing into the password field, an unlock-failed shake, ...)
+    // silently never happened under this backend.
+    if let Some(surface) = locked_surface {
+        with_surfaces_surface_tree(surface, |surface, states| {
+            update_surface_primary_scanout_output(
+                surface,
+                output,
+                states,
+                render_element_states,
+                default_primary_scanout_output_compare,
+            );
+        });
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1190,6 +1317,7 @@ pub struct SurfaceDmabufFeedback {
 pub fn take_presentation_feedback(
     output: &Output,
     space: &Space<WindowElement>,
+    locked_surface: Option<&WlSurface>,
     render_element_states: &RenderElementStates,
 ) -> OutputPresentationFeedback {
     let mut output_presentation_feedback = OutputPresentationFeedback::new(output);
@@ -1208,6 +1336,17 @@ pub fn take_presentation_feedback(
     let map = smithay::desktop::layer_map_for_output(output);
     for layer_surface in map.layers() {
         layer_surface.take_presentation_feedback(
+            &mut output_presentation_feedback,
+            surface_primary_scanout_output,
+            |surface, _| {
+                surface_presentation_feedback_flags_from_states(surface, render_element_states)
+            },
+        );
+    }
+
+    if let Some(surface) = locked_surface {
+        take_presentation_feedback_surface_tree(
+            surface,
             &mut output_presentation_feedback,
             surface_primary_scanout_output,
             |surface, _| {

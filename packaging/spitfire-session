@@ -1,0 +1,14 @@
+#!/bin/sh
+# Thin wrapper around `spitfire --udev` for the .desktop session entry
+# (packaging/spitfire.desktop) — greetd (and most other display managers)
+# run the Exec= command directly, with no shell, so there's nowhere for
+# spitfire's own stderr/stdout to go by default. This gives it a fixed,
+# known log file instead, which matters most on exactly the run that's
+# least likely to have anything else watching: the first time this
+# backend gets tried on real hardware from a login screen.
+set -eu
+
+log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/spitfire"
+mkdir -p "$log_dir"
+
+exec spitfire --udev >>"$log_dir/session.log" 2>&1

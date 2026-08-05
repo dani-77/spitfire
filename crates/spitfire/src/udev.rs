@@ -319,6 +319,21 @@ pub fn run_udev() {
                     }
                     data.backend_data.keyboards.push(device.clone());
                 }
+                // Tap-to-click, where the device supports it (a touchpad —
+                // config_tap_finger_count() reads 0 on anything that
+                // doesn't, e.g. a mouse) — libinput defaults this to off,
+                // and there's no config.lua knob for it yet, so a laptop
+                // touchpad silently only works via physical clicks until
+                // this runs.
+                if device.config_tap_finger_count() > 0 {
+                    if let Err(err) = device.config_tap_set_enabled(true) {
+                        warn!(
+                            ?err,
+                            device = device.name(),
+                            "Failed to enable tap-to-click"
+                        );
+                    }
+                }
             } else if let InputEvent::DeviceRemoved { ref device } = event {
                 if device.has_capability(DeviceCapability::Keyboard) {
                     data.backend_data.keyboards.retain(|item| item != device);
@@ -1814,10 +1829,11 @@ fn render_surface<'a>(
             _ => unreachable!(),
         })?;
 
-    update_primary_scanout_output(space, output, dnd_icon, cursor_status, &states);
+    update_primary_scanout_output(space, output, dnd_icon, cursor_status, locked_surface, &states);
 
     if rendered {
-        let output_presentation_feedback = take_presentation_feedback(output, space, &states);
+        let output_presentation_feedback =
+            take_presentation_feedback(output, space, locked_surface, &states);
         surface
             .drm_output
             .queue_frame(Some(output_presentation_feedback))

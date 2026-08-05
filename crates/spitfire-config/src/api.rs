@@ -15,7 +15,7 @@ use crate::{
     bind::{Bind, Modifiers},
     command::Command,
     rule::WindowRule,
-    BarConfig, BorderConfig,
+    BarConfig, BorderConfig, KeyboardConfig,
 };
 
 pub(crate) fn install(
@@ -35,7 +35,11 @@ pub(crate) fn install(
                 let mods = Modifiers::parse(&mods);
                 let keysym = parse_keysym(&key);
                 let callback = lua.create_registry_value(callback)?;
-                binds.borrow_mut().push(Bind { mods, keysym, callback });
+                binds.borrow_mut().push(Bind {
+                    mods,
+                    keysym,
+                    callback,
+                });
                 Ok(())
             },
         )?;
@@ -161,6 +165,36 @@ pub(crate) fn install(
         spitfire.set("workspace", workspace_table)?;
     }
 
+    // spitfire.window.close() / .focus_next() / .focus_prev()
+    {
+        let window_table = lua.create_table()?;
+        {
+            let commands = commands.clone();
+            let close_fn = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WindowClose);
+                Ok(())
+            })?;
+            window_table.set("close", close_fn)?;
+        }
+        {
+            let commands = commands.clone();
+            let focus_next_fn = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WindowFocusNext);
+                Ok(())
+            })?;
+            window_table.set("focus_next", focus_next_fn)?;
+        }
+        {
+            let commands = commands.clone();
+            let focus_prev_fn = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WindowFocusPrev);
+                Ok(())
+            })?;
+            window_table.set("focus_prev", focus_prev_fn)?;
+        }
+        spitfire.set("window", window_table)?;
+    }
+
     // spitfire.rule({ app_id = "...", floating = true })
     {
         let rules = rules.clone();
@@ -173,9 +207,9 @@ pub(crate) fn install(
         spitfire.set("rule", rule_fn)?;
     }
 
-    // spitfire.gaps = {...} and spitfire.border = {...} are plain Lua
-    // table assignments — they don't need any function here, they're read
-    // back in `read_gaps_and_border` after the script runs.
+    // spitfire.gaps/border/bar/keyboard = {...} are plain Lua table
+    // assignments — they don't need any function here, they're read back
+    // in `read_globals` after the script runs.
 
     lua.globals().set("spitfire", spitfire)?;
     Ok(())
@@ -189,7 +223,10 @@ fn parse_keysym(name: &str) -> xkb::Keysym {
     // Fallback: accepts "Return"/"return", "Space"/"space", etc.
     let sym = xkb::keysym_from_name(name, xkb::KEYSYM_CASE_INSENSITIVE);
     if sym.raw() == 0 {
-        warn!(key = name, "spitfire.bind: unknown key, this bind will never fire");
+        warn!(
+            key = name,
+            "spitfire.bind: unknown key, this bind will never fire"
+        );
     }
     sym
 }
@@ -205,13 +242,23 @@ fn parse_layout_mode(name: &str) -> Option<spitfire_layout::LayoutMode> {
     }
 }
 
-/// Reads `spitfire.gaps`/`spitfire.border`/`spitfire.bar` from the globals
-/// after the Lua script runs — they're plain table assignments, not
-/// function calls, so they never go through the `Command` queue.
-pub(crate) fn read_gaps_border_bar(lua: &Lua) -> mlua::Result<(spitfire_layout::Gaps, BorderConfig, BarConfig)> {
+/// Reads `spitfire.gaps`/`spitfire.border`/`spitfire.bar`/`spitfire.keyboard`
+/// from the globals after the Lua script runs — they're plain table
+/// assignments, not function calls, so they never go through the `Command`
+/// queue.
+#[allow(clippy::type_complexity)]
+pub(crate) fn read_globals(
+    lua: &Lua,
+) -> mlua::Result<(
+    spitfire_layout::Gaps,
+    BorderConfig,
+    BarConfig,
+    KeyboardConfig,
+)> {
     let mut gaps = spitfire_layout::Gaps::default();
     let mut border = BorderConfig::default();
     let mut bar = BarConfig::default();
+    let mut keyboard = KeyboardConfig::default();
 
     let spitfire: Table = lua.globals().get("spitfire")?;
 
@@ -232,14 +279,20 @@ pub(crate) fn read_gaps_border_bar(lua: &Lua) -> mlua::Result<(spitfire_layout::
             if let Some(c) = parse_hex_color(&v) {
                 border.active = c;
             } else {
-                warn!(value = v, "spitfire.border.active: invalid color, keeping the default");
+                warn!(
+                    value = v,
+                    "spitfire.border.active: invalid color, keeping the default"
+                );
             }
         }
         if let Ok(v) = b.get::<String>("inactive") {
             if let Some(c) = parse_hex_color(&v) {
                 border.inactive = c;
             } else {
-                warn!(value = v, "spitfire.border.inactive: invalid color, keeping the default");
+                warn!(
+                    value = v,
+                    "spitfire.border.inactive: invalid color, keeping the default"
+                );
             }
         }
     }
@@ -254,24 +307,51 @@ pub(crate) fn read_gaps_border_bar(lua: &Lua) -> mlua::Result<(spitfire_layout::
         if let Ok(v) = t.get::<String>("bg") {
             match parse_hex_color(&v) {
                 Some(c) => bar.bg = c,
-                None => warn!(value = v, "spitfire.bar.bg: invalid color, keeping the default"),
+                None => warn!(
+                    value = v,
+                    "spitfire.bar.bg: invalid color, keeping the default"
+                ),
             }
         }
         if let Ok(v) = t.get::<String>("fg") {
             match parse_hex_color(&v) {
                 Some(c) => bar.fg = c,
-                None => warn!(value = v, "spitfire.bar.fg: invalid color, keeping the default"),
+                None => warn!(
+                    value = v,
+                    "spitfire.bar.fg: invalid color, keeping the default"
+                ),
             }
         }
         if let Ok(v) = t.get::<String>("fg_active") {
             match parse_hex_color(&v) {
                 Some(c) => bar.fg_active = c,
-                None => warn!(value = v, "spitfire.bar.fg_active: invalid color, keeping the default"),
+                None => warn!(
+                    value = v,
+                    "spitfire.bar.fg_active: invalid color, keeping the default"
+                ),
             }
         }
     }
 
-    Ok((gaps, border, bar))
+    if let Ok(k) = spitfire.get::<Table>("keyboard") {
+        if let Ok(v) = k.get::<String>("layout") {
+            keyboard.layout = v;
+        }
+        if let Ok(v) = k.get::<String>("variant") {
+            keyboard.variant = v;
+        }
+        if let Ok(v) = k.get::<String>("model") {
+            keyboard.model = v;
+        }
+        if let Ok(v) = k.get::<String>("options") {
+            keyboard.options = Some(v);
+        }
+        if let Ok(v) = k.get::<String>("rules") {
+            keyboard.rules = v;
+        }
+    }
+
+    Ok((gaps, border, bar, keyboard))
 }
 
 fn parse_hex_color(s: &str) -> Option<u32> {

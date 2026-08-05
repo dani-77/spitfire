@@ -34,15 +34,27 @@ pub struct HeaderBar {
     pub maximize_button: SolidColorBuffer,
 }
 
-const BG_COLOR: [f32; 4] = [0.75f32, 0.9f32, 0.78f32, 1f32];
-const MAX_COLOR: [f32; 4] = [1f32, 0.965f32, 0.71f32, 1f32];
-const CLOSE_COLOR: [f32; 4] = [1f32, 0.66f32, 0.612f32, 1f32];
-const MAX_COLOR_HOVER: [f32; 4] = [0.71f32, 0.624f32, 0f32, 1f32];
-const CLOSE_COLOR_HOVER: [f32; 4] = [0.75f32, 0.11f32, 0.016f32, 1f32];
+// Tokyo Night palette (same one `spitfire.border`'s defaults already draw
+// from — #7aa2f7/#414868 in examples/config.lua) — the original pastel
+// green/yellow read as too soft against a dark terminal to tell the header
+// apart from its own content. Background is Tokyo Night's `terminal_black`
+// (#414868), a blue-leaning gray; close is `red`/`red1` (#f7768e/#db4b4b),
+// maximize is `green` (#9ece6a) darkened ~40% for its hover state.
+const BG_COLOR: [f32; 4] = [0.2549f32, 0.2824f32, 0.4078f32, 1f32]; // #414868
+const MAX_COLOR: [f32; 4] = [0.6196f32, 0.8078f32, 0.4157f32, 1f32]; // #9ece6a
+const CLOSE_COLOR: [f32; 4] = [0.9686f32, 0.4627f32, 0.5569f32, 1f32]; // #f7768e
+const MAX_COLOR_HOVER: [f32; 4] = [0.3718f32, 0.4847f32, 0.2494f32, 1f32]; // #9ece6a, darkened
+const CLOSE_COLOR_HOVER: [f32; 4] = [0.8588f32, 0.2941f32, 0.2941f32, 1f32]; // #db4b4b
 
-pub const HEADER_BAR_HEIGHT: i32 = 32;
+// Both were 32 (a square button, header as tall as the button) — shrunk to
+// a third of that on request, since the original read as oversized next to
+// a client with no title/menu bar of its own to visually balance it (e.g.
+// alacritty). `layout.rs`, `shell/element.rs` and the button hit-test math
+// right below all read this constant rather than a hardcoded 32, so this
+// is the only place that needs to change.
+pub const HEADER_BAR_HEIGHT: i32 = 11;
 const BUTTON_HEIGHT: u32 = HEADER_BAR_HEIGHT as u32;
-const BUTTON_WIDTH: u32 = 32;
+const BUTTON_WIDTH: u32 = 11;
 
 impl HeaderBar {
     pub fn pointer_enter(&mut self, loc: Point<f64, Logical>) {

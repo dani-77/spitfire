@@ -2,19 +2,24 @@ PREFIX := /usr
 
 .PHONY: build install uninstall
 
+# udev (DRM/KMS) is what the .desktop entry below actually needs — it's
+# opt-in at the cargo level (see crates/spitfire/Cargo.toml) so a plain
+# `cargo build` stays lightweight for --winit-only development, but an
+# installed, login-screen-selectable spitfire needs it. xwayland comes
+# along too: X11 app support is cheap to include and there's no good
+# reason an installed build shouldn't have it.
 build:
-	cargo build --release
+	cargo build --release --features udev,xwayland
 
-# NOTE: the .desktop session entry only makes sense once spitfire has a
-# DRM/KMS backend (Phase 7, out of scope for now) — `spitfire` with no
-# args runs the --winit backend, which needs an existing host Wayland/X11
-# session to nest into, so a display manager launching it from a bare TTY
-# would fail. Installed anyway so packaging is ready the day that lands;
-# until then, run `cargo run -p spitfire -- --winit` from inside your
-# current session instead of selecting it at the login screen.
+# The .desktop session entry launches packaging/spitfire-session, a thin
+# wrapper (not `spitfire --udev` directly) so its stderr/stdout ends up
+# somewhere findable ($XDG_STATE_HOME/spitfire/session.log) instead of
+# wherever the display manager sends an Exec= command's output by
+# default — see that script for why.
 install: build
 	install -Dm755 target/release/spitfire $(DESTDIR)$(PREFIX)/bin/spitfire
 	install -Dm755 target/release/spitfirectl $(DESTDIR)$(PREFIX)/bin/spitfirectl
+	install -Dm755 packaging/spitfire-session $(DESTDIR)$(PREFIX)/bin/spitfire-session
 	install -Dm644 packaging/spitfire.desktop $(DESTDIR)$(PREFIX)/share/wayland-sessions/spitfire.desktop
 	install -Dm644 assets/logo/spitfire-wc-icon.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/spitfire.svg
 	install -Dm644 assets/logo/spitfire-wc-icon-16.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/16x16/apps/spitfire.png
@@ -25,6 +30,7 @@ install: build
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/spitfire
 	rm -f $(DESTDIR)$(PREFIX)/bin/spitfirectl
+	rm -f $(DESTDIR)$(PREFIX)/bin/spitfire-session
 	rm -f $(DESTDIR)$(PREFIX)/share/wayland-sessions/spitfire.desktop
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/spitfire.svg
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/16x16/apps/spitfire.png

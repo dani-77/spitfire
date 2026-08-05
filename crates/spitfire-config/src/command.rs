@@ -22,6 +22,15 @@ pub enum Command {
     /// `spitfire.workspace.move_window(n)` — 1-based, moves the focused
     /// window to workspace `n` without switching the view there.
     WorkspaceMoveWindow(usize),
+    /// `spitfire.window.close()` — closes whichever window has keyboard
+    /// focus.
+    WindowClose,
+    /// `spitfire.window.focus_next()` — dwm-style MODKEY+j: moves keyboard
+    /// focus to the next window in the active workspace's tiling order.
+    WindowFocusNext,
+    /// `spitfire.window.focus_prev()` — dwm-style MODKEY+k: same as
+    /// `WindowFocusNext`, other direction.
+    WindowFocusPrev,
     /// `spitfire.quit()`.
     Quit,
     /// `spitfire.reload()` — drops the current Lua state and re-runs the

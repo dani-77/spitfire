@@ -47,7 +47,24 @@ pub struct Bind {
 
 impl Bind {
     pub(crate) fn matches(&self, mods: Modifiers, keysym: Keysym) -> bool {
-        self.mods == mods && self.keysym == keysym
+        self.mods == mods && normalize_keysym(self.keysym) == normalize_keysym(keysym)
+    }
+}
+
+/// Folds a letter keysym to lowercase before comparing.
+///
+/// XKB reports the *shifted* keysym once Shift is actually held down — for
+/// a letter that's the uppercase form (`Keysym::R`, not `Keysym::r`), even
+/// though Shift is already its own bit in [`Modifiers`]. Without this,
+/// `spitfire.bind("Mod4+Shift", "r", ...)` — every config so far spells
+/// keys lowercase — could never fire: the parsed bind keysym is lowercase
+/// `r`, but the real event's keysym is uppercase `R` while Shift is down,
+/// and `Bind::matches` used to compare them literally. Only touches
+/// letters; digits, `Return`, non-Latin keysyms, etc. pass through as-is.
+fn normalize_keysym(sym: Keysym) -> Keysym {
+    match sym.key_char() {
+        Some(c) if c.is_ascii_alphabetic() => Keysym::from_char(c.to_ascii_lowercase()),
+        _ => sym,
     }
 }
 
@@ -67,7 +84,13 @@ mod tests {
     #[test]
     fn parses_single_modifier() {
         let mods = Modifiers::parse("Mod4");
-        assert_eq!(mods, Modifiers { logo: true, ..Default::default() });
+        assert_eq!(
+            mods,
+            Modifiers {
+                logo: true,
+                ..Default::default()
+            }
+        );
     }
 
     #[test]
@@ -86,6 +109,12 @@ mod tests {
     #[test]
     fn unknown_modifier_is_ignored_not_fatal() {
         let mods = Modifiers::parse("Mod4+Hyper");
-        assert_eq!(mods, Modifiers { logo: true, ..Default::default() });
+        assert_eq!(
+            mods,
+            Modifiers {
+                logo: true,
+                ..Default::default()
+            }
+        );
     }
 }
