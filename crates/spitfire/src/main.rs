@@ -14,6 +14,16 @@ fn main() {
         tracing_subscriber::fmt().compact().init();
     }
 
+    // So that autostarted clients (and anything else that cares) can tell
+    // they're running under spitfire, the same convention niri/Hyprland/sway
+    // follow. Only affects processes we spawn after this point — has no
+    // effect on whatever launched spitfire itself.
+    // Safety: single-threaded at this point in startup, nothing else reads
+    // or writes the environment concurrently yet.
+    unsafe {
+        std::env::set_var("XDG_CURRENT_DESKTOP", "spitfire");
+    }
+
     let arg = std::env::args().nth(1);
     match arg.as_deref() {
         // No arguments, or "--winit": run as a nested window in the current session.

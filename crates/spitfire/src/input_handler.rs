@@ -446,6 +446,19 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         &self,
         pos: Point<f64, Logical>,
     ) -> Option<(PointerFocusTarget, Point<f64, Logical>)> {
+        // While the session is locked, the pointer can only ever land on
+        // the lock surface — never on whatever's still mapped underneath
+        // it. This is the single choke point every pointer handler
+        // (motion, button, axis, gestures, ...) routes through, so this one
+        // guard confines all of them at once. See also
+        // `update_keyboard_focus`, which does the same for the keyboard.
+        if self.locked {
+            return self
+                .lock_surfaces
+                .first()
+                .map(|lock_surface| (PointerFocusTarget::from(lock_surface.wl_surface().clone()), pos));
+        }
+
         let output = self.space.outputs().find(|o| {
             let geometry = self.space.output_geometry(o).unwrap();
             geometry.contains(pos.to_i32_round())

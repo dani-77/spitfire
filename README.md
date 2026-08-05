@@ -1,10 +1,13 @@
+<p align="center"><img src="assets/logo/spitfire-wc-icon-192.png" width="96" alt="spitfire logo"></p>
+
 # spitfire
 
 A Wayland compositor in Rust on top of [Smithay](https://github.com/Smithay/smithay),
 reconfigurable at runtime like [Niri](https://github.com/YaLTeR/niri)/
 [Hyprland](https://hyprland.org/), but with the single-file config philosophy of
-[dwm](https://dwm.suckless.org/) — here in **Lua** instead of `config.h`. Four layout
-modes: `tile` (master-stack), `floating`, `fibonacci` (spiral), and `monocle`.
+[dwm](https://dwm.suckless.org/) — here in **Lua** instead of `config.h`, reloadable
+without a recompile. Four layout modes: `tile` (master-stack), `floating`, `fibonacci`
+(spiral), and `monocle`, each tracked independently per workspace.
 
 spitfire has no opinion on frontend: point `spitfire.autostart` (in `config.lua`) at
 whatever draws your bar/launcher/wallpaper/lockscreen — a wlr-layer-shell-v1 client is
@@ -12,75 +15,68 @@ all that's required. [Utumno](https://github.com/dani-77/utumno) is one example 
 QML/Quickshell shell with a bar, launcher, wallpaper picker, lockscreen, session menu,
 OSD, and Ollama chat popup), not a dependency of this repo.
 
-Full implementation plan at
+v1 is complete: config, IPC, workspaces, layer-shell/session-lock, and window borders
+all implemented and verified against real clients (swaylock, Quickshell, the real Utumno
+shell) — not just unit tests. See [What's implemented](#whats-implemented) below for
+what that covers and [Known limitations](#known-limitations--pending-work) for what's
+still open, and the full phase-by-phase implementation history at
 `/home/dani77/.claude/plans/sparkling-shimmying-jellyfish.md`.
 
-## Current status
+## What's implemented
 
-- **Phase 0 (done)**: Cargo workspace skeleton + winit backend, adapted from Smithay's
-  own [`anvil`](https://github.com/Smithay/smithay/tree/v0.7.0/anvil) example
-  (MIT/Apache-2.0). `cargo run -p spitfire -- --winit` opens a nested window with basic
-  xdg-shell and wlr-layer-shell working.
-- **Phase 1 (done)**: `spitfire-layout` layout engine (tile/floating/fibonacci/
-  monocle), pure and tested (`cargo test -p spitfire-layout`, 29 tests), wired into the
-  compositor via `crates/spitfire/src/layout.rs` — real windows (`xdg_toplevel`) are
-  positioned by the workspace's active layout.
-- **Phase 2 (done)**: Lua config (`spitfire-config`, via `mlua`) — a single
-  `config.lua`, dwm-`config.h`-style, reloadable at runtime (`spitfire.reload()`).
-  `spitfire.bind`/`spawn`/`layout`/`mfact`/`nmaster`/`rule`/`autostart`/`gaps`/`border`
-  are all live — see `examples/config.lua` for the default bindings (`Mod4+t/f/m` for
-  tile/fibonacci/monocle, `Mod4+Shift+space` for floating, `Mod4+h/l`/`Mod4+i/d` for
-  `mfact`/`nmaster`, `Mod4+Shift+q` to quit, `Mod4+Shift+r` to reload). Mod4/Super and
-  Mod1/Alt are both first-class modifiers, freely mixable per bind. Window rules
-  (`spitfire.rule({ app_id = ..., floating = true })`) exclude matching windows from
-  tiling entirely. `spitfire.autostart` is how a frontend/shell gets launched.
-  `spitfire.border` is parsed and stored but not yet rendered — that lands once
-  `shell/ssd.rs`'s decorations get extended to draw it.
-- **Phase 3 (done)**: control socket (`spitfire-ipc`, JSON lines at
-  `$XDG_RUNTIME_DIR/spitfire.sock`, one request/response per connection) + the
-  `spitfirectl` CLI (`reload`, `quit`, `layout <mode>`, `list-windows`,
-  `list-outputs`). `spitfirectl reload` re-runs `config.lua` without
-  restarting the compositor.
-- **Phase 4 (done)**: wlr-layer-shell-v1 (already came wired from `anvil` — bars,
-  launchers, wallpaper backgrounds; exclusive zones are subtracted from the tiling area,
-  confirmed with a real Quickshell layer-shell client) + ext-session-lock-v1, implemented
-  from scratch (`SessionLockHandler` in `shell/mod.rs`): while locked, rendering shows
-  only the lock surface over an opaque black backdrop (`render.rs`) and keyboard focus is
-  pinned to it (`update_keyboard_focus` in `input_handler.rs` refuses to steal it back).
-  Verified against a real `swaylock` — lock request received, surface mapped, rendering
-  switched. Known gap: pointer clicks aren't yet confined to the lock surface (no
-  click-through *visually* possible since nothing else renders, but the events could
-  still reach a hidden window) — left for a follow-up, since the protocol's
-  security-critical path (keyboard/password) is solid. `spitfire.border` rendering is
-  still open too.
-- **Phase 5 (done)**: dynamic per-output workspaces (`crate::workspace`, niri-style —
-  asking to focus workspace 5 when only 2 exist just creates 3, 4, and 5) advertised
-  live over `ext-workspace-v1`, hand-implemented (`crate::ext_workspace`; not provided
-  by Smithay, unlike Phase 4's protocols — see `NOTICE.md`). Each workspace owns its own
-  tile/floating/fibonacci/monocle layout state. `spitfire.workspace.focus(n)` /
-  `spitfire.workspace.move_window(n)` (1-based) + `spitfirectl workspace focus <n>` /
-  `list-workspaces`. Verified end-to-end against a real Quickshell client using
-  `Quickshell.WindowManager` (the same component Utumno's `Workspaces.qml` uses) in both
-  directions: compositor-driven switches show up live in the client, and the client
-  calling `activate()` on a workspace switches the compositor.
-- **Phase 6 (done, one open finding)**: ran the real Utumno shell (`~/Projectos/utumno`,
-  autostarted via `spitfire.autostart`) inside spitfire — no niri/Hyprland/Sway env vars
-  present, so it correctly fell back to the generic `ext-workspace-v1` path (Phase 5's
-  own protocol) rather than misdetecting a compositor. Loaded cleanly, no crashes, no QML
-  errors. Confirmed via screenshot (`grim`, of the nested window inside the real host session):
-  the backdrop, launcher/AI buttons, and workspace numbers all render correctly. **Open
-  finding**: `modules/Bar.qml`'s center row (Weather+Clock) and right row (Cpu/Ram/Volume/
-  Network/Battery/session button) overlap — traced to its own `Math.max`/`Math.min`
-  collision-avoidance `x` binding (lines ~107–117) not accounting for the case where
-  there isn't enough width for both rows side by side. Ruled out as a spitfire bug:
-  reverted the config; forcing full-redraw every frame didn't change it (not a
-  damage-tracking issue); a minimal ticking-clock layer-surface test with no such
-  multi-row math renders perfectly, dynamic content included. This is a real, narrow-output
-  Utumno UI bug, not a compositor one — the nested `--winit` test window (754px) is much
-  narrower than a real display, which is what exposes it. Left for a Utumno-side fix (or
-  a wider test), not tracked further here.
-- **Out of scope for now**: the DRM/KMS backend (running as the real login session) and
-  XWayland.
+- **Layouts** (`spitfire-layout`, pure Rust, no Wayland deps, 29 tests): `tile`
+  (dwm master-stack), `floating`, `fibonacci` (spiral), `monocle`. Each workspace tracks
+  its own mode/`nmaster`/`mfact`/gaps independently.
+- **Config** (`spitfire-config`, via `mlua`): a single `config.lua`
+  (`$XDG_CONFIG_HOME/spitfire/config.lua`, falling back to
+  `~/.config/spitfire/config.lua`), reloadable at runtime with `spitfire.reload()` — no
+  recompile. `spitfire.bind`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`rule`/
+  `autostart`/`gaps`/`border`. Mod4/Super and Mod1/Alt are both first-class modifiers,
+  freely mixable per bind. See `examples/config.lua` for the default bindings.
+- **Control socket** (`spitfire-ipc` + the `spitfirectl` CLI, JSON lines at
+  `$XDG_RUNTIME_DIR/spitfire.sock`, one request/response per connection — niri
+  msg/hyprctl-style): `reload`, `quit`, `layout <mode>`, `workspace focus <n>`,
+  `list-windows`, `list-outputs`, `list-workspaces`.
+- **Dynamic per-output workspaces** (`crate::workspace`, niri-style growth — focusing
+  workspace 5 when only 2 exist just creates 3, 4, and 5), advertised live over
+  `ext-workspace-v1` (`crate::ext_workspace`, hand-implemented — not provided by
+  Smithay, see `NOTICE.md`). `spitfire.workspace.focus(n)` /
+  `spitfire.workspace.move_window(n)` (1-based).
+  - Verified end-to-end against a real Quickshell client (`Quickshell.WindowManager`,
+    the same component Utumno's `Workspaces.qml` uses) in both directions:
+    compositor-driven switches show up live in the client, and the client calling
+    `activate()` switches the compositor.
+- **wlr-layer-shell-v1** (came wired from Smithay's `anvil` example) — bars, launchers,
+  wallpaper backgrounds. Exclusive zones are subtracted from the tiling area. Confirmed
+  with a real Quickshell layer-shell client.
+- **ext-session-lock-v1**, implemented from scratch (`SessionLockHandler` in
+  `shell/mod.rs`): while locked, rendering shows only the lock surface over an opaque
+  black backdrop, and both keyboard focus (`update_keyboard_focus`) and pointer focus
+  (`surface_under`, the single choke point every pointer handler routes through) are
+  pinned to it — nothing hidden underneath can receive input. Verified against a real
+  `swaylock`.
+- **The real Utumno shell**, autostarted and run inside spitfire end-to-end: loaded
+  cleanly, no crashes, correctly fell back to the generic `ext-workspace-v1` workspaces
+  widget (no niri/Hyprland/Sway misdetection). Confirmed via screenshot.
+- **`spitfire.border`**, rendered as four thin solid-color strips around each tiled
+  window (`render::border_elements`) — active/inactive color picked from whichever
+  window has keyboard focus. Confirmed via screenshot with a bright test color.
+- **A `.desktop` session entry + app icon** (`packaging/spitfire.desktop`,
+  `assets/logo/`), installable via `make install` — see [Packaging](#packaging).
+  `XDG_CURRENT_DESKTOP=spitfire` is set for autostarted clients, same convention as
+  niri/Hyprland/sway.
+
+## Known limitations / pending work
+
+- **Optional built-in bar** (swaybar/i3bar-style, off by default, `spitfire.bar.enable`)
+  — idea discussed, not built: a layer-surface owned by the compositor itself, workspace
+  list + active layout mode on the left, clock/date on the right.
+- **DRM/KMS backend** (running as the real login session, not nested) and **XWayland**:
+  out of scope for the current plan, no work started.
+- Not a spitfire bug, but worth knowing: Utumno's `modules/Bar.qml` overlaps its
+  center/right rows on narrow outputs (its own `Math.max`/`Math.min` collision math
+  doesn't account for not enough width for both) — only shows up on a narrow nested test
+  window, not a real display; left for Utumno to fix.
 
 ## Layout
 
@@ -90,6 +86,9 @@ crates/
 ├── spitfire-layout/    # layout engine, pure, no Wayland deps
 ├── spitfire-config/    # Lua config loader (mlua)
 └── spitfire-ipc/       # control socket (JSON lines) + spitfirectl binary, no Wayland deps either
+assets/logo/            # app icon (SVG + PNG sizes)
+packaging/spitfire.desktop  # wayland-sessions entry, see Packaging below
+examples/config.lua     # default config.lua
 ```
 
 ## Build & run
@@ -106,3 +105,15 @@ session for now.
 
 Config file: `$XDG_CONFIG_HOME/spitfire/config.lua` (falls back to
 `~/.config/spitfire/config.lua`). See `examples/config.lua` for the default.
+
+## Packaging
+
+`sudo make install` builds in release mode and installs `spitfire`/`spitfirectl` to
+`$PREFIX/bin`, the icon (`assets/logo/`) into the `hicolor` theme, and a
+[`packaging/spitfire.desktop`](packaging/spitfire.desktop) session entry into
+`$PREFIX/share/wayland-sessions/` (`make uninstall` reverses it; `PREFIX` defaults to
+`/usr`, override with `make PREFIX=... install`). The `.desktop` entry is installed
+ahead of being usable: without a DRM/KMS backend yet, `spitfire` needs an existing
+session to nest into, so a display manager launching it straight from a bare TTY would
+fail. Run it from inside your current session for now (`cargo run -p spitfire --
+--winit`); the entry is there so packaging is ready the day Phase 7 lands.

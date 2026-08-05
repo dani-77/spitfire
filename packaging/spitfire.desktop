@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=spitfire
+Comment=Dynamic tiling Wayland compositor, configured in Lua
+Exec=spitfire
+Type=Application
+Icon=spitfire
+DesktopNames=spitfire

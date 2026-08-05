@@ -218,6 +218,32 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         self.sync_ext_workspace_state();
     }
 
+    /// The active workspace's windows, current on-screen geometry plus
+    /// whether each is focused — what `render::border_elements` needs to
+    /// draw `spitfire.border`. Only windows still actually mapped in
+    /// `space` (e.g. not one that's floating and never got positioned) are
+    /// included.
+    pub fn border_rects(&self) -> Vec<crate::render::BorderRect> {
+        let focused = self.seat.get_keyboard().and_then(|kb| kb.current_focus()).and_then(|f| match f {
+            KeyboardFocusTarget::Window(w) => Some(WindowElement(w)),
+            _ => None,
+        });
+
+        self.workspaces
+            .active()
+            .tiling
+            .windows()
+            .iter()
+            .filter_map(|w| {
+                let geometry = self.space.element_geometry(w)?;
+                Some(crate::render::BorderRect {
+                    geometry,
+                    focused: focused.as_ref() == Some(w),
+                })
+            })
+            .collect()
+    }
+
     /// Unmaps every window belonging to a workspace other than the active
     /// one from `space`, so it isn't rendered or clickable. The active
     /// workspace's windows get remapped by the very next `arrange_tiling`.

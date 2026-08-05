@@ -247,6 +247,9 @@ pub fn run_winit() {
                     .unwrap_or_default();
             state.pre_repaint(&output, frame_target);
 
+            let border_rects = state.border_rects();
+            let border = state.config.border;
+
             let backend = &mut state.backend_data.backend;
 
             // draw the cursor as relevant
@@ -366,6 +369,10 @@ pub fn run_winit() {
                     age,
                     show_window_preview,
                     locked_surface,
+                    &border_rects,
+                    border.width,
+                    crate::render::hex_to_color32f(border.active),
+                    crate::render::hex_to_color32f(border.inactive),
                 )
                 .map_err(|err| match err {
                     OutputDamageTrackerError::Rendering(err) => err.into(),
