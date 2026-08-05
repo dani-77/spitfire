@@ -224,10 +224,14 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// `space` (e.g. not one that's floating and never got positioned) are
     /// included.
     pub fn border_rects(&self) -> Vec<crate::render::BorderRect> {
-        let focused = self.seat.get_keyboard().and_then(|kb| kb.current_focus()).and_then(|f| match f {
-            KeyboardFocusTarget::Window(w) => Some(WindowElement(w)),
-            _ => None,
-        });
+        let focused = self
+            .seat
+            .get_keyboard()
+            .and_then(|kb| kb.current_focus())
+            .and_then(|f| match f {
+                KeyboardFocusTarget::Window(w) => Some(WindowElement(w)),
+                _ => None,
+            });
 
         self.workspaces
             .active()

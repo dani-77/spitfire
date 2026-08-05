@@ -76,11 +76,33 @@ still open, and the full phase-by-phase implementation history at
   (caught and fixed a real bug this way: the background strip was painted after the
   digits/icon in element order, which — same render-order lesson as `spitfire.border` —
   made it draw on top of them instead of behind).
+- **XWayland** (opt-in `xwayland` cargo feature, off in the default build): X11
+  application support via Smithay's built-in XWayland integration —
+  `state.start_xwayland()`, the `XwmHandler` impl in `shell/x11.rs` (window
+  map/configure/maximize/fullscreen/move/resize requests, clipboard forwarding to and
+  from the Wayland selection). Works under any backend, including the nested `--winit`
+  one. Every X11 top-level is wrapped in the same `WindowElement` xdg-shell windows use,
+  so it's tiled/bordered/focused exactly the same way — nothing downstream needs to know
+  a window came from XWayland. Doesn't fail hard if `Xwayland` isn't installed: it just
+  warns and X11-only apps won't work, everything else is unaffected. Verified against
+  real X11 clients (`xeyes`, `xterm`) run inside a `--winit` session with
+  `--features xwayland`.
+- **DRM/KMS backend** (opt-in `udev` cargo feature, `spitfire --udev`): runs as the real
+  login session instead of nested inside one — session handling via libseat, GPU/output
+  enumeration via udev, real input devices via libinput, adapted from `anvil`'s own
+  `udev.rs` (`crates/spitfire/src/udev.rs`). Same tiling/border/bar integration points as
+  `--winit`: `arrange_tiling()` runs at the top of every `render_surface` call (there's no
+  busy loop to piggyback on the way `--winit` has — rendering is fully event/timer-driven
+  under DRM/KMS), `spitfire.border`/`spitfire.bar` drawn the same way. Compiles clean
+  (`cargo build -p spitfire --features udev`) but **not yet verified against real
+  hardware** — see [Known limitations](#known-limitations--pending-work).
 
 ## Known limitations / pending work
 
-- **DRM/KMS backend** (running as the real login session, not nested) and **XWayland**:
-  out of scope for the current plan, no work started.
+- **DRM/KMS backend hasn't run on real hardware yet** — only compile-verified so far (see
+  above). Testing it means switching to a bare TTY, which isn't something that can happen
+  safely from an automated nested session; needs a hands-on pass before it's trustworthy
+  enough for the `.desktop` entry (see [Packaging](#packaging)) to actually be usable.
 - Not a spitfire bug, but worth knowing: Utumno's `modules/Bar.qml` overlaps its
   center/right rows on narrow outputs (its own `Math.max`/`Math.min` collision math
   doesn't account for not enough width for both) — only shows up on a narrow nested test
@@ -105,11 +127,19 @@ examples/config.lua     # default config.lua
 cargo build --workspace
 cargo test --workspace             # 64 tests across the workspace, no Wayland needed
 cargo run -p spitfire -- --winit   # or no arguments at all, --winit is the default
+
+# X11 application support (opt-in, off by default — needs the Xwayland binary installed):
+cargo run -p spitfire --features xwayland -- --winit
+
+# DRM/KMS backend (opt-in, real login session instead of nested — see the note above,
+# not yet run on real hardware):
+cargo build -p spitfire --features udev
 ```
 
 Needs `wayland-client`/`wayland-server`, `xkbcommon`, EGL, and GBM installed (dev
-packages). Without a DRM/KMS backend, it only runs nested inside an existing graphical
-session for now.
+packages) at minimum; `--features udev` additionally needs `libseat`, `libinput`, and
+`libdisplay-info` development packages (`libseat-devel`/`libinput-devel`/
+`libdisplay-info-devel` on Void, `-dev` on Debian/Ubuntu, no suffix on Arch).
 
 Config file: `$XDG_CONFIG_HOME/spitfire/config.lua` (falls back to
 `~/.config/spitfire/config.lua`). See `examples/config.lua` for the default.
@@ -120,8 +150,10 @@ Config file: `$XDG_CONFIG_HOME/spitfire/config.lua` (falls back to
 `$PREFIX/bin`, the icon (`assets/logo/`) into the `hicolor` theme, and a
 [`packaging/spitfire.desktop`](packaging/spitfire.desktop) session entry into
 `$PREFIX/share/wayland-sessions/` (`make uninstall` reverses it; `PREFIX` defaults to
-`/usr`, override with `make PREFIX=... install`). The `.desktop` entry is installed
-ahead of being usable: without a DRM/KMS backend yet, `spitfire` needs an existing
-session to nest into, so a display manager launching it straight from a bare TTY would
-fail. Run it from inside your current session for now (`cargo run -p spitfire --
---winit`); the entry is there so packaging is ready the day Phase 7 lands.
+`/usr`, override with `make PREFIX=... install`). The `.desktop` entry is still installed
+ahead of being trustworthy: `spitfire`'s DRM/KMS backend (what a display manager
+launching it from a bare TTY would need) exists and compiles (`--features udev`, see
+above) but hasn't been run on real hardware yet, so a display manager launching it
+straight from a bare TTY is unverified. Run it from inside your current session for now
+(`cargo run -p spitfire -- --winit`); the entry is there so packaging is ready once
+`--udev` gets that hands-on pass.

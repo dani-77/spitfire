@@ -45,17 +45,18 @@ use crate::state::Backend;
 use smithay::{
     backend::{
         input::{
-            Device, DeviceCapability, GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent as _,
-            GestureSwipeUpdateEvent as _, PointerMotionEvent, ProximityState, TabletToolButtonEvent,
-            TabletToolEvent, TabletToolProximityEvent, TabletToolTipEvent, TabletToolTipState, TouchEvent,
+            Device, DeviceCapability, GestureBeginEvent, GestureEndEvent,
+            GesturePinchUpdateEvent as _, GestureSwipeUpdateEvent as _, PointerMotionEvent,
+            ProximityState, TabletToolButtonEvent, TabletToolEvent, TabletToolProximityEvent,
+            TabletToolTipEvent, TabletToolTipState, TouchEvent,
         },
         session::Session,
     },
     input::{
         pointer::{
-            GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent, GesturePinchEndEvent,
-            GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent,
-            RelativeMotionEvent,
+            GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
+            GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
+            GestureSwipeEndEvent, GestureSwipeUpdateEvent, RelativeMotionEvent,
         },
         touch::{DownEvent, UpEvent},
     },
@@ -87,12 +88,13 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                     if let Some(toplevel) = element.0.toplevel() {
                         let mode_changed = toplevel.with_pending_state(|state| {
                             if let Some(current_mode) = state.decoration_mode {
-                                let new_mode =
-                                    if current_mode == zxdg_toplevel_decoration_v1::Mode::ClientSide {
-                                        zxdg_toplevel_decoration_v1::Mode::ServerSide
-                                    } else {
-                                        zxdg_toplevel_decoration_v1::Mode::ClientSide
-                                    };
+                                let new_mode = if current_mode
+                                    == zxdg_toplevel_decoration_v1::Mode::ClientSide
+                                {
+                                    zxdg_toplevel_decoration_v1::Mode::ServerSide
+                                } else {
+                                    zxdg_toplevel_decoration_v1::Mode::ClientSide
+                                };
                                 state.decoration_mode = Some(new_mode);
                                 true
                             } else {
@@ -154,13 +156,23 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
 
             ConfigCommand::MfactInc(delta) => {
                 self.workspaces.active_mut().tiling.params.inc_mfact(delta);
-                info!(mfact = self.workspaces.active().tiling.params.mfact, "spitfire.mfact.inc");
+                info!(
+                    mfact = self.workspaces.active().tiling.params.mfact,
+                    "spitfire.mfact.inc"
+                );
                 self.arrange_tiling();
             }
 
             ConfigCommand::NmasterInc(delta) => {
-                self.workspaces.active_mut().tiling.params.inc_nmaster(delta);
-                info!(nmaster = self.workspaces.active().tiling.params.nmaster, "spitfire.nmaster.inc");
+                self.workspaces
+                    .active_mut()
+                    .tiling
+                    .params
+                    .inc_nmaster(delta);
+                info!(
+                    nmaster = self.workspaces.active().tiling.params.nmaster,
+                    "spitfire.nmaster.inc"
+                );
                 self.arrange_tiling();
             }
 
@@ -235,7 +247,10 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
 
         for layer in self.layer_shell_state.layer_surfaces().rev() {
             let data = with_states(layer.wl_surface(), |states| {
-                *states.cached_state.get::<LayerSurfaceCachedState>().current()
+                *states
+                    .cached_state
+                    .get::<LayerSurfaceCachedState>()
+                    .current()
             });
             if data.keyboard_interactivity == KeyboardInteractivity::Exclusive
                 && (data.layer == WlrLayer::Top || data.layer == WlrLayer::Overlay)
@@ -266,58 +281,65 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             .unwrap_or(false);
 
         let action = keyboard
-            .input(self, keycode, state, serial, time, |cstate, modifiers, handle| {
-                let keysym = handle.modified_sym();
+            .input(
+                self,
+                keycode,
+                state,
+                serial,
+                time,
+                |cstate, modifiers, handle| {
+                    let keysym = handle.modified_sym();
 
-                debug!(
-                    ?state,
-                    mods = ?modifiers,
-                    keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
-                    "keysym"
-                );
+                    debug!(
+                        ?state,
+                        mods = ?modifiers,
+                        keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
+                        "keysym"
+                    );
 
-                // If the key is pressed and triggered a action
-                // we will not forward the key to the client.
-                // Additionally add the key to the suppressed keys
-                // so that we can decide on a release if the key
-                // should be forwarded to the client or not.
-                if let KeyState::Pressed = state {
-                    if !inhibited {
-                        // A `spitfire.bind(...)` from the Lua config takes
-                        // priority over the built-in fallbacks below, so a
-                        // user config can freely redefine any of them.
-                        let config_mods = spitfire_config::Modifiers {
-                            logo: modifiers.logo,
-                            ctrl: modifiers.ctrl,
-                            alt: modifiers.alt,
-                            shift: modifiers.shift,
-                        };
-                        let action = cstate
-                            .config
-                            .find_bind(config_mods, keysym)
-                            .map(KeyAction::LuaBind)
-                            .or_else(|| process_keyboard_shortcut(*modifiers, keysym));
+                    // If the key is pressed and triggered a action
+                    // we will not forward the key to the client.
+                    // Additionally add the key to the suppressed keys
+                    // so that we can decide on a release if the key
+                    // should be forwarded to the client or not.
+                    if let KeyState::Pressed = state {
+                        if !inhibited {
+                            // A `spitfire.bind(...)` from the Lua config takes
+                            // priority over the built-in fallbacks below, so a
+                            // user config can freely redefine any of them.
+                            let config_mods = spitfire_config::Modifiers {
+                                logo: modifiers.logo,
+                                ctrl: modifiers.ctrl,
+                                alt: modifiers.alt,
+                                shift: modifiers.shift,
+                            };
+                            let action = cstate
+                                .config
+                                .find_bind(config_mods, keysym)
+                                .map(KeyAction::LuaBind)
+                                .or_else(|| process_keyboard_shortcut(*modifiers, keysym));
 
-                        if action.is_some() {
-                            suppressed_keys.push(keysym);
+                            if action.is_some() {
+                                suppressed_keys.push(keysym);
+                            }
+
+                            action
+                                .map(FilterResult::Intercept)
+                                .unwrap_or(FilterResult::Forward)
+                        } else {
+                            FilterResult::Forward
                         }
-
-                        action
-                            .map(FilterResult::Intercept)
-                            .unwrap_or(FilterResult::Forward)
                     } else {
-                        FilterResult::Forward
+                        let suppressed = suppressed_keys.contains(&keysym);
+                        if suppressed {
+                            suppressed_keys.retain(|k| *k != keysym);
+                            FilterResult::Intercept(KeyAction::None)
+                        } else {
+                            FilterResult::Forward
+                        }
                     }
-                } else {
-                    let suppressed = suppressed_keys.contains(&keysym);
-                    if suppressed {
-                        suppressed_keys.retain(|k| *k != keysym);
-                        FilterResult::Intercept(KeyAction::None)
-                    } else {
-                        FilterResult::Forward
-                    }
-                }
-            })
+                },
+            )
             .unwrap_or(KeyAction::None);
 
         self.suppressed_keys = suppressed_keys;
@@ -379,8 +401,8 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                     .get::<FullscreenSurface>()
                     .and_then(|f| f.get())
                 {
-                    if let Some((_, _)) =
-                        window.surface_under(location - output_geo.loc.to_f64(), WindowSurfaceType::ALL)
+                    if let Some((_, _)) = window
+                        .surface_under(location - output_geo.loc.to_f64(), WindowSurfaceType::ALL)
                     {
                         #[cfg(feature = "xwayland")]
                         if let Some(surface) = window.0.x11_surface() {
@@ -394,7 +416,9 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 let layers = layer_map_for_output(output);
                 if let Some(layer) = layers
                     .layer_under(WlrLayer::Overlay, location - output_geo.loc.to_f64())
-                    .or_else(|| layers.layer_under(WlrLayer::Top, location - output_geo.loc.to_f64()))
+                    .or_else(|| {
+                        layers.layer_under(WlrLayer::Top, location - output_geo.loc.to_f64())
+                    })
                 {
                     if layer.can_receive_keyboard_focus() {
                         if let Some((_, _)) = layer.surface_under(
@@ -410,7 +434,11 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 }
             }
 
-            if let Some((window, _)) = self.space.element_under(location).map(|(w, p)| (w.clone(), p)) {
+            if let Some((window, _)) = self
+                .space
+                .element_under(location)
+                .map(|(w, p)| (w.clone(), p))
+            {
                 self.space.raise_element(&window, true);
                 #[cfg(feature = "xwayland")]
                 if let Some(surface) = window.0.x11_surface() {
@@ -425,7 +453,9 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 let layers = layer_map_for_output(output);
                 if let Some(layer) = layers
                     .layer_under(WlrLayer::Bottom, location - output_geo.loc.to_f64())
-                    .or_else(|| layers.layer_under(WlrLayer::Background, location - output_geo.loc.to_f64()))
+                    .or_else(|| {
+                        layers.layer_under(WlrLayer::Background, location - output_geo.loc.to_f64())
+                    })
                 {
                     if layer.can_receive_keyboard_focus() {
                         if let Some((_, _)) = layer.surface_under(
@@ -453,10 +483,12 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         // guard confines all of them at once. See also
         // `update_keyboard_focus`, which does the same for the keyboard.
         if self.locked {
-            return self
-                .lock_surfaces
-                .first()
-                .map(|lock_surface| (PointerFocusTarget::from(lock_surface.wl_surface().clone()), pos));
+            return self.lock_surfaces.first().map(|lock_surface| {
+                (
+                    PointerFocusTarget::from(lock_surface.wl_surface().clone()),
+                    pos,
+                )
+            });
         }
 
         let output = self.space.outputs().find(|o| {
@@ -523,9 +555,9 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
     }
 
     fn on_pointer_axis<B: InputBackend>(&mut self, evt: B::PointerAxisEvent) {
-        let horizontal_amount = evt
-            .amount(input::Axis::Horizontal)
-            .unwrap_or_else(|| evt.amount_v120(input::Axis::Horizontal).unwrap_or(0.0) * 15.0 / 120.);
+        let horizontal_amount = evt.amount(input::Axis::Horizontal).unwrap_or_else(|| {
+            evt.amount_v120(input::Axis::Horizontal).unwrap_or(0.0) * 15.0 / 120.
+        });
         let vertical_amount = evt
             .amount(input::Axis::Vertical)
             .unwrap_or_else(|| evt.amount_v120(input::Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.);
@@ -535,14 +567,16 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         {
             let mut frame = AxisFrame::new(evt.time_msec()).source(evt.source());
             if horizontal_amount != 0.0 {
-                frame = frame.relative_direction(Axis::Horizontal, evt.relative_direction(Axis::Horizontal));
+                frame = frame
+                    .relative_direction(Axis::Horizontal, evt.relative_direction(Axis::Horizontal));
                 frame = frame.value(Axis::Horizontal, horizontal_amount);
                 if let Some(discrete) = horizontal_amount_discrete {
                     frame = frame.v120(Axis::Horizontal, discrete as i32);
                 }
             }
             if vertical_amount != 0.0 {
-                frame = frame.relative_direction(Axis::Vertical, evt.relative_direction(Axis::Vertical));
+                frame = frame
+                    .relative_direction(Axis::Vertical, evt.relative_direction(Axis::Vertical));
                 frame = frame.value(Axis::Vertical, vertical_amount);
                 if let Some(discrete) = vertical_amount_discrete {
                     frame = frame.v120(Axis::Vertical, discrete as i32);
@@ -565,7 +599,11 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
 
 #[cfg(any(feature = "winit", feature = "x11"))]
 impl<BackendData: Backend> SpitfireState<BackendData> {
-    pub fn process_input_event_windowed<B: InputBackend>(&mut self, event: InputEvent<B>, output_name: &str) {
+    pub fn process_input_event_windowed<B: InputBackend>(
+        &mut self,
+        event: InputEvent<B>,
+        output_name: &str,
+    ) {
         match event {
             InputEvent::Keyboard { event } => match self.keyboard_key_to_action::<B>(event) {
                 KeyAction::ScaleUp => {
@@ -578,7 +616,12 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
 
                     let current_scale = output.current_scale().fractional_scale();
                     let new_scale = current_scale + 0.25;
-                    output.change_current_state(None, None, Some(Scale::Fractional(new_scale)), None);
+                    output.change_current_state(
+                        None,
+                        None,
+                        Some(Scale::Fractional(new_scale)),
+                        None,
+                    );
 
                     crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
                     self.backend_data.reset_buffers(&output);
@@ -594,7 +637,12 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
 
                     let current_scale = output.current_scale().fractional_scale();
                     let new_scale = f64::max(1.0, current_scale - 0.25);
-                    output.change_current_state(None, None, Some(Scale::Fractional(new_scale)), None);
+                    output.change_current_state(
+                        None,
+                        None,
+                        Some(Scale::Fractional(new_scale)),
+                        None,
+                    );
 
                     crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
                     self.backend_data.reset_buffers(&output);
@@ -696,7 +744,11 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
 
 #[cfg(feature = "udev")]
 impl SpitfireState<UdevData> {
-    pub fn process_input_event<B: InputBackend>(&mut self, dh: &DisplayHandle, event: InputEvent<B>) {
+    pub fn process_input_event<B: InputBackend>(
+        &mut self,
+        dh: &DisplayHandle,
+        event: InputEvent<B>,
+    ) {
         match event {
             InputEvent::Keyboard { event, .. } => match self.keyboard_key_to_action::<B>(event) {
                 #[cfg(feature = "udev")]
@@ -745,11 +797,17 @@ impl SpitfireState<UdevData> {
                             output.current_scale().fractional_scale(),
                         );
                         let new_scale = scale + 0.25;
-                        output.change_current_state(None, None, Some(Scale::Fractional(new_scale)), None);
+                        output.change_current_state(
+                            None,
+                            None,
+                            Some(Scale::Fractional(new_scale)),
+                            None,
+                        );
 
                         let rescale = scale / new_scale;
                         let output_location = output_location.to_f64();
-                        let mut pointer_output_location = self.pointer.current_location() - output_location;
+                        let mut pointer_output_location =
+                            self.pointer.current_location() - output_location;
                         pointer_output_location.x *= rescale;
                         pointer_output_location.y *= rescale;
                         let pointer_location = output_location + pointer_output_location;
@@ -784,11 +842,17 @@ impl SpitfireState<UdevData> {
                             output.current_scale().fractional_scale(),
                         );
                         let new_scale = f64::max(1.0, scale - 0.25);
-                        output.change_current_state(None, None, Some(Scale::Fractional(new_scale)), None);
+                        output.change_current_state(
+                            None,
+                            None,
+                            Some(Scale::Fractional(new_scale)),
+                            None,
+                        );
 
                         let rescale = scale / new_scale;
                         let output_location = output_location.to_f64();
-                        let mut pointer_output_location = self.pointer.current_location() - output_location;
+                        let mut pointer_output_location =
+                            self.pointer.current_location() - output_location;
                         pointer_output_location.x *= rescale;
                         pointer_output_location.y *= rescale;
                         let pointer_location = output_location + pointer_output_location;
@@ -830,7 +894,10 @@ impl SpitfireState<UdevData> {
                             Transform::Flipped270 => Transform::Normal,
                         };
                         output.change_current_state(None, Some(new_transform), None, None);
-                        crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
+                        crate::shell::fixup_positions(
+                            &mut self.space,
+                            self.pointer.current_location(),
+                        );
                         self.backend_data.reset_buffers(&output);
                     }
                 }
@@ -850,18 +917,26 @@ impl SpitfireState<UdevData> {
                 },
             },
             InputEvent::PointerMotion { event, .. } => self.on_pointer_move::<B>(dh, event),
-            InputEvent::PointerMotionAbsolute { event, .. } => self.on_pointer_move_absolute::<B>(dh, event),
+            InputEvent::PointerMotionAbsolute { event, .. } => {
+                self.on_pointer_move_absolute::<B>(dh, event)
+            }
             InputEvent::PointerButton { event, .. } => self.on_pointer_button::<B>(event),
             InputEvent::PointerAxis { event, .. } => self.on_pointer_axis::<B>(event),
             InputEvent::TabletToolAxis { event, .. } => self.on_tablet_tool_axis::<B>(event),
-            InputEvent::TabletToolProximity { event, .. } => self.on_tablet_tool_proximity::<B>(dh, event),
+            InputEvent::TabletToolProximity { event, .. } => {
+                self.on_tablet_tool_proximity::<B>(dh, event)
+            }
             InputEvent::TabletToolTip { event, .. } => self.on_tablet_tool_tip::<B>(event),
             InputEvent::TabletToolButton { event, .. } => self.on_tablet_button::<B>(event),
             InputEvent::GestureSwipeBegin { event, .. } => self.on_gesture_swipe_begin::<B>(event),
-            InputEvent::GestureSwipeUpdate { event, .. } => self.on_gesture_swipe_update::<B>(event),
+            InputEvent::GestureSwipeUpdate { event, .. } => {
+                self.on_gesture_swipe_update::<B>(event)
+            }
             InputEvent::GestureSwipeEnd { event, .. } => self.on_gesture_swipe_end::<B>(event),
             InputEvent::GesturePinchBegin { event, .. } => self.on_gesture_pinch_begin::<B>(event),
-            InputEvent::GesturePinchUpdate { event, .. } => self.on_gesture_pinch_update::<B>(event),
+            InputEvent::GesturePinchUpdate { event, .. } => {
+                self.on_gesture_pinch_update::<B>(event)
+            }
             InputEvent::GesturePinchEnd { event, .. } => self.on_gesture_pinch_end::<B>(event),
             InputEvent::GestureHoldBegin { event, .. } => self.on_gesture_hold_begin::<B>(event),
             InputEvent::GestureHoldEnd { event, .. } => self.on_gesture_hold_end::<B>(event),
@@ -878,7 +953,8 @@ impl SpitfireState<UdevData> {
                         .tablet_seat()
                         .add_tablet::<Self>(dh, &TabletDescriptor::from(&device));
                 }
-                if device.has_capability(DeviceCapability::Touch) && self.seat.get_touch().is_none() {
+                if device.has_capability(DeviceCapability::Touch) && self.seat.get_touch().is_none()
+                {
                     self.seat.add_touch();
                 }
             }
@@ -900,7 +976,11 @@ impl SpitfireState<UdevData> {
         }
     }
 
-    fn on_pointer_move<B: InputBackend>(&mut self, _dh: &DisplayHandle, evt: B::PointerMotionEvent) {
+    fn on_pointer_move<B: InputBackend>(
+        &mut self,
+        _dh: &DisplayHandle,
+        evt: B::PointerMotionEvent,
+    ) {
         let mut pointer_location = self.pointer.current_location();
         let serial = SCOUNTER.next_serial();
 
@@ -963,7 +1043,9 @@ impl SpitfireState<UdevData> {
         // If confined, don't move pointer if it would go outside surface or region
         if pointer_confined {
             if let Some((surface, surface_loc)) = &under {
-                if new_under.as_ref().and_then(|(under, _)| under.wl_surface()) != surface.wl_surface() {
+                if new_under.as_ref().and_then(|(under, _)| under.wl_surface())
+                    != surface.wl_surface()
+                {
                     pointer.frame(self);
                     return;
                 }
@@ -995,7 +1077,10 @@ impl SpitfireState<UdevData> {
             with_pointer_constraint(&under, &pointer, |constraint| match constraint {
                 Some(constraint) if !constraint.is_active() => {
                     let point = (pointer_location - surface_location).to_i32_round();
-                    if constraint.region().map_or(true, |region| region.contains(point)) {
+                    if constraint
+                        .region()
+                        .map_or(true, |region| region.contains(point))
+                    {
                         constraint.activate();
                     }
                 }
@@ -1011,10 +1096,9 @@ impl SpitfireState<UdevData> {
     ) {
         let serial = SCOUNTER.next_serial();
 
-        let max_x = self
-            .space
-            .outputs()
-            .fold(0, |acc, o| acc + self.space.output_geometry(o).unwrap().size.w);
+        let max_x = self.space.outputs().fold(0, |acc, o| {
+            acc + self.space.output_geometry(o).unwrap().size.w
+        });
 
         let max_h_output = self
             .space
@@ -1373,10 +1457,9 @@ impl SpitfireState<UdevData> {
         }
 
         let (pos_x, pos_y) = pos.into();
-        let max_x = self
-            .space
-            .outputs()
-            .fold(0, |acc, o| acc + self.space.output_geometry(o).unwrap().size.w);
+        let max_x = self.space.outputs().fold(0, |acc, o| {
+            acc + self.space.output_geometry(o).unwrap().size.w
+        });
         let clamped_x = pos_x.clamp(0.0, max_x as f64);
         let max_y = self
             .space
@@ -1420,7 +1503,8 @@ enum KeyAction {
 }
 
 fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Option<KeyAction> {
-    if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace || modifiers.logo && keysym == Keysym::q
+    if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace
+        || modifiers.logo && keysym == Keysym::q
     {
         // ctrl+alt+backspace = quit
         // logo + q = quit

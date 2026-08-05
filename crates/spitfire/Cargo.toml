@@ -18,6 +18,14 @@ tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_leve
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 xkbcommon = "0.8.0"
 profiling = "1.0"
+# Only pulled in by the "xwayland"/"udev" features below — the default
+# cursor image for cases where nothing upstream (a host compositor, when
+# nested; an X11 client's own theme) provides one (see src/cursor.rs).
+xcursor = { version = "0.3.3", optional = true }
+# Only pulled in by "udev" below — DRM connector/EDID helpers (output
+# naming, mode scanning) that live in the same Smithay repo as a sibling
+# crate to "smithay" itself rather than as one of its own features.
+smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", tag = "v0.7.0", optional = true }
 
 [dependencies.smithay]
 git = "https://github.com/Smithay/smithay.git"
@@ -28,15 +36,38 @@ features = ["desktop", "wayland_frontend", "backend_winit", "backend_drm", "use_
 [features]
 default = ["winit", "egl"]
 # This crate's own feature (not to be confused with "smithay/backend_winit"
-# above): enables the winit backend in src/winit.rs. Kept as a feature — not
-# always-on — for the day Phase 7 (out of scope for this plan) brings a
-# DRM/KMS backend and both coexist behind flags, same as in anvil.
+# above): enables the winit backend in src/winit.rs. Kept as a feature, not
+# always-on, since it coexists with "udev" below behind separate flags —
+# same as in anvil.
 winit = []
 # Not implemented yet — kept as no-ops so the cfg-gates inherited from anvil
 # don't show up as "unexpected cfg" while the corresponding code hasn't been
 # written/removed.
 debug = []
 egl = []
-xwayland = []
-udev = []
+renderer_sync = []
+# X11 application support (running e.g. a GTK2 app or anything else that
+# hasn't ported to Wayland) via Smithay's built-in XWayland integration —
+# state.rs's start_xwayland(), the XwmHandler impl in shell/x11.rs. Works
+# under any backend, including the nested --winit one used for development.
+xwayland = ["smithay/xwayland", "dep:xcursor"]
+# The DRM/KMS + libinput backend (src/udev.rs, "spitfire --udev") — runs as
+# the real login session instead of nested inside one. Session handling via
+# libseat, GPU/output enumeration via udev, real input devices via
+# libinput. Compile-verified only so far, not yet checked against real
+# hardware/TTY — see README.md.
+udev = [
+  "dep:smithay-drm-extras",
+  "dep:xcursor",
+  "smithay/backend_libinput",
+  "smithay/backend_udev",
+  "smithay/backend_drm",
+  "smithay/backend_gbm",
+  "smithay/backend_vulkan",
+  "smithay/backend_egl",
+  "smithay/backend_session_libseat",
+  "smithay/renderer_gl",
+  "smithay/renderer_pixman",
+  "smithay/renderer_multi",
+]
 x11 = []

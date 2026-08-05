@@ -17,7 +17,9 @@ use crate::state::{Backend, SpitfireState};
 /// Binding failures (e.g. `$XDG_RUNTIME_DIR` unwritable) are logged and
 /// otherwise ignored: `spitfirectl` just won't work, which shouldn't take
 /// the whole compositor down with it.
-pub fn start<BackendData: Backend + 'static>(handle: &LoopHandle<'static, SpitfireState<BackendData>>) {
+pub fn start<BackendData: Backend + 'static>(
+    handle: &LoopHandle<'static, SpitfireState<BackendData>>,
+) {
     let path = spitfire_ipc::default_socket_path();
     let listener = match spitfire_ipc::bind_listener(&path) {
         Ok(listener) => listener,
@@ -43,7 +45,10 @@ pub fn start<BackendData: Backend + 'static>(handle: &LoopHandle<'static, Spitfi
     }
 }
 
-fn accept_all<BackendData: Backend + 'static>(listener: &mut UnixListener, state: &mut SpitfireState<BackendData>) {
+fn accept_all<BackendData: Backend + 'static>(
+    listener: &mut UnixListener,
+    state: &mut SpitfireState<BackendData>,
+) {
     loop {
         let mut stream = match listener.accept() {
             Ok((stream, _addr)) => stream,

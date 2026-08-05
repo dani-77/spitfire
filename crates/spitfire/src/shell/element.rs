@@ -2,17 +2,21 @@ use std::{borrow::Cow, time::Duration};
 
 use smithay::{
     backend::renderer::{
-        element::{solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement, AsRenderElements},
+        element::{
+            solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement, AsRenderElements,
+        },
         ImportAll, ImportMem, Renderer, Texture,
     },
     desktop::{
-        space::SpaceElement, utils::OutputPresentationFeedback, Window, WindowSurface, WindowSurfaceType,
+        space::SpaceElement, utils::OutputPresentationFeedback, Window, WindowSurface,
+        WindowSurfaceType,
     },
     input::{
         pointer::{
-            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
-            GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
-            GestureSwipeUpdateEvent, MotionEvent, PointerTarget, RelativeMotionEvent,
+            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent,
+            GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
+            GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent, MotionEvent,
+            PointerTarget, RelativeMotionEvent,
         },
         touch::TouchTarget,
         Seat,
@@ -54,7 +58,9 @@ impl WindowElement {
             Point::default()
         };
 
-        let surface_under = self.0.surface_under(location - offset.to_f64(), window_type);
+        let surface_under = self
+            .0
+            .surface_under(location - offset.to_f64(), window_type);
         let (under, loc) = match self.0.underlying_surface() {
             WindowSurface::Wayland(_) => {
                 surface_under.map(|(surface, loc)| (PointerFocusTarget::WlSurface(surface), loc))
@@ -84,7 +90,8 @@ impl WindowElement {
         T: Into<Duration>,
         F: FnMut(&WlSurface, &WlSurfaceData) -> Option<Output> + Copy,
     {
-        self.0.send_frame(output, time, throttle, primary_scan_out_output)
+        self.0
+            .send_frame(output, time, throttle, primary_scan_out_output)
     }
 
     pub fn send_dmabuf_feedback<'a, P, F>(
@@ -237,7 +244,12 @@ impl<BackendData: Backend> PointerTarget<SpitfireState<BackendData>> for SSD {
         _frame: AxisFrame,
     ) {
     }
-    fn frame(&self, _seat: &Seat<SpitfireState<BackendData>>, _data: &mut SpitfireState<BackendData>) {}
+    fn frame(
+        &self,
+        _seat: &Seat<SpitfireState<BackendData>>,
+        _data: &mut SpitfireState<BackendData>,
+    ) {
+    }
     fn leave(
         &self,
         _seat: &Seat<SpitfireState<BackendData>>,
@@ -319,7 +331,9 @@ impl<BackendData: Backend> TouchTarget<SpitfireState<BackendData>> for SSD {
         let mut state = self.0.decoration_state();
         if state.is_ssd {
             state.header_bar.pointer_enter(event.location);
-            state.header_bar.touch_down(seat, data, &self.0, event.serial);
+            state
+                .header_bar
+                .touch_down(seat, data, &self.0, event.serial);
         }
     }
 

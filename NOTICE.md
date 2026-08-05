@@ -1,7 +1,9 @@
 # Attributions
 
-The code in `crates/spitfire/src/` (`state.rs`, `winit.rs`, `input_handler.rs`,
-`focus.rs`, `render.rs`, `drawing.rs`, `shell/`) was adapted from the
+The code in `crates/spitfire/src/` (`state.rs`, `winit.rs`, `udev.rs`,
+`input_handler.rs`, `focus.rs`, `render.rs`, `drawing.rs`, `cursor.rs`, `shell/`,
+including `shell/x11.rs` and the fallback cursor image at
+`resources/cursor.rgba`) was adapted from the
 [`anvil`](https://github.com/Smithay/smithay/tree/v0.7.0/anvil) example, distributed
 with the [Smithay](https://github.com/Smithay/smithay) project under the MIT license:
 

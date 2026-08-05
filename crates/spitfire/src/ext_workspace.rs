@@ -27,7 +27,9 @@
 use smithay::reexports::{
     wayland_protocols::ext::workspace::v1::server::{
         ext_workspace_group_handle_v1::{self, ExtWorkspaceGroupHandleV1, GroupCapabilities},
-        ext_workspace_handle_v1::{self, ExtWorkspaceHandleV1, State as WorkspaceState, WorkspaceCapabilities},
+        ext_workspace_handle_v1::{
+            self, ExtWorkspaceHandleV1, State as WorkspaceState, WorkspaceCapabilities,
+        },
         ext_workspace_manager_v1::{self, ExtWorkspaceManagerV1},
     },
     wayland_server::{
@@ -51,7 +53,8 @@ pub struct ExtWorkspaceManagerGlobalData {
 
 impl std::fmt::Debug for ExtWorkspaceManagerGlobalData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ExtWorkspaceManagerGlobalData").finish_non_exhaustive()
+        f.debug_struct("ExtWorkspaceManagerGlobalData")
+            .finish_non_exhaustive()
     }
 }
 
@@ -183,7 +186,11 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
 impl ClientState {
     /// Creates/updates/removes this client's workspace handles to match
     /// `snapshot`, then sends `done()`.
-    fn sync<BackendData: Backend + 'static>(&mut self, snapshot: &[WorkspaceSnapshot], dh: &DisplayHandle) {
+    fn sync<BackendData: Backend + 'static>(
+        &mut self,
+        snapshot: &[WorkspaceSnapshot],
+        dh: &DisplayHandle,
+    ) {
         // Removed workspaces: tell the client, drop our tracking.
         self.workspaces.retain(|(id, handle)| {
             let still_exists = snapshot.iter().any(|ws| ws.id == *id);
@@ -210,7 +217,9 @@ impl ClientState {
                     };
                     self.manager.workspace(&handle);
                     self.group.workspace_enter(&handle);
-                    handle.capabilities(WorkspaceCapabilities::Activate | WorkspaceCapabilities::Remove);
+                    handle.capabilities(
+                        WorkspaceCapabilities::Activate | WorkspaceCapabilities::Remove,
+                    );
                     self.workspaces.push((ws.id, handle.clone()));
                     handle
                 }
@@ -229,7 +238,8 @@ impl ClientState {
     }
 }
 
-impl<BackendData: Backend + 'static> GlobalDispatch<ExtWorkspaceManagerV1, ExtWorkspaceManagerGlobalData, SpitfireState<BackendData>>
+impl<BackendData: Backend + 'static>
+    GlobalDispatch<ExtWorkspaceManagerV1, ExtWorkspaceManagerGlobalData, SpitfireState<BackendData>>
     for ExtWorkspaceState
 {
     fn bind(
@@ -242,11 +252,13 @@ impl<BackendData: Backend + 'static> GlobalDispatch<ExtWorkspaceManagerV1, ExtWo
     ) {
         let manager = data_init.init(resource, ());
 
-        let Ok(group) = client.create_resource::<ExtWorkspaceGroupHandleV1, _, SpitfireState<BackendData>>(
-            dh,
-            manager.version(),
-            (),
-        ) else {
+        let Ok(group) = client
+            .create_resource::<ExtWorkspaceGroupHandleV1, _, SpitfireState<BackendData>>(
+                dh,
+                manager.version(),
+                (),
+            )
+        else {
             return;
         };
         manager.workspace_group(&group);
@@ -277,7 +289,9 @@ impl<BackendData: Backend + 'static> GlobalDispatch<ExtWorkspaceManagerV1, ExtWo
     }
 }
 
-impl<BackendData: Backend + 'static> Dispatch<ExtWorkspaceManagerV1, (), SpitfireState<BackendData>> for ExtWorkspaceState {
+impl<BackendData: Backend + 'static> Dispatch<ExtWorkspaceManagerV1, (), SpitfireState<BackendData>>
+    for ExtWorkspaceState
+{
     fn request(
         state: &mut SpitfireState<BackendData>,
         client: &Client,
@@ -300,12 +314,22 @@ impl<BackendData: Backend + 'static> Dispatch<ExtWorkspaceManagerV1, (), Spitfir
         }
     }
 
-    fn destroyed(state: &mut SpitfireState<BackendData>, _client: ClientId, resource: &ExtWorkspaceManagerV1, _data: &()) {
-        state.ext_workspace_state.clients.retain(|c| &c.manager != resource);
+    fn destroyed(
+        state: &mut SpitfireState<BackendData>,
+        _client: ClientId,
+        resource: &ExtWorkspaceManagerV1,
+        _data: &(),
+    ) {
+        state
+            .ext_workspace_state
+            .clients
+            .retain(|c| &c.manager != resource);
     }
 }
 
-impl<BackendData: Backend + 'static> Dispatch<ExtWorkspaceGroupHandleV1, (), SpitfireState<BackendData>> for ExtWorkspaceState {
+impl<BackendData: Backend + 'static>
+    Dispatch<ExtWorkspaceGroupHandleV1, (), SpitfireState<BackendData>> for ExtWorkspaceState
+{
     fn request(
         state: &mut SpitfireState<BackendData>,
         _client: &Client,
@@ -325,7 +349,9 @@ impl<BackendData: Backend + 'static> Dispatch<ExtWorkspaceGroupHandleV1, (), Spi
     }
 }
 
-impl<BackendData: Backend + 'static> Dispatch<ExtWorkspaceHandleV1, WorkspaceId, SpitfireState<BackendData>> for ExtWorkspaceState {
+impl<BackendData: Backend + 'static>
+    Dispatch<ExtWorkspaceHandleV1, WorkspaceId, SpitfireState<BackendData>> for ExtWorkspaceState
+{
     fn request(
         state: &mut SpitfireState<BackendData>,
         _client: &Client,
@@ -345,7 +371,9 @@ impl<BackendData: Backend + 'static> Dispatch<ExtWorkspaceHandleV1, WorkspaceId,
             // well-defined effect. Ignored, same as an unsupported
             // capability would be.
             ext_workspace_handle_v1::Request::Deactivate => {
-                warn!("ext-workspace-v1: deactivate request ignored (not advertised as a capability)");
+                warn!(
+                    "ext-workspace-v1: deactivate request ignored (not advertised as a capability)"
+                );
             }
             // v1 has exactly one group; assigning to it is already
             // implicit.

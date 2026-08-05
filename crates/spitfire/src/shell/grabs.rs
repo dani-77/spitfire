@@ -4,10 +4,11 @@ use smithay::{
     desktop::{space::SpaceElement, WindowSurface},
     input::{
         pointer::{
-            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
-            GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
-            GestureSwipeUpdateEvent, GrabStartData as PointerGrabStartData, MotionEvent, PointerGrab,
-            PointerInnerHandle, RelativeMotionEvent,
+            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent,
+            GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
+            GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent,
+            GrabStartData as PointerGrabStartData, MotionEvent, PointerGrab, PointerInnerHandle,
+            RelativeMotionEvent,
         },
         touch::{GrabStartData as TouchGrabStartData, TouchGrab},
     },
@@ -21,7 +22,7 @@ use smithay::{utils::Rectangle, xwayland::xwm::ResizeEdge as X11ResizeEdge};
 use super::{SurfaceData, WindowElement};
 use crate::{
     focus::PointerFocusTarget,
-    state::{SpitfireState, Backend},
+    state::{Backend, SpitfireState},
 };
 
 pub struct PointerMoveSurfaceGrab<BackendData: Backend + 'static> {
@@ -30,7 +31,9 @@ pub struct PointerMoveSurfaceGrab<BackendData: Backend + 'static> {
     pub initial_window_location: Point<i32, Logical>,
 }
 
-impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>> for PointerMoveSurfaceGrab<BackendData> {
+impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>>
+    for PointerMoveSurfaceGrab<BackendData>
+{
     fn motion(
         &mut self,
         data: &mut SpitfireState<BackendData>,
@@ -173,7 +176,9 @@ pub struct TouchMoveSurfaceGrab<BackendData: Backend + 'static> {
     pub initial_window_location: Point<i32, Logical>,
 }
 
-impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>> for TouchMoveSurfaceGrab<BackendData> {
+impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
+    for TouchMoveSurfaceGrab<BackendData>
+{
     fn down(
         &mut self,
         _data: &mut SpitfireState<BackendData>,
@@ -348,7 +353,9 @@ pub struct PointerResizeSurfaceGrab<BackendData: Backend + 'static> {
     pub last_window_size: Size<i32, Logical>,
 }
 
-impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>> for PointerResizeSurfaceGrab<BackendData> {
+impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>>
+    for PointerResizeSurfaceGrab<BackendData>
+{
     fn motion(
         &mut self,
         data: &mut SpitfireState<BackendData>,
@@ -401,8 +408,16 @@ impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>> for PointerRe
 
         let min_width = min_size.w.max(1);
         let min_height = min_size.h.max(1);
-        let max_width = if max_size.w == 0 { i32::MAX } else { max_size.w };
-        let max_height = if max_size.h == 0 { i32::MAX } else { max_size.h };
+        let max_width = if max_size.w == 0 {
+            i32::MAX
+        } else {
+            max_size.w
+        };
+        let max_height = if max_size.h == 0 {
+            i32::MAX
+        } else {
+            max_size.h
+        };
 
         new_window_width = new_window_width.max(min_width).min(max_width);
         new_window_height = new_window_height.max(min_height).min(max_height);
@@ -482,7 +497,8 @@ impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>> for PointerRe
                             .unwrap()
                             .borrow_mut();
                         if let ResizeState::Resizing(resize_data) = data.resize_state {
-                            data.resize_state = ResizeState::WaitingForFinalAck(resize_data, event.serial);
+                            data.resize_state =
+                                ResizeState::WaitingForFinalAck(resize_data, event.serial);
                         } else {
                             panic!("invalid resize state: {:?}", data.resize_state);
                         }
@@ -634,7 +650,9 @@ pub struct TouchResizeSurfaceGrab<BackendData: Backend + 'static> {
     pub last_window_size: Size<i32, Logical>,
 }
 
-impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>> for TouchResizeSurfaceGrab<BackendData> {
+impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
+    for TouchResizeSurfaceGrab<BackendData>
+{
     fn down(
         &mut self,
         _data: &mut SpitfireState<BackendData>,
@@ -677,12 +695,12 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>> for TouchResize
                     let mut location = data.space.element_location(&self.window).unwrap();
 
                     if self.edges.intersects(ResizeEdge::LEFT) {
-                        location.x =
-                            self.initial_window_location.x + (self.initial_window_size.w - geometry.size.w);
+                        location.x = self.initial_window_location.x
+                            + (self.initial_window_size.w - geometry.size.w);
                     }
                     if self.edges.intersects(ResizeEdge::TOP) {
-                        location.y =
-                            self.initial_window_location.y + (self.initial_window_size.h - geometry.size.h);
+                        location.y = self.initial_window_location.y
+                            + (self.initial_window_size.h - geometry.size.h);
                     }
 
                     data.space.map_element(self.window.clone(), location, true);
@@ -695,7 +713,8 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>> for TouchResize
                         .unwrap()
                         .borrow_mut();
                     if let ResizeState::Resizing(resize_data) = data.resize_state {
-                        data.resize_state = ResizeState::WaitingForFinalAck(resize_data, event.serial);
+                        data.resize_state =
+                            ResizeState::WaitingForFinalAck(resize_data, event.serial);
                     } else {
                         panic!("invalid resize state: {:?}", data.resize_state);
                     }
@@ -708,12 +727,12 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>> for TouchResize
                     let geometry = self.window.geometry();
 
                     if self.edges.intersects(ResizeEdge::LEFT) {
-                        location.x =
-                            self.initial_window_location.x + (self.initial_window_size.w - geometry.size.w);
+                        location.x = self.initial_window_location.x
+                            + (self.initial_window_size.w - geometry.size.w);
                     }
                     if self.edges.intersects(ResizeEdge::TOP) {
-                        location.y =
-                            self.initial_window_location.y + (self.initial_window_size.h - geometry.size.h);
+                        location.y = self.initial_window_location.y
+                            + (self.initial_window_size.h - geometry.size.h);
                     }
 
                     data.space.map_element(self.window.clone(), location, true);
@@ -798,8 +817,16 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>> for TouchResize
 
         let min_width = min_size.w.max(1);
         let min_height = min_size.h.max(1);
-        let max_width = if max_size.w == 0 { i32::MAX } else { max_size.w };
-        let max_height = if max_size.h == 0 { i32::MAX } else { max_size.h };
+        let max_width = if max_size.w == 0 {
+            i32::MAX
+        } else {
+            max_size.w
+        };
+        let max_height = if max_size.h == 0 {
+            i32::MAX
+        } else {
+            max_size.h
+        };
 
         new_window_width = new_window_width.max(min_width).min(max_width);
         new_window_height = new_window_height.max(min_height).min(max_height);

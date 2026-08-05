@@ -1,8 +1,11 @@
-//! spitfire — a Wayland compositor (Smithay), v1: winit backend only.
+//! spitfire — a Wayland compositor (Smithay).
 //!
-//! Adapted from Smithay's own `anvil` example (MIT/Apache-2.0). The DRM/KMS
-//! backend and XWayland are out of scope for now — see the plan at
-//! `/home/dani77/.claude/plans/sparkling-shimmying-jellyfish.md`.
+//! Adapted from Smithay's own `anvil` example (MIT/Apache-2.0). Two
+//! backends: `--winit` (default, nested inside an existing session) and
+//! `--udev` (opt-in `udev` cargo feature — DRM/KMS + libinput, runs as the
+//! real login session). XWayland (X11 application support) is a separate
+//! opt-in `xwayland` cargo feature, orthogonal to either backend. See the
+//! plan at `/home/dani77/.claude/plans/sparkling-shimmying-jellyfish.md`.
 
 fn main() {
     if let Ok(env_filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
@@ -31,8 +34,16 @@ fn main() {
             tracing::info!("Starting spitfire with the winit backend");
             spitfire::winit::run_winit();
         }
+        #[cfg(feature = "udev")]
+        Some("--udev") => {
+            tracing::info!("Starting spitfire with the DRM/KMS (udev) backend");
+            spitfire::udev::run_udev();
+        }
         Some(other) => {
             tracing::error!("Unknown backend: {other}");
+            #[cfg(feature = "udev")]
+            eprintln!("USAGE: spitfire [--winit | --udev]");
+            #[cfg(not(feature = "udev"))]
             eprintln!("USAGE: spitfire [--winit]");
         }
     }

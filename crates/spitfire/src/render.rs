@@ -99,31 +99,47 @@ where
     borders
         .iter()
         .flat_map(|b| {
-            let color = if b.focused { active_color } else { inactive_color };
+            let color = if b.focused {
+                active_color
+            } else {
+                inactive_color
+            };
             let g = b.geometry;
             // Four strips forming a hollow ring around `g`, each `width`
             // thick, meeting at the corners — none overlap `g` itself.
             let strips = [
                 // top
-                Rectangle::new((g.loc.x - width, g.loc.y - width).into(), (g.size.w + width * 2, width).into()),
+                Rectangle::new(
+                    (g.loc.x - width, g.loc.y - width).into(),
+                    (g.size.w + width * 2, width).into(),
+                ),
                 // bottom
-                Rectangle::new((g.loc.x - width, g.loc.y + g.size.h).into(), (g.size.w + width * 2, width).into()),
+                Rectangle::new(
+                    (g.loc.x - width, g.loc.y + g.size.h).into(),
+                    (g.size.w + width * 2, width).into(),
+                ),
                 // left
                 Rectangle::new((g.loc.x - width, g.loc.y).into(), (width, g.size.h).into()),
                 // right
-                Rectangle::new((g.loc.x + g.size.w, g.loc.y).into(), (width, g.size.h).into()),
+                Rectangle::new(
+                    (g.loc.x + g.size.w, g.loc.y).into(),
+                    (width, g.size.h).into(),
+                ),
             ];
-            strips.into_iter().map(move |strip: Rectangle<i32, smithay::utils::Logical>| {
-                let buffer = SolidColorBuffer::new(strip.size, color);
-                let loc: Point<i32, Physical> = strip.loc.to_f64().to_physical(output_scale).to_i32_round();
-                CustomRenderElements::Solid(SolidColorRenderElement::from_buffer(
-                    &buffer,
-                    loc,
-                    output_scale,
-                    1.0,
-                    Kind::Unspecified,
-                ))
-            })
+            strips
+                .into_iter()
+                .map(move |strip: Rectangle<i32, smithay::utils::Logical>| {
+                    let buffer = SolidColorBuffer::new(strip.size, color);
+                    let loc: Point<i32, Physical> =
+                        strip.loc.to_f64().to_physical(output_scale).to_i32_round();
+                    CustomRenderElements::Solid(SolidColorRenderElement::from_buffer(
+                        &buffer,
+                        loc,
+                        output_scale,
+                        1.0,
+                        Kind::Unspecified,
+                    ))
+                })
         })
         .collect()
 }
@@ -158,7 +174,8 @@ pub fn space_preview_elements<'a, R, C>(
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
-    C: From<CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>>> + 'a,
+    C: From<CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>>>
+        + 'a,
 {
     let constrain_behavior = ConstrainBehavior {
         reference: ConstrainReference::BoundingBox,
@@ -226,7 +243,10 @@ pub fn output_elements<R>(
     border_width: i32,
     border_active: Color32F,
     border_inactive: Color32F,
-) -> (Vec<OutputRenderElements<R, WindowRenderElement<R>>>, Color32F)
+) -> (
+    Vec<OutputRenderElements<R, WindowRenderElement<R>>>,
+    Color32F,
+)
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
@@ -298,7 +318,8 @@ where
         // front avoids relying on the space elements' occlusion tracking
         // to punch a window-shaped hole through anything placed behind them.
         let scale = output.current_scale().fractional_scale().into();
-        let border_elements = border_elements::<R>(borders, border_width, border_active, border_inactive, scale);
+        let border_elements =
+            border_elements::<R>(borders, border_width, border_active, border_inactive, scale);
         for e in border_elements.into_iter().rev() {
             output_render_elements.insert(0, OutputRenderElements::from(e));
         }
