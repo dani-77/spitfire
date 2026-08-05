@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/spitfire",
+    "crates/spitfire-layout",
+    "crates/spitfire-config",
+    "crates/spitfire-ipc",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+authors = ["dani77"]
+
+[profile.release]
+lto = "thin"

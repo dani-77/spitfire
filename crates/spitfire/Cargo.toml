@@ -1,0 +1,42 @@
+[package]
+name = "spitfire"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+spitfire-config = { path = "../spitfire-config" }
+spitfire-ipc = { path = "../spitfire-ipc" }
+spitfire-layout = { path = "../spitfire-layout" }
+bitflags = "2.2.1"
+rand = "0.8"
+serde_json = "1"
+thiserror = "1"
+tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_debug"] }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+xkbcommon = "0.8.0"
+profiling = "1.0"
+
+[dependencies.smithay]
+git = "https://github.com/Smithay/smithay.git"
+tag = "v0.7.0"
+default-features = false
+features = ["desktop", "wayland_frontend", "backend_winit", "backend_drm", "use_system_lib"]
+
+[features]
+default = ["winit", "egl"]
+# This crate's own feature (not to be confused with "smithay/backend_winit"
+# above): enables the winit backend in src/winit.rs. Kept as a feature — not
+# always-on — for the day Phase 7 (out of scope for this plan) brings a
+# DRM/KMS backend and both coexist behind flags, same as in anvil.
+winit = []
+# Not implemented yet — kept as no-ops so the cfg-gates inherited from anvil
+# don't show up as "unexpected cfg" while the corresponding code hasn't been
+# written/removed.
+debug = []
+egl = []
+xwayland = []
+udev = []
+x11 = []

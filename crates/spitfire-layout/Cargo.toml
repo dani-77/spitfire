@@ -1,0 +1,10 @@
+[package]
+name = "spitfire-layout"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+description = "Layout engine (tile/floating/fibonacci/monocle), no Wayland deps."
+
+[dependencies]

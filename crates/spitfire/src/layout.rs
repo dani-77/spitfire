@@ -1,0 +1,156 @@
+//! Bridges the pure layout engine (`spitfire_layout`) to real compositor
+//! state: keeps the tiling order of a *single workspace's* windows and
+//! applies the active layout via `Space`/`xdg_toplevel.configure`. See
+//! `crate::workspace` for the list-of-workspaces model built on top of
+//! this (Phase 5) — each `Workspace` owns one `TilingLayout`.
+
+use smithay::{
+    desktop::{layer_map_for_output, Space},
+    output::Output,
+    utils::{IsAlive, Point, Size},
+    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
+};
+use spitfire_config::WindowRule;
+use spitfire_layout::{arrange as layout_arrange, LayoutParams, Rect};
+use tracing::debug;
+
+use crate::{
+    shell::WindowElement,
+    state::{Backend, SpitfireState},
+};
+
+/// Tiling order + layout parameters for a workspace.
+///
+/// The order in `order` is what the layout engine receives: the first
+/// `nmaster` windows go into the master column in `tile` mode, determine
+/// the spiral order in `fibonacci`, and `order[0]` is whichever ends up "on
+/// top" in `monocle`. New windows are appended at the end (like dwm — they
+/// join the stack, they don't steal the master slot); reordering (swap
+/// master, promote/demote) is left for a later phase.
+#[derive(Debug, Default)]
+pub struct TilingLayout {
+    pub params: LayoutParams,
+    order: Vec<WindowElement>,
+}
+
+impl TilingLayout {
+    /// Registers a new window at the end of the tiling order. Idempotent —
+    /// does not duplicate an entry that's already there.
+    pub fn push(&mut self, window: WindowElement) {
+        self.order.retain(|w| w.alive());
+        if !self.order.iter().any(|w| w == &window) {
+            self.order.push(window);
+        }
+    }
+
+    /// Removes a window from the tiling order — used when moving a window
+    /// to a different workspace (`spitfire.workspace.move_window`).
+    pub fn remove(&mut self, window: &WindowElement) {
+        self.order.retain(|w| w != window);
+    }
+
+    /// The windows currently managed by this workspace, in tiling order.
+    /// Used to hide/show a workspace's windows when switching away from or
+    /// back to it (see `SpitfireState::switch_workspace`).
+    pub fn windows(&self) -> &[WindowElement] {
+        &self.order
+    }
+
+    /// Reapplies the active layout to every managed window in the usable
+    /// area of `output` — that area already excludes the exclusive zone
+    /// reserved by layer-surfaces (the Utumno bar, for example), via
+    /// `layer_map_for_output`.
+    ///
+    /// Windows matched by a `spitfire.rule({ floating = true, ... })` are
+    /// left out of the arrangement entirely — their geometry is never
+    /// touched, same as full `Floating` mode.
+    ///
+    /// This also prunes dead windows from the tiling order: there is no
+    /// dedicated "window destroyed" hook, so this runs every frame,
+    /// alongside the `space.refresh()` call that already existed in
+    /// anvil's render loop.
+    pub fn arrange(&mut self, space: &mut Space<WindowElement>, output: &Output, rules: &[WindowRule]) {
+        self.order.retain(|w| w.alive());
+        if self.order.is_empty() {
+            return;
+        }
+
+        let tiled: Vec<WindowElement> = self
+            .order
+            .iter()
+            .filter(|w| !matches_floating_rule(w, rules))
+            .cloned()
+            .collect();
+        if tiled.is_empty() {
+            return;
+        }
+
+        let Some(output_geo) = space.output_geometry(output) else {
+            return;
+        };
+        let zone = {
+            let map = layer_map_for_output(output);
+            map.non_exclusive_zone()
+        };
+        let area = Rect::new(
+            output_geo.loc.x + zone.loc.x,
+            output_geo.loc.y + zone.loc.y,
+            zone.size.w,
+            zone.size.h,
+        );
+
+        let Some(placements) = layout_arrange(&tiled, area, &self.params) else {
+            // Floating layout mode: the engine deliberately doesn't touch
+            // geometry — leave windows wherever the user put them (or
+            // wherever place_new_window cascaded them initially).
+            return;
+        };
+
+        for (window, rect) in placements {
+            let size = Size::from((rect.w.max(1), rect.h.max(1)));
+            if let Some(toplevel) = window.0.toplevel() {
+                toplevel.with_pending_state(|state| {
+                    state.size = Some(size);
+                });
+                if toplevel.is_initial_configure_sent() {
+                    toplevel.send_pending_configure();
+                }
+            }
+            debug!(?rect, "placing window");
+            space.map_element(window, Point::from((rect.x, rect.y)), false);
+        }
+    }
+}
+
+/// Reads a window's current `app_id` (set by the client via
+/// `xdg_toplevel.set_app_id`, may still be `None` right after mapping) and
+/// checks it against the configured rules.
+fn matches_floating_rule(window: &WindowElement, rules: &[WindowRule]) -> bool {
+    let Some(surface) = window.wl_surface() else {
+        return false;
+    };
+    let app_id = with_states(&surface, |states| {
+        states
+            .data_map
+            .get::<XdgToplevelSurfaceData>()
+            .and_then(|data| data.lock().ok())
+            .and_then(|attrs| attrs.app_id.clone())
+    });
+    rules
+        .iter()
+        .find(|rule| rule.matches(app_id.as_deref()))
+        .is_some_and(|rule| rule.floating)
+}
+
+impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
+    /// Reapplies the active workspace's layout on the first output — v1:
+    /// a single output (matches the winit-only backend), so there's one
+    /// `WorkspaceSet` rather than one per output. See `crate::workspace`.
+    pub fn arrange_tiling(&mut self) {
+        let Some(output) = self.space.outputs().next().cloned() else {
+            return;
+        };
+        let rules = self.config.rules().clone();
+        self.workspaces.active_mut().tiling.arrange(&mut self.space, &output, &rules);
+    }
+}
