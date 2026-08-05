@@ -26,9 +26,9 @@ the window manager.
   keyboard layout, autostart apps, all in one place, reloaded live with a keypress.
 - **Dynamic workspaces** — there's no fixed number to set up in advance; asking to jump
   to workspace 7 just creates it.
-- **Optional built-in status bar** — off by default, one line in your config turns it
-  on: workspace list, active layout, CPU/RAM/battery/network, clock and date. No extra
-  program to install or configure if you don't want one.
+- **Built-in status bar**, on by default: workspace list, active layout, CPU/RAM/
+  battery/network, clock and date. No extra program to install or configure — turn
+  it off with one line if you'd rather run your own (waybar, eww, ...).
 - **Window borders and gaps**, colored however you like.
 - **A lock screen that actually works** (`ext-session-lock-v1`) — compatible with
   `swaylock` and any other standard Wayland lock screen.
@@ -140,7 +140,7 @@ spitfire.gaps = { inner = 6, outer = 10 }
 -- Keyboard layout (leave unset for the system default)
 spitfire.keyboard = { layout = "de" }  -- or "pt", "fr", whatever setxkbmap would take
 
--- The built-in bar (off by default)
+-- The built-in bar (on by default)
 spitfire.bar = { enable = true, height = 28 }
 
 -- Whatever you want started with the session — a bar, wallpaper, launcher, etc.

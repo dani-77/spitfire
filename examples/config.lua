@@ -60,14 +60,15 @@ spitfire.gaps = { inner = 6, outer = 10 }
 -- spitfire.reload() (no restart needed to try a different layout).
 -- spitfire.keyboard = { layout = "pt", variant = "", model = "", options = "" }
 
--- Optional built-in bar — off by default. Not a client, not a protocol:
--- drawn by spitfire itself (a bitmap font, no TTF), floating with a gap
--- of spitfire.gaps.outer on the top/left/right edges. Workspace list +
--- active layout mode on the left; CPU/RAM/network/clock/date on the
--- right. Coexists fine with a client bar (e.g. Utumno's own) — just leave
--- `enable` false if you're using one of those.
+-- Optional built-in bar — on by default so there's something visibly
+-- alive on screen out of the box. Not a client, not a protocol: drawn by
+-- spitfire itself (a bitmap font, no TTF), floating with a gap of
+-- spitfire.gaps.outer on the top/left/right edges. Workspace list +
+-- active layout mode on the left; CPU/RAM/battery/network/clock/date on
+-- the right. Coexists fine with a client bar (e.g. Utumno's own) — set
+-- `enable = false` if you're using one of those instead.
 spitfire.bar = {
-  enable = false,
+  enable = true,
   height = 28,
   bg = "#1e1e2e",
   fg = "#6c7086",

@@ -92,7 +92,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `assets/logo/`), installable via `make install` — see [Packaging](#packaging).
   `XDG_CURRENT_DESKTOP=spitfire` is set for autostarted clients, same convention as
   niri/Hyprland/sway.
-- **Optional built-in bar** (`crate::bar`, off by default —
+- **Optional built-in bar** (`crate::bar`, on by default in `examples/config.lua` —
   `spitfire.bar = { enable, height, bg, fg, fg_active }`). Not a client or a protocol:
   drawn by the compositor itself as solid-color rectangles, the same
   `SolidColorRenderElement` primitive as `spitfire.border`. Floats — inset from the
