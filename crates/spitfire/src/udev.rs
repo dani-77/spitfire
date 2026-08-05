@@ -1520,10 +1520,10 @@ impl SpitfireState<UdevData> {
         let border_rects = self.border_rects();
         let border = self.config.border;
         let bar_config = self.config.bar;
+        let bar_margin = self.config.gaps.outer;
         let bar_data = self.bar_data();
         self.bar.tick();
-        let bar_time_text = self.bar.time_text().to_string();
-        let bar_date_text = self.bar.date_text().to_string();
+        let bar_status_text = self.bar.status_text();
         let locked = self.locked;
         let locked_surface = locked
             .then(|| self.lock_surfaces.first())
@@ -1602,9 +1602,9 @@ impl SpitfireState<UdevData> {
             crate::render::hex_to_color32f(border.active),
             crate::render::hex_to_color32f(border.inactive),
             &bar_config,
+            bar_margin,
             &bar_data,
-            &bar_time_text,
-            &bar_date_text,
+            &bar_status_text,
         );
         let reschedule = match result {
             Ok((has_rendered, states)) => {
@@ -1695,9 +1695,9 @@ fn render_surface<'a>(
     border_active: smithay::backend::renderer::Color32F,
     border_inactive: smithay::backend::renderer::Color32F,
     bar_config: &spitfire_config::BarConfig,
+    bar_margin: i32,
     bar_data: &crate::bar::BarData,
-    bar_time_text: &str,
-    bar_date_text: &str,
+    bar_status_text: &str,
 ) -> Result<(bool, RenderElementStates), SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1784,9 +1784,9 @@ fn render_surface<'a>(
         custom_elements.extend(crate::bar::bar_elements::<UdevRenderer<'a>>(
             bar_config,
             output_geometry.size.w,
+            bar_margin,
             bar_data,
-            bar_time_text,
-            bar_date_text,
+            bar_status_text,
             scale,
         ));
     }

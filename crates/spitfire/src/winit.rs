@@ -269,6 +269,7 @@ pub fn run_winit() {
             let border = state.config.border;
 
             let bar_config = state.config.bar;
+            let bar_margin = state.config.gaps.outer;
             let bar_data = state.bar_data();
             let bar_output_width = state
                 .space
@@ -276,8 +277,7 @@ pub fn run_winit() {
                 .map(|geo| geo.size.w)
                 .unwrap_or(0);
             state.bar.tick();
-            let bar_time_text = state.bar.time_text().to_string();
-            let bar_date_text = state.bar.date_text().to_string();
+            let bar_status_text = state.bar.status_text();
 
             let backend = &mut state.backend_data.backend;
 
@@ -397,9 +397,9 @@ pub fn run_winit() {
                     elements.extend(crate::bar::bar_elements::<GlesRenderer>(
                         &bar_config,
                         bar_output_width,
+                        bar_margin,
                         &bar_data,
-                        &bar_time_text,
-                        &bar_date_text,
+                        &bar_status_text,
                         scale,
                     ));
                 }

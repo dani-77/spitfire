@@ -78,6 +78,7 @@ impl TilingLayout {
         output: &Output,
         rules: &[WindowRule],
         bar_height: i32,
+        bar_margin: i32,
     ) {
         self.order.retain(|w| w.alive());
         if self.order.is_empty() {
@@ -107,9 +108,19 @@ impl TilingLayout {
             zone.size.w,
             zone.size.h,
         );
-        let bar_height = bar_height.max(0).min(area.h);
-        area.y += bar_height;
-        area.h -= bar_height;
+        // The bar floats now (spitfire.gaps.outer inset on top/left/right,
+        // see bar.rs), so the reserved strip is bar_margin (above it) +
+        // bar_height + bar_margin (below it, before windows start) — not
+        // just bar_height. bar_margin is 0 whenever the bar itself is (see
+        // arrange_tiling), so this is a no-op with the bar disabled.
+        let bar_reserved = if bar_height > 0 {
+            bar_margin.max(0) + bar_height + bar_margin.max(0)
+        } else {
+            0
+        }
+        .min(area.h);
+        area.y += bar_reserved;
+        area.h -= bar_reserved;
 
         let Some(placements) = layout_arrange(&tiled, area, &self.params) else {
             // Floating layout mode: the engine deliberately doesn't touch
@@ -182,9 +193,13 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         } else {
             0
         };
-        self.workspaces
-            .active_mut()
-            .tiling
-            .arrange(&mut self.space, &output, &rules, bar_height);
+        let bar_margin = self.config.gaps.outer;
+        self.workspaces.active_mut().tiling.arrange(
+            &mut self.space,
+            &output,
+            &rules,
+            bar_height,
+            bar_margin,
+        );
     }
 }
