@@ -553,13 +553,31 @@ pub fn run_udev() {
         .unwrap();
 
     crate::ipc::start(&event_loop.handle());
-    state.spawn_autostart();
 
     /*
-     * Start XWayland if supported
+     * Start XWayland if supported, and give it a bounded window to finish
+     * initializing before autostart runs below. `XWaylandEvent::Ready`
+     * (which populates `state.xdisplay`) only arrives via the event loop,
+     * which hasn't dispatched yet at this point — without pumping it here,
+     * autostart entries that need an X11 `DISPLAY` (most commonly a
+     * terminal emulator, which will go on to launch X11-only apps) always
+     * lose the race and spawn with no `DISPLAY` at all.
      */
     #[cfg(feature = "xwayland")]
-    state.start_xwayland();
+    {
+        state.start_xwayland();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while state.xdisplay.is_none() && Instant::now() < deadline {
+            if event_loop
+                .dispatch(Some(Duration::from_millis(20)), &mut state)
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+
+    state.spawn_autostart();
 
     /*
      * And run our loop

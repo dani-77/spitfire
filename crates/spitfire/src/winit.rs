@@ -2,6 +2,8 @@ use std::{
     sync::{atomic::Ordering, Mutex},
     time::Duration,
 };
+#[cfg(feature = "xwayland")]
+use std::time::Instant;
 
 #[cfg(feature = "egl")]
 use smithay::backend::renderer::ImportEgl;
@@ -227,10 +229,27 @@ pub fn run_winit() {
         .update_formats(state.backend_data.backend.renderer().shm_formats());
     state.space.map_output(&output, (0, 0));
     crate::ipc::start(&event_loop.handle());
-    state.spawn_autostart();
 
+    // See the matching comment in udev.rs: bound-wait for XWayland's
+    // `Ready` event (which sets `state.xdisplay`) before running autostart,
+    // since nothing dispatches the event loop between the two calls
+    // otherwise and autostart entries needing `DISPLAY` would always race
+    // and lose it.
     #[cfg(feature = "xwayland")]
-    state.start_xwayland();
+    {
+        state.start_xwayland();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while state.xdisplay.is_none() && Instant::now() < deadline {
+            if event_loop
+                .dispatch(Some(Duration::from_millis(20)), &mut state)
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+
+    state.spawn_autostart();
 
     info!("Initialization completed, starting the main loop.");
 
