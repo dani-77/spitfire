@@ -29,7 +29,11 @@ the window manager.
 - **Built-in status bar**, on by default: workspace list, active layout, CPU/RAM/
   battery/network, clock and date. No extra program to install or configure — turn
   it off with one line if you'd rather run your own (waybar, eww, ...).
-- **Window borders and gaps**, colored however you like.
+- **Window borders and gaps**, colored however you like — with optional rounded
+  corners.
+- **Scratchpad windows** — a single hidden slot for whatever's focused, or a named,
+  app-specific one (a drop-down terminal, XMonad/LeftWM-style: same keybind spawns it
+  the first time, shows/hides that exact instance every time after).
 - **A lock screen that actually works** (`ext-session-lock-v1`) — compatible with
   `swaylock` and any other standard Wayland lock screen.
 - **Runs your existing Linux apps**, X11 ones included — spitfire supports XWayland, so
@@ -129,6 +133,8 @@ these is just a line in `config.lua`, so rebind anything to anything.
 | `Alt` + `1`-`9` | Move the focused window to workspace 1-9 |
 | `Mod` + `Q` | Close the focused window |
 | `Mod` + `J` / `K` | Move keyboard focus to the next / previous window |
+| `Mod` + `Shift` + `` ` `` | Toggle the scratchpad: stash the focused window, or bring back whatever's stashed |
+| `Mod` + `` ` `` | Toggle a named scratchpad drop-down terminal (spawns it the first time) |
 | `Mod` + `Shift` + `Q` | Quit spitfire (ends the session) |
 | `Mod` + `Shift` + `R` | Reload `config.lua` — no logout needed |
 

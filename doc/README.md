@@ -84,6 +84,48 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
 - **`spitfire.border`**, rendered as four thin solid-color strips around each tiled
   window (`render::border_elements`) — active/inactive color picked from whichever
   window has keyboard focus. Confirmed via screenshot with a bright test color.
+  - **`spitfire.border.radius`**: optional rounded corners, `0` (square, the default)
+    otherwise. The obvious approach — a GLES pixel shader, what niri/Strata both use —
+    doesn't fit here: `border_elements` is generic over the renderer (shared by winit's
+    `GlesRenderer` and udev's `UdevRenderer`/`MultiRenderer`), and smithay's
+    `PixelShaderElement` only implements `RenderElement` for a concrete `GlesRenderer`,
+    so no single trait bound satisfies both backends' concrete renderer type at once.
+    Uses a CPU-rasterized `MemoryRenderBuffer` corner mask instead (`CornerMaskCache`) —
+    already generic over the renderer (the cursor uses the same mechanism in both
+    backends) — drawn on top of the window so it also masks the small triangular
+    slivers of the window's own square corners that poke out past the rounded inner
+    edge, without ever clipping the client's real content. Confirmed working on real
+    DRM/KMS hardware, no flicker.
+- **Scratchpad windows** (`crate::workspace`):
+  - `spitfire.window.toggle_scratchpad()`: a single anonymous slot. Stashes whichever
+    window has keyboard focus (unmapped, taken out of its workspace's tiling order —
+    same treatment `hide_inactive_workspaces` already gives an inactive workspace), or
+    brings back whatever's already stashed there, centered (`shell::center_on_output`,
+    factored out of `center_if_ruled`) and focused.
+  - `spitfire.scratchpad.toggle(name, spawn_cmd, app_id, width_frac?, height_frac?)`: a
+    named, app-specific scratchpad (XMonad/LeftWM-style "drop-down terminal"). Spawns
+    `spawn_cmd` the first time (or again if the window it held died), claims the next
+    window that maps with the given `app_id`
+    (`SpitfireState::claim_pending_named_scratchpad`, called from `shell::commit`'s
+    first-buffer path), then shows/hides that exact instance on every later toggle —
+    never closed and reopened, scrollback and all preserved. `width_frac`/`height_frac`
+    (each `0.0..=1.0`, either omittable) size it as a fraction of the output's usable
+    area once, at claim time.
+    - Both share a `layout::ForceFloating` `UserDataMap` marker (deliberately never
+      removed once set, matching how sway/i3 scratchpad windows stay floating for
+      good) to keep `TilingLayout::arrange` from folding a scratchpad window back into
+      the tiling grid the instant it's shown.
+    - Real bug found and fixed via actual use: a freshly spawned named-scratchpad
+      window's `app_id` becomes known well before its first buffer commits, and
+      `arrange` runs every frame — so for however many frames passed in between, an
+      unclaimed scratchpad window sat in the *tiled* set and got a real tile-slot size
+      `send_pending_configure`d to it (a terminal generally honors whatever size it's
+      told before it first draws), opening at the full height of the usable area
+      instead of its own preferred size. Fixed by having `arrange`/
+      `matches_floating_rule` also exclude any `app_id` a pending
+      `spitfire.scratchpad.toggle` call is currently waiting to claim, closing the gap
+      instead of only ever preventing *future* passes (`ForceFloating` isn't set until
+      the claim itself runs, which is too late for the *first* configure).
 - **Server-side decoration header bar** (`shell/ssd.rs`, for clients that don't draw
   their own — e.g. alacritty): a thin 11px strip with close/maximize buttons, colored
   from the Tokyo Night palette (background `#414868`, close `#f7768e`, maximize
@@ -144,7 +186,36 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   a window came from XWayland. Doesn't fail hard if `Xwayland` isn't installed: it just
   warns and X11-only apps won't work, everything else is unaffected. Verified against
   real X11 clients (`xeyes`, `xterm`) run inside a `--winit` session with
-  `--features xwayland`.
+  `--features xwayland`. Three real bugs found and fixed against a much heavier real
+  client (Steam) than `xeyes`/`xterm` ever exercised:
+  - `map_window_request` never joined an X11 window to the active workspace's tiling
+    order the way a Wayland toplevel does in `shell/xdg.rs`'s `new_toplevel` — so
+    `hide_inactive_workspaces` had no idea it existed and never unmapped it on a
+    workspace switch. An XWayland window stayed mapped and visible on *every*
+    workspace, forever, instead of just the one it opened on. Fixed by pushing it into
+    the tiling order on map and removing it again on unmap, mirroring the Wayland path.
+    Confirmed fixed on real hardware.
+  - `configure_request` called `X11Surface::configure()` unconditionally for every
+    window and discarded the `Result`. That call immediately errors out — no XCB
+    request goes out at all — when given a position for an override-redirect window
+    (menus, dropdowns, tooltips: windows that opt out of window-manager placement by
+    definition), so every override-redirect `ConfigureRequest` was a silent no-op: a
+    menu asking to be placed at the click location, or a submenu asking to be placed
+    next to its parent, just stayed wherever it was originally created. Steam's own
+    menus opened in the screen's top-left corner, and submenus did nothing at all when
+    hovered into. Fixed by skipping `configure()` entirely for `is_override_redirect()`
+    windows — `configure_notify` (unchanged) is what actually keeps `self.space` in
+    sync with wherever the X server applied their own `ConfigureWindow` request.
+  - Plenty of real popups/menus (Steam's CEF-based UI included) map as *ordinary*,
+    non-override-redirect windows rather than true override-redirect ones, so the fix
+    above didn't cover them — they still went through `place_new_window`'s random
+    cascade and then `TilingLayout::arrange`'s tiling, landing at a tile-slot position
+    instead of wherever they'd actually asked for. `is_positioned_by_client()` extends
+    the same "leave it alone" treatment to a window that's transient-for another
+    window (dialogs) or EWMH-typed as a menu/dropdown/popup-menu/tooltip/notification.
+    Confirmed on real hardware: Steam's menus went from unusable (opening off in the
+    corner) to clickable, though not pixel-perfectly positioned — see
+    [Known limitations](#known-limitations--pending-work).
 - **DRM/KMS backend** (opt-in `udev` cargo feature, `spitfire --udev`): runs as the real
   login session instead of nested inside one — session handling via libseat, GPU/output
   enumeration via udev, real input devices via libinput (including tap-to-click, enabled
@@ -161,7 +232,17 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   reports the *shifted*/uppercase keysym once Shift is held; bind matching now
   case-folds letters before comparing), server-side-decorated windows overflowing past
   their tile slot (the header bar's height wasn't subtracted from the configured content
-  size), and the session-lock frame-callback bug described above.
+  size), and the session-lock frame-callback bug described above. Also: a key held
+  across a VT switch (Ctrl+Alt+F2 and back, or the chord that triggered the switch
+  itself) never got its release, since `libinput` is fully suspended for as long as the
+  session is inactive — `SessionEvent::PauseSession` now calls the already-existing
+  (but previously never invoked) `release_all_keys()` right as the pause begins, so a
+  VT switch resets held-key state instead of carrying it across a gap the compositor
+  can't observe. A separate, still-open "key occasionally does the wrong thing" report
+  from the same testing session turned out, on inspection, to trace back to the
+  XWayland-workspace-visibility bug above (Steam silently still receiving input) rather
+  than a lost keyboard event — a full keycode-level audit of the press/release log
+  never turned up an actual dropped or duplicated event.
 
 ## Known limitations / pending work
 
@@ -169,6 +250,13 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   center/right rows on narrow outputs (its own `Math.max`/`Math.min` collision math
   doesn't account for not enough width for both) — only shows up on a narrow nested test
   window, not a real display; left for Utumno to fix.
+- Steam's own menus/submenus (see the XWayland bullet above) are clickable but land
+  roughly 15-20% off from where they actually asked to be — `configure_notify` keeps
+  `self.space` in sync with whatever the X server reports, so this looks like it's
+  Steam/CEF itself computing that position from a wrong idea of the X11 screen's size
+  rather than something `configure_request`/`configure_notify` are getting wrong
+  server-side. Not chased further — the menus are usable now, which is the part that
+  mattered.
 - The bar's bitmap font only has uppercase A-Z — text is uppercased before drawing, so
   an SSID (or anything else routed through it) always displays in caps, not necessarily
   matching its real casing.
