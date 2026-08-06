@@ -1,0 +1,46 @@
+# Maintainer: Daniel Azevedo <daniazevedo77@posteo.net>
+pkgname=spitfire
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A tiling Wayland compositor in the spirit of dwm — one Lua config file, reloadable without restarting your session"
+arch=('x86_64' 'aarch64')
+url="https://github.com/dani-77/spitfire"
+license=('MIT')
+depends=('wayland' 'libxkbcommon' 'mesa' 'seatd' 'libinput' 'libdisplay-info')
+makedepends=('cargo' 'wayland-protocols' 'git')
+optdepends=('xorg-xwayland: run X11-only apps under spitfire (XWayland support)'
+            'xdg-desktop-portal: file-open dialogs, notifications and other portal prompts'
+            'greetd: use spitfire as a real login-screen session')
+provides=('wayland-session')
+backup=('etc/xdg-desktop-portal/spitfire-portals.conf')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/spitfire/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('82ab2400880169cf905888a8ae32b6db9d5c75fff2e281f678c1682f105a7ab2')
+
+# Smithay (the Wayland compositor library spitfire is built on) is pinned as
+# a git dependency in Cargo.lock rather than pulled from crates.io, so
+# `cargo fetch` here needs network access — same as any other Rust package
+# whose Cargo.lock points at a git source. Not an issue for a normal
+# `makepkg`/AUR build; if you're building in a network-less chroot, run
+# `cargo fetch --locked` once outside it and vendor the result instead.
+prepare() {
+  cd "$pkgname-$pkgver"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  # udev,xwayland: same feature set the project's own `make install` builds
+  # with — see the top-level Makefile.
+  cargo build --frozen --release --features udev,xwayland
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  # Reuses the project's own install rules (binaries, session entry,
+  # portal config, icons) instead of duplicating them here. `install:`
+  # depends on `build:` in the Makefile, but the cargo invocation is a
+  # no-op at this point since build() already produced target/release/.
+  make install DESTDIR="$pkgdir" PREFIX=/usr
+}
