@@ -30,10 +30,11 @@
 
 use smithay::{
     backend::renderer::{
-        element::{solid::SolidColorBuffer, solid::SolidColorRenderElement, Kind},
-        Color32F, ImportAll, ImportMem, Renderer,
+        element::{solid::SolidColorRenderElement, Element, Id, Kind, RenderElement},
+        utils::CommitCounter,
+        Color32F, Frame, ImportAll, ImportMem, Renderer,
     },
-    utils::{Logical, Physical, Point, Rectangle, Scale},
+    utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Transform},
 };
 use std::time::{Duration, Instant};
 
@@ -41,7 +42,7 @@ use spitfire_config::BarConfig;
 use spitfire_layout::LayoutMode;
 
 use crate::{
-    render::{hex_to_color32f, CustomRenderElements},
+    render::{hex_to_color32f, CustomRenderElements, RectCache},
     state::{Backend, SpitfireState},
 };
 
@@ -64,6 +65,19 @@ pub struct Bar {
     /// counters are cumulative since boot), so the first tick after
     /// startup only seeds this and `cpu_text` stays empty for one second.
     prev_cpu: Option<(u64, u64)>,
+    /// Backing buffer for the bar's background strip, reused frame to
+    /// frame so an unchanged bar produces zero damage instead of
+    /// repainting at the full display refresh rate forever — see
+    /// `RectCache`.
+    rect_cache: RectCache,
+    /// All `fg`-colored glyph rects (every workspace number but the active
+    /// one, the layout icon, the status text) batched into one render
+    /// element — see `GlyphBatch`.
+    fg_batch: GlyphBatch,
+    /// The active workspace's number, in `fg_active` — kept as its own
+    /// batch since it's a different color from `fg_batch` (one
+    /// `GlyphBatchElement` only ever draws in a single color).
+    fg_active_batch: GlyphBatch,
 }
 
 impl Bar {
@@ -390,6 +404,7 @@ fn measure_text(s: &str, height: i32, gap: i32) -> i32 {
 
 fn push_rect<R>(
     elements: &mut Vec<CustomRenderElements<R>>,
+    cache: &mut RectCache,
     rect: Rectangle<i32, Logical>,
     color: Color32F,
     output_scale: Scale<f64>,
@@ -399,49 +414,244 @@ fn push_rect<R>(
     if rect.size.w <= 0 || rect.size.h <= 0 {
         return;
     }
-    let buffer = SolidColorBuffer::new(rect.size, color);
+    let buffer = cache.next(rect.size, color);
     let loc: Point<i32, Physical> = rect.loc.to_f64().to_physical(output_scale).to_i32_round();
     elements.push(CustomRenderElements::Solid(
-        SolidColorRenderElement::from_buffer(&buffer, loc, output_scale, 1.0, Kind::Unspecified),
+        SolidColorRenderElement::from_buffer(buffer, loc, output_scale, 1.0, Kind::Unspecified),
     ));
 }
 
-/// Draws one text string left-to-right starting at `(x, y)`, one filled
-/// rect per lit pixel of each character's `Glyph`, returning the x
-/// position right after the last glyph (unknown characters are skipped
-/// entirely — see `glyph_for`).
+/// Converts one logical-space rect into physical space and appends it to
+/// `rects` for later batching into one `GlyphBatchElement` — the glyph
+/// counterpart of `push_rect`, which instead emits a whole separate
+/// `SolidColorRenderElement` per rect (fine for the handful of border
+/// strips it's built for, ruinous for the hundreds of tiny rects a status
+/// line's worth of bitmap-font text needs; see `GlyphBatch`'s docs).
+fn push_phys_rect(
+    rects: &mut Vec<Rectangle<i32, Physical>>,
+    rect: Rectangle<i32, Logical>,
+    output_scale: Scale<f64>,
+) {
+    if rect.size.w <= 0 || rect.size.h <= 0 {
+        return;
+    }
+    rects.push(rect.to_physical_precise_round(output_scale));
+}
+
+/// One (color, list-of-rects) group of the bar's bitmap-font glyphs,
+/// bundled into a single render element instead of the many individual
+/// ones `push_rect` would otherwise emit — see `GlyphBatch`'s docs for why.
+#[derive(Debug, Clone)]
+pub(crate) struct GlyphBatchElement {
+    id: Id,
+    geometry: Rectangle<i32, Physical>,
+    rects: Vec<Rectangle<i32, Physical>>,
+    color: Color32F,
+    commit: CommitCounter,
+}
+
+impl Element for GlyphBatchElement {
+    fn id(&self) -> &Id {
+        &self.id
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        self.commit
+    }
+
+    fn src(&self) -> Rectangle<f64, Buffer> {
+        // Unused by `draw` below (solid colors have no source buffer to
+        // sample from) — same reasoning, and same computation, as
+        // `SolidColorRenderElement::new`'s own `src`.
+        let size = self.geometry.size.to_f64().to_logical(1f64);
+        Rectangle::from_size(size).to_buffer(1f64, Transform::Normal, &size)
+    }
+
+    fn geometry(&self, _scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        self.geometry
+    }
+
+    // `opaque_regions` is intentionally left at its default (empty): the
+    // bar's background strip, drawn separately right behind this, already
+    // covers this element's whole area, so there's nothing this element
+    // needs to contribute to occlusion — and *not* contributing it is the
+    // entire point, see `GlyphBatch`'s docs.
+}
+
+impl<R: Renderer> RenderElement<R> for GlyphBatchElement {
+    fn draw(
+        &self,
+        frame: &mut R::Frame<'_, '_>,
+        _src: Rectangle<f64, Buffer>,
+        _dst: Rectangle<i32, Physical>,
+        _damage: &[Rectangle<i32, Physical>],
+        _opaque_regions: &[Rectangle<i32, Physical>],
+    ) -> Result<(), R::Error> {
+        // `draw` only runs when the compositor already decided this
+        // element needs (re)drawing (see `Element::damage_since`'s
+        // default, which we rely on: whole-geometry damage or none), so
+        // every sub-rect gets fully redrawn — no need to intersect against
+        // `_damage`. Crucially, `draw_solid`'s damage argument is read
+        // *relative to* the `dst` rect it's given (0,0 = that rect's own
+        // corner — see its GLES implementation, which clamps into
+        // `[0, dst.size]`), not in absolute output coordinates like
+        // `self.rects` are; passing `_damage` through unadjusted here was
+        // the bug that first made this draw nothing at all.
+        for &rect in &self.rects {
+            frame.draw_solid(rect, &[Rectangle::from_size(rect.size)], self.color)?;
+        }
+        Ok(())
+    }
+}
+
+/// Persistent identity + content for one `GlyphBatchElement`: keeps the
+/// same `Id`/`CommitCounter` across frames when given the same rects/color
+/// as last time — same reasoning as `RectCache`, just at the scale of a
+/// whole batch of rects instead of one each.
+///
+/// This exists because a `SolidColorRenderElement` per lit bitmap pixel —
+/// what `push_rect`-based drawing used to do — turned out to cost far more
+/// than the GPU work of drawing them: smithay's damage tracker subtracts
+/// every *opaque* element's region from every other one behind it
+/// (`Rectangle::subtract_rects_many_in_place`), an algorithm whose cost
+/// scales with the number of such elements, and a status line's worth of
+/// individually-opaque glyph pixels runs into the hundreds. Measured with
+/// `perf`: over 80% of *all* sampled CPU cycles, on every frame the bar
+/// was composited, damage or no damage — not something `RectCache` alone
+/// (which keeps *unchanged* rects from re-triggering that work, but does
+/// nothing about how many rects a *changed* frame still has to feed it)
+/// could fix. Batching every rect of one color into a single element with
+/// no `opaque_regions` of its own (see `GlyphBatchElement`) sidesteps the
+/// algorithm entirely: from its perspective the bar's text is one thing,
+/// not hundreds.
+#[derive(Debug, Default)]
+struct GlyphBatch {
+    id: Option<Id>,
+    rects: Vec<Rectangle<i32, Physical>>,
+    color: Color32F,
+    commit: CommitCounter,
+}
+
+impl GlyphBatch {
+    /// Updates this batch's content, bumping the commit counter only if
+    /// it actually differs from what was drawn last frame, and returns the
+    /// render element for this frame — `None` if `rects` is empty (nothing
+    /// to draw, e.g. an empty status text).
+    fn element(&mut self, rects: Vec<Rectangle<i32, Physical>>, color: Color32F) -> Option<GlyphBatchElement> {
+        if rects.is_empty() {
+            return None;
+        }
+        let id = self.id.get_or_insert_with(Id::new).clone();
+        if self.rects != rects || self.color != color {
+            self.rects = rects;
+            self.color = color;
+            self.commit.increment();
+        }
+        let geometry = self
+            .rects
+            .iter()
+            .copied()
+            .reduce(Rectangle::merge)
+            .expect("checked non-empty above");
+        Some(GlyphBatchElement {
+            id,
+            geometry,
+            rects: self.rects.clone(),
+            color: self.color,
+            commit: self.commit,
+        })
+    }
+}
+
+/// Decodes one glyph into a minimal set of `(col, row, width, height)`
+/// rects in glyph-local pixel coordinates, instead of one per lit pixel:
+/// horizontally-contiguous lit runs within a row become one rect, then
+/// vertically-adjacent rows with the *identical* run pattern (true for
+/// most of a glyph's height — e.g. a letter's uninterrupted side strokes)
+/// merge into one taller rect.
+///
+/// This matters far more than it looks: every rect here becomes a fully
+/// opaque `SolidColorRenderElement`, and smithay's damage tracker has to
+/// subtract every opaque element's region from every other one behind it
+/// (`Rectangle::subtract_rects_many_in_place`) — quadratic in the number
+/// of elements. A whole status line of one-rect-per-pixel glyphs runs into
+/// the hundreds of elements, which made that subtraction the dominant CPU
+/// cost on *every* frame the bar is composited, not just when its text
+/// changes. Merging cuts the count per glyph by roughly 3-4x, which — being
+/// squared away in a quadratic algorithm — cuts that cost by closer to an
+/// order of magnitude.
+fn glyph_rects(glyph: &Glyph) -> Vec<(i32, i32, i32, i32)> {
+    let row_intervals: Vec<Vec<(i32, i32)>> = glyph
+        .iter()
+        .map(|&bits| {
+            let mut intervals = Vec::new();
+            let mut col = 0i32;
+            while col < GLYPH_COLS {
+                let lit = |c: i32| bits & (1 << (GLYPH_COLS - 1 - c) as u32) != 0;
+                if lit(col) {
+                    let start = col;
+                    while col < GLYPH_COLS && lit(col) {
+                        col += 1;
+                    }
+                    intervals.push((start, col - start));
+                } else {
+                    col += 1;
+                }
+            }
+            intervals
+        })
+        .collect();
+
+    let mut rects = Vec::new();
+    let mut row = 0usize;
+    while row < row_intervals.len() {
+        if row_intervals[row].is_empty() {
+            row += 1;
+            continue;
+        }
+        let mut height = 1;
+        while row + height < row_intervals.len() && row_intervals[row + height] == row_intervals[row]
+        {
+            height += 1;
+        }
+        rects.extend(
+            row_intervals[row]
+                .iter()
+                .map(|&(col, w)| (col, row as i32, w, height as i32)),
+        );
+        row += height;
+    }
+    rects
+}
+
+/// Draws one text string left-to-right starting at `(x, y)`, appending the
+/// merged rects `glyph_rects` computes for each character to `rects` (all
+/// drawn in the one `color` this call gets — see `GlyphBatch`, which is
+/// why `draw_text` no longer builds render elements directly), and
+/// returning the x position right after the last glyph (unknown characters
+/// are skipped entirely — see `glyph_for`).
 #[allow(clippy::too_many_arguments)]
-fn draw_text<R>(
-    elements: &mut Vec<CustomRenderElements<R>>,
+fn draw_text(
+    rects: &mut Vec<Rectangle<i32, Physical>>,
     text: &str,
     mut x: i32,
     y: i32,
     height: i32,
     gap: i32,
-    color: Color32F,
     output_scale: Scale<f64>,
-) -> i32
-where
-    R: Renderer + ImportAll + ImportMem,
-{
+) -> i32 {
     let px = glyph_pixel_size(height);
     for c in text.chars() {
         if let Some(glyph) = glyph_for(c) {
-            for (row, bits) in glyph.into_iter().enumerate() {
-                for col in 0..GLYPH_COLS {
-                    let bit = (GLYPH_COLS - 1 - col) as u32;
-                    if bits & (1 << bit) != 0 {
-                        push_rect(
-                            elements,
-                            Rectangle::new(
-                                (x + col * px, y + row as i32 * px).into(),
-                                (px, px).into(),
-                            ),
-                            color,
-                            output_scale,
-                        );
-                    }
-                }
+            for (col, row, w, h) in glyph_rects(&glyph) {
+                push_phys_rect(
+                    rects,
+                    Rectangle::new(
+                        (x + col * px, y + row * px).into(),
+                        (w * px, h * px).into(),
+                    ),
+                    output_scale,
+                );
             }
         }
         x += glyph_advance(c, height) + gap;
@@ -452,17 +662,14 @@ where
 /// A small geometric icon standing in for a font glyph, echoing the shape
 /// of the actual layout — drawn in a `size` × `size` box anchored at
 /// `(x, y)`.
-fn draw_layout_icon<R>(
-    elements: &mut Vec<CustomRenderElements<R>>,
+fn draw_layout_icon(
+    rects: &mut Vec<Rectangle<i32, Physical>>,
     mode: LayoutMode,
     x: i32,
     y: i32,
     size: i32,
-    color: Color32F,
     output_scale: Scale<f64>,
-) where
-    R: Renderer + ImportAll + ImportMem,
-{
+) {
     let t = (size / 8).max(1);
     match mode {
         LayoutMode::Tile => {
@@ -471,33 +678,29 @@ fn draw_layout_icon<R>(
             let master_w = (size * 3) / 5;
             let stack_w = (size - master_w - t).max(1);
             let stack_h = ((size - t) / 2).max(1);
-            push_rect(
-                elements,
+            push_phys_rect(
+                rects,
                 Rectangle::new((x, y).into(), (master_w, size).into()),
-                color,
                 output_scale,
             );
-            push_rect(
-                elements,
+            push_phys_rect(
+                rects,
                 Rectangle::new((x + master_w + t, y).into(), (stack_w, stack_h).into()),
-                color,
                 output_scale,
             );
-            push_rect(
-                elements,
+            push_phys_rect(
+                rects,
                 Rectangle::new(
                     (x + master_w + t, y + stack_h + t).into(),
                     (stack_w, stack_h).into(),
                 ),
-                color,
                 output_scale,
             );
         }
         LayoutMode::Monocle => {
-            push_rect(
-                elements,
+            push_phys_rect(
+                rects,
                 Rectangle::new((x, y).into(), (size, size).into()),
-                color,
                 output_scale,
             );
         }
@@ -505,28 +708,24 @@ fn draw_layout_icon<R>(
             // A hollow square outline — four thin strips, the same trick
             // `spitfire.border` uses so it never has to rely on occlusion
             // to punch a hole through anything.
-            push_rect(
-                elements,
+            push_phys_rect(
+                rects,
                 Rectangle::new((x, y).into(), (size, t).into()),
-                color,
                 output_scale,
             );
-            push_rect(
-                elements,
+            push_phys_rect(
+                rects,
                 Rectangle::new((x, y + size - t).into(), (size, t).into()),
-                color,
                 output_scale,
             );
-            push_rect(
-                elements,
+            push_phys_rect(
+                rects,
                 Rectangle::new((x, y).into(), (t, size).into()),
-                color,
                 output_scale,
             );
-            push_rect(
-                elements,
+            push_phys_rect(
+                rects,
                 Rectangle::new((x + size - t, y).into(), (t, size).into()),
-                color,
                 output_scale,
             );
         }
@@ -535,16 +734,14 @@ fn draw_layout_icon<R>(
             // the spiral split without drawing the whole thing.
             let (mut rx, mut ry, mut rw, mut rh) = (x, y, size, size);
             for _ in 0..3 {
-                push_rect(
-                    elements,
+                push_phys_rect(
+                    rects,
                     Rectangle::new((rx, ry).into(), (rw.max(t), t).into()),
-                    color,
                     output_scale,
                 );
-                push_rect(
-                    elements,
+                push_phys_rect(
+                    rects,
                     Rectangle::new((rx, ry).into(), (t, rh.max(t)).into()),
-                    color,
                     output_scale,
                 );
                 rx += rw / 2;
@@ -575,12 +772,14 @@ pub fn bar_elements<R>(
     data: &BarData,
     status_text: &str,
     output_scale: Scale<f64>,
+    bar: &mut Bar,
 ) -> Vec<CustomRenderElements<R>>
 where
     R: Renderer + ImportAll + ImportMem,
 {
     let mut elements = Vec::new();
     if !config.enabled || config.height <= 0 {
+        bar.rect_cache.finish_frame();
         return elements;
     }
 
@@ -596,46 +795,35 @@ where
     let glyph_h = (height - pad * 2).max(1);
     let gap = (glyph_h / 6).max(1);
 
+    // Every glyph rect gets bucketed by color rather than turned into its
+    // own render element right away — `fg_batch`/`fg_active_batch` (see
+    // `GlyphBatch`) fold each bucket into a single element afterwards, so
+    // the damage tracker sees two things here (three with the background),
+    // never one per lit pixel.
+    let mut fg_rects = Vec::new();
+    let mut fg_active_rects = Vec::new();
+
     // Left: workspace numbers (highlighted when active) + layout-mode icon.
     let mut x = outer_gap + pad;
     let content_y = outer_gap + pad;
     for item in &data.workspaces {
-        let color = if item.active { fg_active } else { fg };
-        x = draw_text(
-            &mut elements,
-            &item.number.to_string(),
-            x,
-            content_y,
-            glyph_h,
-            gap,
-            color,
-            output_scale,
-        );
+        let rects = if item.active { &mut fg_active_rects } else { &mut fg_rects };
+        x = draw_text(rects, &item.number.to_string(), x, content_y, glyph_h, gap, output_scale);
         x += pad;
     }
-    draw_layout_icon(
-        &mut elements,
-        data.mode,
-        x,
-        content_y,
-        glyph_h,
-        fg,
-        output_scale,
-    );
+    draw_layout_icon(&mut fg_rects, data.mode, x, content_y, glyph_h, output_scale);
 
     // Right: CPU/RAM/NETWORK/clock/date, right-aligned.
     let text_w = measure_text(status_text, glyph_h, gap);
     let start_x = (outer_gap + bar_width - pad - text_w).max(x);
-    draw_text(
-        &mut elements,
-        status_text,
-        start_x,
-        content_y,
-        glyph_h,
-        gap,
-        fg,
-        output_scale,
-    );
+    draw_text(&mut fg_rects, status_text, start_x, content_y, glyph_h, gap, output_scale);
+
+    if let Some(e) = bar.fg_batch.element(fg_rects, fg) {
+        elements.push(CustomRenderElements::GlyphBatch(e));
+    }
+    if let Some(e) = bar.fg_active_batch.element(fg_active_rects, fg_active) {
+        elements.push(CustomRenderElements::GlyphBatch(e));
+    }
 
     // Background strip, inset by outer_gap on the top/left/right so the
     // bar floats — pushed last, not first: this element list is
@@ -647,10 +835,145 @@ where
     // list this time.
     push_rect(
         &mut elements,
+        &mut bar.rect_cache,
         Rectangle::new((outer_gap, outer_gap).into(), (bar_width, height).into()),
         bg,
         output_scale,
     );
 
+    bar.rect_cache.finish_frame();
+
     elements
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `glyph_rects`' merged rects must cover exactly the same pixels as
+    /// the naive one-rect-per-lit-bit reading of the glyph — no more (that
+    /// would draw pixels the font never lit), no less (missing pixels),
+    /// and no overlaps (wasted, overlapping opaque elements defeats the
+    /// point of merging them in the first place).
+    fn lit_pixels(glyph: &Glyph) -> std::collections::HashSet<(i32, i32)> {
+        let mut pixels = std::collections::HashSet::new();
+        for (row, &bits) in glyph.iter().enumerate() {
+            for col in 0..GLYPH_COLS {
+                if bits & (1 << (GLYPH_COLS - 1 - col) as u32) != 0 {
+                    pixels.insert((col, row as i32));
+                }
+            }
+        }
+        pixels
+    }
+
+    fn rects_pixels(rects: &[(i32, i32, i32, i32)]) -> Vec<(i32, i32)> {
+        rects
+            .iter()
+            .flat_map(|&(col, row, w, h)| {
+                (col..col + w).flat_map(move |c| (row..row + h).map(move |r| (c, r)))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn merged_rects_cover_exactly_the_lit_pixels_for_every_glyph() {
+        // '0'-'9', 'A'-'Z', and the handful of symbols glyph_for knows —
+        // every character that can actually reach draw_text.
+        let chars = ('0'..='9').chain('A'..='Z').chain(['%', '+', '-', '_', ':', '.', '|']);
+        for c in chars {
+            let glyph = glyph_for(c).unwrap_or_else(|| panic!("no glyph for {c:?}"));
+            let rects = glyph_rects(&glyph);
+            let pixels = rects_pixels(&rects);
+
+            let mut seen = std::collections::HashSet::new();
+            for p in &pixels {
+                assert!(seen.insert(*p), "{c:?}: pixel {p:?} covered by overlapping rects");
+            }
+            assert_eq!(
+                seen,
+                lit_pixels(&glyph),
+                "{c:?}: merged rects don't cover the same pixels as the glyph"
+            );
+        }
+    }
+
+    #[test]
+    fn merging_meaningfully_reduces_rect_count() {
+        // '0': solid top/bottom bars plus two untouched side strokes for
+        // 5 rows — should merge from 16 lit pixels down to 4 rects.
+        let glyph = glyph_for('0').unwrap();
+        assert_eq!(glyph_rects(&glyph).len(), 4);
+    }
+
+    fn phys_rect(x: i32, y: i32, w: i32, h: i32) -> Rectangle<i32, Physical> {
+        Rectangle::new((x, y).into(), (w, h).into())
+    }
+
+    /// The entire point of `GlyphBatch`: unchanged content keeps the same
+    /// `Id` *and* the same `CommitCounter` across calls, so the damage
+    /// tracker reads it as "nothing changed here" — see the module-level
+    /// docs on `GlyphBatch` for why that's the whole fix.
+    #[test]
+    fn unchanged_content_keeps_the_same_id_and_commit() {
+        let mut batch = GlyphBatch::default();
+        let rects = vec![phys_rect(0, 0, 5, 7), phys_rect(10, 0, 5, 7)];
+        let color = Color32F::new(1.0, 1.0, 1.0, 1.0);
+
+        let first = batch.element(rects.clone(), color).unwrap();
+        let second = batch.element(rects, color).unwrap();
+
+        assert_eq!(first.id, second.id);
+        assert_eq!(first.commit, second.commit);
+    }
+
+    /// Changed content (different rects, or a different color) keeps the
+    /// same `Id` — it's still logically "the fg batch" — but bumps the
+    /// commit, so the tracker knows to actually redraw it.
+    #[test]
+    fn changed_content_keeps_the_id_but_bumps_the_commit() {
+        let mut batch = GlyphBatch::default();
+        let color = Color32F::new(1.0, 1.0, 1.0, 1.0);
+        let first = batch.element(vec![phys_rect(0, 0, 5, 7)], color).unwrap();
+        let second = batch.element(vec![phys_rect(0, 0, 5, 8)], color).unwrap();
+
+        assert_eq!(first.id, second.id);
+        assert_ne!(first.commit, second.commit);
+    }
+
+    #[test]
+    fn empty_rects_produce_no_element() {
+        let mut batch = GlyphBatch::default();
+        assert!(batch.element(Vec::new(), Color32F::new(1.0, 1.0, 1.0, 1.0)).is_none());
+    }
+
+    /// The whole reason `GlyphBatch` exists: a realistic status line's
+    /// worth of text collapses into a small, constant number of render
+    /// elements (2 glyph batches + 1 background rect) instead of one per
+    /// lit bitmap pixel (hundreds — see `GlyphBatch`'s docs for why that
+    /// was so expensive). Exercises the same `draw_text`/`draw_layout_icon`
+    /// path `bar_elements` uses, just without needing a real renderer.
+    #[test]
+    fn a_realistic_bar_collapses_to_a_handful_of_glyph_batches() {
+        let status = "CPU: 66% | RAM: 45% | BAT: 82%+ | NETWORK: MYHOMEWIFI 80% | 14:23 - 06.08.2026"
+            .to_uppercase();
+        let scale = Scale::from(1.0);
+
+        let mut fg_rects = Vec::new();
+        let mut x = 0;
+        for n in 1..=5 {
+            x = draw_text(&mut fg_rects, &n.to_string(), x, 0, 21, 3, scale);
+            x += 4;
+        }
+        draw_layout_icon(&mut fg_rects, LayoutMode::Tile, x, 0, 21, scale);
+        draw_text(&mut fg_rects, &status, x, 0, 21, 3, scale);
+
+        // Hundreds of individual glyph rects, as expected...
+        assert!(fg_rects.len() > 200, "expected a few hundred glyph rects, got {}", fg_rects.len());
+
+        // ...but batched into exactly one render element, not one each.
+        let mut batch = GlyphBatch::default();
+        let color = Color32F::new(1.0, 1.0, 1.0, 1.0);
+        assert!(batch.element(fg_rects, color).is_some());
+    }
 }

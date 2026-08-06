@@ -58,6 +58,9 @@ pub struct WinitData {
     damage_tracker: OutputDamageTracker,
     dmabuf_state: (DmabufState, DmabufGlobal, Option<DmabufFeedback>),
     full_redraw: u8,
+    /// Backing buffers for `spitfire.border`'s rects, reused frame to frame
+    /// — see `render::RectCache`.
+    border_cache: crate::render::RectCache,
     #[cfg(feature = "debug")]
     pub fps: fps_ticker::Fps,
 }
@@ -213,6 +216,7 @@ pub fn run_winit() {
             damage_tracker,
             dmabuf_state,
             full_redraw: 0,
+            border_cache: crate::render::RectCache::default(),
             #[cfg(feature = "debug")]
             fps: fps_ticker::Fps::default(),
         }
@@ -278,6 +282,7 @@ pub fn run_winit() {
                 .unwrap_or(0);
             state.bar.tick();
             let bar_status_text = state.bar.status_text();
+            let bar_mut = &mut state.bar;
 
             let backend = &mut state.backend_data.backend;
 
@@ -303,6 +308,7 @@ pub fn run_winit() {
             *full_redraw = full_redraw.saturating_sub(1);
             let space = &mut state.space;
             let damage_tracker = &mut state.backend_data.damage_tracker;
+            let border_cache = &mut state.backend_data.border_cache;
             let show_window_preview = state.show_window_preview;
             let locked = state.locked;
             let lock_surfaces = &state.lock_surfaces;
@@ -401,6 +407,7 @@ pub fn run_winit() {
                         &bar_data,
                         &bar_status_text,
                         scale,
+                        bar_mut,
                     ));
                 }
 
@@ -423,6 +430,7 @@ pub fn run_winit() {
                     border.width,
                     crate::render::hex_to_color32f(border.active),
                     crate::render::hex_to_color32f(border.inactive),
+                    border_cache,
                 )
                 .map_err(|err| match err {
                     OutputDamageTrackerError::Rendering(err) => err.into(),

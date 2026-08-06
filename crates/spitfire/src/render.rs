@@ -18,7 +18,7 @@ use smithay::{
     },
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Physical, Point, Rectangle, Scale, Size},
+    utils::{Logical, Physical, Point, Rectangle, Scale, Size},
 };
 
 #[cfg(feature = "debug")]
@@ -36,6 +36,11 @@ smithay::backend::renderer::element::render_elements! {
     // Solid-color rectangles — shared by spitfire.border and the optional
     // built-in bar (Phase 8), both just stacks of colored rects.
     Solid=SolidColorRenderElement,
+    // A whole batch of the bar's bitmap-font glyph rects (one color each),
+    // bundled into a single element — see `bar::GlyphBatch`'s docs for why
+    // that's not the same as `Solid` above, despite drawing the same kind
+    // of rects.
+    GlyphBatch=crate::bar::GlyphBatchElement,
     #[cfg(feature = "debug")]
     // Note: We would like to borrow this element instead, but that would introduce
     // a feature-dependent lifetime, which introduces a lot more feature bounds
@@ -50,10 +55,59 @@ impl<R: Renderer> std::fmt::Debug for CustomRenderElements<R> {
             Self::Pointer(arg0) => f.debug_tuple("Pointer").field(arg0).finish(),
             Self::Surface(arg0) => f.debug_tuple("Surface").field(arg0).finish(),
             Self::Solid(arg0) => f.debug_tuple("Solid").field(arg0).finish(),
+            Self::GlyphBatch(arg0) => f.debug_tuple("GlyphBatch").field(arg0).finish(),
             #[cfg(feature = "debug")]
             Self::Fps(arg0) => f.debug_tuple("Fps").field(arg0).finish(),
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
+    }
+}
+
+/// A persistent pool of `SolidColorBuffer`s, indexed positionally and
+/// reused frame to frame instead of rebuilt from scratch.
+///
+/// `SolidColorBuffer::new` mints a brand-new `Id` every time it's called —
+/// smithay's damage tracker keys on that `Id` (plus its `CommitCounter`) to
+/// tell whether an element is the same one it saw last frame or new
+/// content that needs damaging. Call `SolidColorBuffer::new` fresh every
+/// frame (as `spitfire.border` and the bar both used to) and every rect
+/// looks brand-new every single frame, even when nothing on screen actually
+/// changed — which means the output never has zero damage, which means the
+/// compositor never stops repainting at the full display refresh rate, even
+/// sitting fully idle. Reusing the same buffer (and only touching it via
+/// `update`, which no-ops when size/color haven't changed) keeps the same
+/// `Id`/`CommitCounter` across frames instead, so an unchanged rect reads as
+/// unchanged.
+///
+/// Used positionally: callers draw rects in the same order each frame
+/// (`next`), then call `finish_frame` once done. As long as the *content*
+/// at a given position is unchanged from the previous frame, `next` returns
+/// the exact same buffer with an unchanged commit — zero damage. If a frame
+/// draws fewer rects than the last one, `finish_frame` drops the leftover
+/// buffers, correctly damaging whatever they used to cover.
+#[derive(Debug, Default)]
+pub struct RectCache {
+    buffers: Vec<SolidColorBuffer>,
+    used: usize,
+}
+
+impl RectCache {
+    pub(crate) fn next(&mut self, size: Size<i32, Logical>, color: Color32F) -> &SolidColorBuffer {
+        match self.buffers.get_mut(self.used) {
+            Some(buffer) => buffer.update(size, color),
+            None => self.buffers.push(SolidColorBuffer::new(size, color)),
+        }
+        let buffer = &self.buffers[self.used];
+        self.used += 1;
+        buffer
+    }
+
+    /// Call once after a frame's rects have all been drawn through `next`:
+    /// drops any buffers left over from a previous frame that drew more
+    /// content than this one did, and resets the cursor for next frame.
+    pub fn finish_frame(&mut self) {
+        self.buffers.truncate(self.used);
+        self.used = 0;
     }
 }
 
@@ -89,14 +143,16 @@ pub fn border_elements<R>(
     active_color: Color32F,
     inactive_color: Color32F,
     output_scale: Scale<f64>,
+    cache: &mut RectCache,
 ) -> Vec<CustomRenderElements<R>>
 where
     R: Renderer + ImportAll + ImportMem,
 {
     if width <= 0 {
+        cache.finish_frame();
         return Vec::new();
     }
-    borders
+    let elements = borders
         .iter()
         .flat_map(|b| {
             let color = if b.focused {
@@ -126,22 +182,23 @@ where
                     (width, g.size.h).into(),
                 ),
             ];
-            strips
-                .into_iter()
-                .map(move |strip: Rectangle<i32, smithay::utils::Logical>| {
-                    let buffer = SolidColorBuffer::new(strip.size, color);
-                    let loc: Point<i32, Physical> =
-                        strip.loc.to_f64().to_physical(output_scale).to_i32_round();
-                    CustomRenderElements::Solid(SolidColorRenderElement::from_buffer(
-                        &buffer,
-                        loc,
-                        output_scale,
-                        1.0,
-                        Kind::Unspecified,
-                    ))
-                })
+            strips.map(|strip: Rectangle<i32, smithay::utils::Logical>| (strip, color))
         })
-        .collect()
+        .map(|(strip, color)| {
+            let buffer = cache.next(strip.size, color);
+            let loc: Point<i32, Physical> =
+                strip.loc.to_f64().to_physical(output_scale).to_i32_round();
+            CustomRenderElements::Solid(SolidColorRenderElement::from_buffer(
+                buffer,
+                loc,
+                output_scale,
+                1.0,
+                Kind::Unspecified,
+            ))
+        })
+        .collect();
+    cache.finish_frame();
+    elements
 }
 
 smithay::backend::renderer::element::render_elements! {
@@ -243,6 +300,7 @@ pub fn output_elements<R>(
     border_width: i32,
     border_active: Color32F,
     border_inactive: Color32F,
+    border_cache: &mut RectCache,
 ) -> (
     Vec<OutputRenderElements<R, WindowRenderElement<R>>>,
     Color32F,
@@ -318,8 +376,14 @@ where
         // front avoids relying on the space elements' occlusion tracking
         // to punch a window-shaped hole through anything placed behind them.
         let scale = output.current_scale().fractional_scale().into();
-        let border_elements =
-            border_elements::<R>(borders, border_width, border_active, border_inactive, scale);
+        let border_elements = border_elements::<R>(
+            borders,
+            border_width,
+            border_active,
+            border_inactive,
+            scale,
+            border_cache,
+        );
         for e in border_elements.into_iter().rev() {
             output_render_elements.insert(0, OutputRenderElements::from(e));
         }
@@ -343,6 +407,7 @@ pub fn render_output<'a, 'd, R>(
     border_width: i32,
     border_active: Color32F,
     border_inactive: Color32F,
+    border_cache: &mut RectCache,
 ) -> Result<RenderOutputResult<'d>, OutputDamageTrackerError<R::Error>>
 where
     R: Renderer + ImportAll + ImportMem,
@@ -359,6 +424,7 @@ where
         border_width,
         border_active,
         border_inactive,
+        border_cache,
     );
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }
