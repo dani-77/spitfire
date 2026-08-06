@@ -351,6 +351,21 @@ pub fn run_udev() {
                 libinput_context.suspend();
                 info!("pausing session");
 
+                // Any key still held down at the moment of a VT switch has
+                // its release happen invisibly to us: libinput is suspended
+                // for the whole time we're off this VT, so if the user lets
+                // go of the key on another VT (or the switch itself was
+                // triggered by a chord like Ctrl+Alt+F2), the matching
+                // `Released` input event never reaches `process_input_event`.
+                // Without this, both spitfire's own `suppressed_keys`
+                // tracking and whichever client had keyboard focus are left
+                // believing that key is still down forever once the session
+                // reactivates — the "stuck key" bug. Releasing everything
+                // synthetically right here, before the VT switch actually
+                // happens, keeps that state honest instead of guessing at
+                // resume time what got physically released in the meantime.
+                data.release_all_keys();
+
                 for backend in data.backend_data.backends.values_mut() {
                     backend.drm_output_manager.pause();
                     backend.active_leases.clear();
