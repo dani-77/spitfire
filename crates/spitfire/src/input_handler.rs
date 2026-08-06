@@ -38,7 +38,7 @@ use smithay::backend::input::AbsolutePositionEvent;
 
 #[cfg(any(feature = "winit", feature = "x11"))]
 use smithay::output::Output;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::state::Backend;
 #[cfg(feature = "udev")]
@@ -231,6 +231,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
     /// here even on sessions where XWayland is enabled — autostart entries
     /// that need `DISPLAY` should launch it themselves or wait.
     pub fn spawn_autostart(&self) {
+        self.update_dbus_activation_environment();
         for cmd in &self.config.autostart {
             info!(cmd, "Autostart (spitfire.autostart)");
             if let Err(err) = std::process::Command::new("sh")
@@ -242,6 +243,47 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             {
                 error!(cmd, %err, "Failed to spawn autostart command");
             }
+        }
+    }
+
+    /// Pushes `WAYLAND_DISPLAY`/`DISPLAY`/`XDG_CURRENT_DESKTOP` into the
+    /// D-Bus session daemon's *activation* environment, i.e. what
+    /// D-Bus-activated services (xdg-desktop-portal and whatever backend
+    /// it in turn activates, dunst if it's ever launched that way, ...)
+    /// inherit — distinct from this process's own environment or from
+    /// what [`Self::spawn_autostart`] hands its *direct* children.
+    ///
+    /// Needed because the dbus-daemon is up (via `dbus-run-session` in
+    /// packaging/spitfire-session) *before* spitfire itself runs, so it
+    /// starts with none of these — `std::env::set_var` calls in this
+    /// process, and the explicit `.envs(...)` on spawned children, never
+    /// reach a daemon that already existed beforehand. Symptom without
+    /// this: xdg-desktop-portal-gtk exiting immediately with "cannot open
+    /// display" the moment anything D-Bus-activates it, because GDK has no
+    /// `WAYLAND_DISPLAY` to connect to.
+    ///
+    /// Run synchronously (blocks briefly on process exit, not spawn-and-
+    /// forget) so it's guaranteed to land before any autostart entry gets
+    /// a chance to trigger a portal call. Best-effort: `dbus-update-
+    /// activation-environment` missing or failing (e.g. no session bus at
+    /// all) just means the pre-existing behavior, not a new failure mode.
+    fn update_dbus_activation_environment(&self) {
+        let mut cmd = std::process::Command::new("dbus-update-activation-environment");
+        cmd.arg("XDG_CURRENT_DESKTOP=spitfire");
+        if let Some(name) = &self.socket_name {
+            cmd.arg(format!("WAYLAND_DISPLAY={name}"));
+        }
+        if let Some((_, display)) = self.xdisplay_env() {
+            cmd.arg(format!("DISPLAY={display}"));
+        }
+        match cmd.status() {
+            Ok(status) if !status.success() => {
+                warn!(?status, "dbus-update-activation-environment exited non-zero");
+            }
+            Err(err) => {
+                warn!(%err, "Failed to run dbus-update-activation-environment");
+            }
+            Ok(_) => {}
         }
     }
 
