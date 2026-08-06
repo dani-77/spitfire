@@ -31,6 +31,11 @@ pub enum Command {
     /// `spitfire.window.focus_prev()` — dwm-style MODKEY+k: same as
     /// `WindowFocusNext`, other direction.
     WindowFocusPrev,
+    /// `spitfire.window.toggle_scratchpad()` — hides the focused window
+    /// into the (single-slot) scratchpad if it's currently visible, or
+    /// re-shows/refocuses whatever's already stashed there if nothing
+    /// relevant is focused. See `SpitfireState::toggle_scratchpad`.
+    WindowToggleScratchpad,
     /// `spitfire.quit()`.
     Quit,
     /// `spitfire.reload()` — drops the current Lua state and re-runs the

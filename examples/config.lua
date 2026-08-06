@@ -57,6 +57,13 @@ spitfire.bind("Mod4", "q", function() spitfire.window.close() end)
 spitfire.bind("Mod4", "j", function() spitfire.window.focus_next() end)
 spitfire.bind("Mod4", "k", function() spitfire.window.focus_prev() end)
 
+-- Scratchpad — a single hidden slot. Press once on the focused window to
+-- stash it (unmapped, out of the way); press again with nothing relevant
+-- focused to bring it back, centered on screen. Same bind toggles both
+-- directions — it always acts on whatever's already stashed once the slot
+-- is full, regardless of what's currently focused.
+spitfire.bind("Mod4", "grave", function() spitfire.window.toggle_scratchpad() end)
+
 -- Window rules — floating windows are left out of the tiling arrangement
 -- entirely (their geometry is never touched). Add `centered = true` to have
 -- it open in the middle of the screen instead of wherever it happened to

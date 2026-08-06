@@ -154,9 +154,24 @@ impl TilingLayout {
     }
 }
 
+/// Marks a window as floating regardless of whether any `spitfire.rule`
+/// matches its `app_id` — for windows that need excluding from tiling at
+/// runtime rather than by `app_id`, e.g. `SpitfireState::toggle_scratchpad`'s
+/// window while it's shown: it can be *any* app the user happened to have
+/// focused when they stashed it, so it won't reliably match a `floating =
+/// true` rule, but still needs the exact same "leave its geometry alone"
+/// treatment a rule-matched floating window gets — otherwise the very next
+/// `arrange` pass below would fold it right back into the tiling grid,
+/// undoing wherever it was just centered to.
+pub(crate) struct ForceFloating;
+
 /// Checks a window's current `app_id` (see `WindowElement::app_id`, may
-/// still be `None` right after mapping) against the configured rules.
+/// still be `None` right after mapping) against the configured rules, or
+/// whether it's carrying a `ForceFloating` marker (see its own doc comment).
 fn matches_floating_rule(window: &WindowElement, rules: &[WindowRule]) -> bool {
+    if window.0.user_data().get::<ForceFloating>().is_some() {
+        return true;
+    }
     let app_id = window.app_id();
     rules
         .iter()
@@ -172,10 +187,11 @@ fn matches_floating_rule(window: &WindowElement, rules: &[WindowRule]) -> bool {
 /// built-in bar itself is off, which makes that part a no-op.
 ///
 /// Shared by the tiling `arrange` pass above and anything else that needs
-/// "the usable screen area" to place a window relative to it — right now
-/// that's centering a `spitfire.rule({ floating = true, centered = true })`
-/// window (see `shell::center_if_ruled`); a future scratchpad toggle would
-/// reuse the same call to reposition its window each time it's shown.
+/// "the usable screen area" to place a window relative to it — via
+/// `shell::center_on_output`, that's a `spitfire.rule({ floating = true,
+/// centered = true })` window's one-shot initial placement
+/// (`shell::center_if_ruled`) and `SpitfireState::toggle_scratchpad`'s
+/// window, re-centered every time it's shown.
 pub(crate) fn usable_area(
     space: &Space<WindowElement>,
     output: &Output,

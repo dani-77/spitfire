@@ -169,6 +169,11 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// a single `WorkspaceSet`) — each workspace owns its own
     /// tile/floating/fibonacci/monocle layout state. See `crate::workspace`.
     pub workspaces: crate::workspace::WorkspaceSet,
+    /// `spitfire.window.toggle_scratchpad()`'s single hidden slot — `Some`
+    /// exactly when a window is currently stashed there (unmapped, off any
+    /// workspace's tiling order). See `SpitfireState::toggle_scratchpad`
+    /// (workspace.rs).
+    pub scratchpad: Option<WindowElement>,
     /// Phase 5: `ext-workspace-v1` protocol state, kept in sync with
     /// `workspaces` — see `crate::ext_workspace`.
     pub ext_workspace_state: crate::ext_workspace::ExtWorkspaceState,
@@ -797,6 +802,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             config,
             bar: crate::bar::Bar::default(),
             workspaces,
+            scratchpad: None,
             ext_workspace_state,
             display_handle: dh,
             socket_name,

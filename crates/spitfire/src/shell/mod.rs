@@ -564,19 +564,39 @@ fn place_new_window(
     space.map_element(window.clone(), (x, y), activate);
 }
 
+/// Moves `window` to the middle of `output`'s usable area (see
+/// `layout::usable_area`). Shared by `center_if_ruled` below (a one-shot
+/// placement for `spitfire.rule({ floating = true, centered = true })`
+/// windows) and `SpitfireState::toggle_scratchpad` (workspace.rs), which
+/// re-centers the scratchpad window every time it's shown. Returns `false`
+/// (and does nothing) if `output` has no usable area to speak of.
+pub(crate) fn center_on_output(
+    space: &mut Space<WindowElement>,
+    output: &Output,
+    window: &WindowElement,
+    bar_height: i32,
+    bar_margin: i32,
+) -> bool {
+    let Some(area) = usable_area(space, output, bar_height, bar_margin) else {
+        return false;
+    };
+    let size = window.bbox().size;
+    let x = area.loc.x + (area.size.w - size.w).max(0) / 2;
+    let y = area.loc.y + (area.size.h - size.h).max(0) / 2;
+    space.map_element(window.clone(), (x, y), false);
+    true
+}
+
 /// If `window` is matched by a `spitfire.rule({ floating = true, centered =
-/// true })` rule, moves it to the middle of `output`'s usable area (see
-/// `layout::usable_area`) — overriding wherever `place_new_window`'s random
-/// cascade put it. A no-op for anything else, including a `floating = true`
-/// rule without `centered`.
+/// true })` rule, moves it to the middle of `output`'s usable area —
+/// overriding wherever `place_new_window`'s random cascade put it. A no-op
+/// for anything else, including a `floating = true` rule without
+/// `centered`.
 ///
 /// Called once, right when a window's first real buffer commits (see
 /// `commit()` below) — like `floating` itself, this is a one-shot
 /// placement, not a constraint kept up over the window's lifetime: resizing
-/// the output afterwards won't re-center it. A future scratchpad toggle
-/// that shows/hides a designated window could call this same helper again
-/// each time it re-shows it, to have it reappear centered instead of
-/// wherever it was left.
+/// the output afterwards won't re-center it.
 pub(crate) fn center_if_ruled(
     space: &mut Space<WindowElement>,
     output: &Output,
@@ -593,13 +613,7 @@ pub(crate) fn center_if_ruled(
     if !centered {
         return;
     }
-    let Some(area) = usable_area(space, output, bar_height, bar_margin) else {
-        return;
-    };
-    let size = window.bbox().size;
-    let x = area.loc.x + (area.size.w - size.w).max(0) / 2;
-    let y = area.loc.y + (area.size.h - size.h).max(0) / 2;
-    space.map_element(window.clone(), (x, y), false);
+    center_on_output(space, output, window, bar_height, bar_margin);
 }
 
 pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point<f64, Logical>) {

@@ -210,6 +210,10 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 self.cycle_window_focus(false);
             }
 
+            ConfigCommand::WindowToggleScratchpad => {
+                self.toggle_scratchpad();
+            }
+
             ConfigCommand::Quit => {
                 info!("spitfire.quit");
                 self.running.store(false, Ordering::SeqCst);

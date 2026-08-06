@@ -165,7 +165,8 @@ pub(crate) fn install(
         spitfire.set("workspace", workspace_table)?;
     }
 
-    // spitfire.window.close() / .focus_next() / .focus_prev()
+    // spitfire.window.close() / .focus_next() / .focus_prev() /
+    // .toggle_scratchpad()
     {
         let window_table = lua.create_table()?;
         {
@@ -191,6 +192,14 @@ pub(crate) fn install(
                 Ok(())
             })?;
             window_table.set("focus_prev", focus_prev_fn)?;
+        }
+        {
+            let commands = commands.clone();
+            let toggle_scratchpad_fn = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WindowToggleScratchpad);
+                Ok(())
+            })?;
+            window_table.set("toggle_scratchpad", toggle_scratchpad_fn)?;
         }
         spitfire.set("window", window_table)?;
     }

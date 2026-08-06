@@ -13,8 +13,8 @@ use smithay::{desktop::WindowSurface, utils::SERIAL_COUNTER};
 
 use crate::{
     focus::KeyboardFocusTarget,
-    layout::TilingLayout,
-    shell::WindowElement,
+    layout::{ForceFloating, TilingLayout},
+    shell::{center_on_output, WindowElement},
     state::{Backend, SpitfireState},
 };
 
@@ -279,6 +279,59 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             .get_keyboard()
             .unwrap()
             .set_focus(self, Some(window.into()), serial);
+    }
+
+    /// `spitfire.window.toggle_scratchpad()` — a single-slot, dwm-style
+    /// scratchpad. If the slot is empty, stashes whichever window
+    /// currently has keyboard focus: unmaps it and takes it out of its
+    /// workspace's tiling order, same as switching away from a workspace
+    /// does (see `hide_inactive_workspaces` below). If the slot is already
+    /// occupied, brings that window back instead — centered on the active
+    /// output (same placement `center_if_ruled` gives a `spitfire.rule({
+    /// floating = true, centered = true })` window), rejoining the active
+    /// workspace's tiling order, and focused.
+    ///
+    /// Only ever tracks one window: toggling while the slot is occupied
+    /// always shows *that* window, regardless of what's currently focused
+    /// — it doesn't replace the stashed window with whatever's focused.
+    /// Show it first (which empties the slot), then toggle again on
+    /// something else to stash that instead. A no-op if the slot is empty
+    /// and nothing (or something other than a window) is focused.
+    pub fn toggle_scratchpad(&mut self) {
+        if let Some(window) = self.scratchpad.take() {
+            // `ForceFloating` never gets removed once set — see its own
+            // doc comment for why that's the right call here, not a bug.
+            window.0.user_data().insert_if_missing(|| ForceFloating);
+            let output = self.space.outputs().next().cloned();
+            if let Some(output) = output {
+                let bar_height = if self.config.bar.enabled {
+                    self.config.bar.height
+                } else {
+                    0
+                };
+                let bar_margin = self.config.gaps.outer;
+                center_on_output(&mut self.space, &output, &window, bar_height, bar_margin);
+            }
+            self.workspaces.active_mut().tiling.push(window.clone());
+            let serial = SERIAL_COUNTER.next_serial();
+            self.seat
+                .get_keyboard()
+                .unwrap()
+                .set_focus(self, Some(window.into()), serial);
+            return;
+        }
+
+        let Some(KeyboardFocusTarget::Window(window)) =
+            self.seat.get_keyboard().and_then(|kb| kb.current_focus())
+        else {
+            return;
+        };
+        let window = WindowElement(window);
+        for ws in self.workspaces.iter_mut() {
+            ws.tiling.remove(&window);
+        }
+        self.space.unmap_elem(&window);
+        self.scratchpad = Some(window);
     }
 
     /// The active workspace's windows, current on-screen geometry plus
