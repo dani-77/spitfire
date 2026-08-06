@@ -87,6 +87,15 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
             &window,
             true,
         );
+        // Phase 5: joins the active workspace's tiling order — same as a
+        // Wayland toplevel does in shell/xdg.rs's `new_toplevel`. Without
+        // this, `hide_inactive_workspaces` (workspace.rs) has no idea this
+        // window exists (it only ever looks at each workspace's `tiling`
+        // list), so it never gets unmapped when switching away: an
+        // XWayland window would stay mapped in `self.space` and visible on
+        // every single workspace forever, instead of just the one it
+        // opened on.
+        self.workspaces.active_mut().tiling.push(window.clone());
         let bbox = self.space.element_bbox(&window).unwrap();
         let Some(xsurface) = window.0.x11_surface() else {
             unreachable!()
@@ -108,7 +117,16 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
             .find(|e| matches!(e.0.x11_surface(), Some(w) if w == &window))
             .cloned();
         if let Some(elem) = maybe {
-            self.space.unmap_elem(&elem)
+            self.space.unmap_elem(&elem);
+            // Mirrors the push in `map_window_request` above — without
+            // this, the tiling order keeps a dangling entry for a window
+            // that's now unmapped (not necessarily dead: an X11 client can
+            // remap the same surface later), which `TilingLayout::arrange`'s
+            // per-frame pruning wouldn't catch on its own since that only
+            // drops windows that are no longer `alive()`.
+            for ws in self.workspaces.iter_mut() {
+                ws.tiling.remove(&elem);
+            }
         }
         if !window.is_override_redirect() {
             window.set_mapped(false).unwrap();
