@@ -8,8 +8,8 @@ build_style=cargo
 make_build_args="--features udev,xwayland"
 hostmakedepends="pkg-config cargo git"
 makedepends="wayland-devel libxkbcommon-devel MesaLib-devel libseat-devel
- libinput-devel libdisplay-info-devel"
-depends="wayland libxkbcommon libseat libinput libdisplay-info"
+ libinput-devel libdisplay-info-devel pixman-devel"
+depends="wayland libxkbcommon libseat libinput libdisplay-info pixman"
 short_desc="Tiling Wayland compositor with a live-reloadable Lua config, in the spirit of dwm"
 maintainer="Daniel Azevedo <daniazevedo77@posteo.net>"
 license="MIT"

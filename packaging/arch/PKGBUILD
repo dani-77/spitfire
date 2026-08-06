@@ -6,7 +6,7 @@ pkgdesc="A tiling Wayland compositor in the spirit of dwm — one Lua config fil
 arch=('x86_64' 'aarch64')
 url="https://github.com/dani-77/spitfire"
 license=('MIT')
-depends=('wayland' 'libxkbcommon' 'mesa' 'seatd' 'libinput' 'libdisplay-info')
+depends=('wayland' 'libxkbcommon' 'mesa' 'seatd' 'libinput' 'libdisplay-info' 'pixman')
 makedepends=('cargo' 'wayland-protocols' 'git')
 optdepends=('xorg-xwayland: run X11-only apps under spitfire (XWayland support)'
             'xdg-desktop-portal: file-open dialogs, notifications and other portal prompts'
