@@ -240,24 +240,37 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                             // cascade now that the window's real size (via
                             // this first buffer) is known. See
                             // `center_if_ruled`'s docs for why this is the
-                            // right point to do it.
+                            // right point to do it. Checked ahead of that:
+                            // `spitfire.scratchpad.toggle(...)`'s own
+                            // "waiting for this app_id to map" claim — see
+                            // `claim_pending_named_scratchpad`'s doc
+                            // comment for why it lives here instead of
+                            // going through a `spitfire.rule` match too.
                             let output = self.space.outputs().next().cloned();
                             if let Some(output) = output {
-                                let rules = self.config.rules().clone();
                                 let bar_height = if self.config.bar.enabled {
                                     self.config.bar.height
                                 } else {
                                     0
                                 };
                                 let bar_margin = self.config.gaps.outer;
-                                center_if_ruled(
-                                    &mut self.space,
-                                    &output,
+                                let claimed = self.claim_pending_named_scratchpad(
                                     &window,
-                                    &rules,
+                                    &output,
                                     bar_height,
                                     bar_margin,
                                 );
+                                if !claimed {
+                                    let rules = self.config.rules().clone();
+                                    center_if_ruled(
+                                        &mut self.space,
+                                        &output,
+                                        &window,
+                                        &rules,
+                                        bar_height,
+                                        bar_margin,
+                                    );
+                                }
                             }
 
                             if !self.locked {

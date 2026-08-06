@@ -36,6 +36,17 @@ pub enum Command {
     /// re-shows/refocuses whatever's already stashed there if nothing
     /// relevant is focused. See `SpitfireState::toggle_scratchpad`.
     WindowToggleScratchpad,
+    /// `spitfire.scratchpad.toggle(name, spawn_cmd, app_id)` — a named,
+    /// app-specific scratchpad slot (XMonad/LeftWM-style): spawns
+    /// `spawn_cmd` if nothing's registered yet under `name`, claiming the
+    /// next window that maps with the given `app_id` as that slot's
+    /// window; otherwise shows or hides whichever window is already
+    /// registered there. See `SpitfireState::toggle_named_scratchpad`.
+    ScratchpadToggle {
+        name: String,
+        spawn_cmd: String,
+        app_id: String,
+    },
     /// `spitfire.quit()`.
     Quit,
     /// `spitfire.reload()` — drops the current Lua state and re-runs the

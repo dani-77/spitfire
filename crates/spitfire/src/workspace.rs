@@ -9,7 +9,12 @@
 //! so that moving to real multi-output later means keying a
 //! `HashMap<Output, WorkspaceSet>` instead of rewriting this.
 
-use smithay::{desktop::WindowSurface, utils::SERIAL_COUNTER};
+use smithay::{
+    desktop::WindowSurface,
+    output::Output,
+    utils::{IsAlive, SERIAL_COUNTER},
+};
+use tracing::info;
 
 use crate::{
     focus::KeyboardFocusTarget,
@@ -179,6 +184,21 @@ impl WorkspaceSet {
     }
 }
 
+/// One `spitfire.scratchpad.toggle(name, spawn_cmd, app_id)` slot's state
+/// — see `SpitfireState::toggle_named_scratchpad`'s doc comment for the
+/// whole flow this drives.
+#[derive(Debug)]
+pub enum NamedScratchpad {
+    /// `spawn_cmd` has already been run; waiting for a window whose
+    /// `app_id` matches to map so `SpitfireState::claim_pending_named_scratchpad`
+    /// can claim it.
+    Pending { app_id: String },
+    /// Currently visible.
+    Shown(WindowElement),
+    /// Currently stashed (unmapped, out of every workspace's tiling order).
+    Hidden(WindowElement),
+}
+
 impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// `spitfire.workspace.focus(n)` — switches to workspace `idx` (0-based
     /// here; the Lua API is 1-based and subtracts 1 before calling this),
@@ -299,25 +319,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// and nothing (or something other than a window) is focused.
     pub fn toggle_scratchpad(&mut self) {
         if let Some(window) = self.scratchpad.take() {
-            // `ForceFloating` never gets removed once set — see its own
-            // doc comment for why that's the right call here, not a bug.
-            window.0.user_data().insert_if_missing(|| ForceFloating);
-            let output = self.space.outputs().next().cloned();
-            if let Some(output) = output {
-                let bar_height = if self.config.bar.enabled {
-                    self.config.bar.height
-                } else {
-                    0
-                };
-                let bar_margin = self.config.gaps.outer;
-                center_on_output(&mut self.space, &output, &window, bar_height, bar_margin);
-            }
-            self.workspaces.active_mut().tiling.push(window.clone());
-            let serial = SERIAL_COUNTER.next_serial();
-            self.seat
-                .get_keyboard()
-                .unwrap()
-                .set_focus(self, Some(window.into()), serial);
+            self.show_scratchpad_window(window);
             return;
         }
 
@@ -327,11 +329,145 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             return;
         };
         let window = WindowElement(window);
-        for ws in self.workspaces.iter_mut() {
-            ws.tiling.remove(&window);
-        }
-        self.space.unmap_elem(&window);
+        self.hide_scratchpad_window(&window);
         self.scratchpad = Some(window);
+    }
+
+    /// Marks `window` floating for good, centers it on the (first) output,
+    /// rejoins the active workspace's tiling order, and focuses it — the
+    /// "bring a stashed window back" half of both `toggle_scratchpad` and
+    /// `toggle_named_scratchpad`.
+    fn show_scratchpad_window(&mut self, window: WindowElement) {
+        // `ForceFloating` never gets removed once set — see its own doc
+        // comment for why that's the right call here, not a bug.
+        window.0.user_data().insert_if_missing(|| ForceFloating);
+        let output = self.space.outputs().next().cloned();
+        if let Some(output) = output {
+            let bar_height = if self.config.bar.enabled {
+                self.config.bar.height
+            } else {
+                0
+            };
+            let bar_margin = self.config.gaps.outer;
+            center_on_output(&mut self.space, &output, &window, bar_height, bar_margin);
+        }
+        self.workspaces.active_mut().tiling.push(window.clone());
+        let serial = SERIAL_COUNTER.next_serial();
+        self.seat
+            .get_keyboard()
+            .unwrap()
+            .set_focus(self, Some(window.into()), serial);
+    }
+
+    /// Unmaps `window` and takes it out of every workspace's tiling order —
+    /// the "stash a window away" half of both `toggle_scratchpad` and
+    /// `toggle_named_scratchpad`.
+    fn hide_scratchpad_window(&mut self, window: &WindowElement) {
+        for ws in self.workspaces.iter_mut() {
+            ws.tiling.remove(window);
+        }
+        self.space.unmap_elem(window);
+    }
+
+    /// `spitfire.scratchpad.toggle(name, spawn_cmd, app_id)` — a named,
+    /// app-specific scratchpad slot (XMonad/LeftWM-style "named
+    /// scratchpad"), as opposed to `toggle_scratchpad`'s single anonymous
+    /// one: `name` identifies the slot, `spawn_cmd` is what launches the
+    /// app the first time (or again, if the window it previously held
+    /// died), and `app_id` is how the freshly spawned window gets
+    /// recognized and claimed once it maps — see
+    /// `claim_pending_named_scratchpad`, called from `shell::commit` right
+    /// when a new window gets its first real buffer.
+    ///
+    /// - Nothing registered under `name` yet, or the window it held died:
+    ///   spawns `spawn_cmd` and starts waiting for `app_id` to map. The
+    ///   window ends up shown (not stashed) the moment it's claimed —
+    ///   pressing the bind on an app that isn't running yet opens it
+    ///   visibly, matching XMonad/LeftWM.
+    /// - Registered and currently shown: hides it.
+    /// - Registered and currently hidden: shows it.
+    ///
+    /// A second toggle while still waiting for the spawned window to map
+    /// is a deliberate no-op — otherwise a fast double-press would spawn
+    /// the app twice.
+    pub fn toggle_named_scratchpad(&mut self, name: &str, spawn_cmd: &str, app_id: &str) {
+        let entry = match self.named_scratchpads.remove(name) {
+            // Normalize a dead window (closed while shown or hidden) to
+            // "nothing registered" so it falls into the same respawn path
+            // below, instead of needing a second toggle to notice it's
+            // gone before a third one actually respawns it.
+            Some(NamedScratchpad::Shown(w)) | Some(NamedScratchpad::Hidden(w))
+                if !w.alive() =>
+            {
+                None
+            }
+            other => other,
+        };
+
+        match entry {
+            None => {
+                info!(name, spawn_cmd, app_id, "Spawning (spitfire.scratchpad.toggle)");
+                self.spawn(spawn_cmd);
+                self.named_scratchpads.insert(
+                    name.to_string(),
+                    NamedScratchpad::Pending {
+                        app_id: app_id.to_string(),
+                    },
+                );
+            }
+            Some(NamedScratchpad::Pending { app_id }) => {
+                self.named_scratchpads
+                    .insert(name.to_string(), NamedScratchpad::Pending { app_id });
+            }
+            Some(NamedScratchpad::Shown(window)) => {
+                self.hide_scratchpad_window(&window);
+                self.named_scratchpads
+                    .insert(name.to_string(), NamedScratchpad::Hidden(window));
+            }
+            Some(NamedScratchpad::Hidden(window)) => {
+                self.show_scratchpad_window(window.clone());
+                self.named_scratchpads
+                    .insert(name.to_string(), NamedScratchpad::Shown(window));
+            }
+        }
+    }
+
+    /// Checks whether `window`'s `app_id` matches any
+    /// `NamedScratchpad::Pending` slot, and if so, claims it: marks it
+    /// floating, centers it on `output`, joins the active workspace's
+    /// tiling order, and transitions that slot to `Shown`. Doesn't touch
+    /// keyboard focus — the caller (`shell::commit`'s first-buffer path)
+    /// already hands every newly mapped window focus regardless, so doing
+    /// it here too would just be a redundant second `set_focus` call.
+    ///
+    /// A no-op (returns `false`) if nothing's waiting for this `app_id`.
+    pub(crate) fn claim_pending_named_scratchpad(
+        &mut self,
+        window: &WindowElement,
+        output: &Output,
+        bar_height: i32,
+        bar_margin: i32,
+    ) -> bool {
+        let Some(window_app_id) = window.app_id() else {
+            return false;
+        };
+        let Some(name) = self.named_scratchpads.iter().find_map(|(name, slot)| {
+            match slot {
+                NamedScratchpad::Pending { app_id } if *app_id == window_app_id => {
+                    Some(name.clone())
+                }
+                _ => None,
+            }
+        }) else {
+            return false;
+        };
+
+        window.0.user_data().insert_if_missing(|| ForceFloating);
+        center_on_output(&mut self.space, output, window, bar_height, bar_margin);
+        self.workspaces.active_mut().tiling.push(window.clone());
+        self.named_scratchpads
+            .insert(name, NamedScratchpad::Shown(window.clone()));
+        true
     }
 
     /// The active workspace's windows, current on-screen geometry plus

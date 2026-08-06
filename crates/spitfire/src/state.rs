@@ -174,6 +174,9 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// workspace's tiling order). See `SpitfireState::toggle_scratchpad`
     /// (workspace.rs).
     pub scratchpad: Option<WindowElement>,
+    /// `spitfire.scratchpad.toggle(name, ...)`'s named slots, keyed by
+    /// `name`. See `SpitfireState::toggle_named_scratchpad` (workspace.rs).
+    pub named_scratchpads: std::collections::HashMap<String, crate::workspace::NamedScratchpad>,
     /// Phase 5: `ext-workspace-v1` protocol state, kept in sync with
     /// `workspaces` — see `crate::ext_workspace`.
     pub ext_workspace_state: crate::ext_workspace::ExtWorkspaceState,
@@ -803,6 +806,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             bar: crate::bar::Bar::default(),
             workspaces,
             scratchpad: None,
+            named_scratchpads: std::collections::HashMap::new(),
             ext_workspace_state,
             display_handle: dh,
             socket_name,

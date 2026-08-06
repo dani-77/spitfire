@@ -138,6 +138,26 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         None
     }
 
+    /// Runs `cmd` through `sh -c`, same environment (`WAYLAND_DISPLAY`,
+    /// `DISPLAY` once XWayland is up) `spitfire.spawn`/`spitfire.autostart`
+    /// already get. Shared with `spitfire.scratchpad.toggle`'s `spawn_cmd`
+    /// (see `SpitfireState::toggle_named_scratchpad` in workspace.rs) —
+    /// there's no reason a scratchpad app should launch any differently
+    /// than one spawned directly. Doesn't log on its own; callers log
+    /// their own context (`"spitfire.spawn"`, `"spitfire.scratchpad.toggle"`,
+    /// ...) before calling this.
+    pub(crate) fn spawn(&mut self, cmd: &str) {
+        if let Err(err) = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .envs(self.socket_name.clone().map(|v| ("WAYLAND_DISPLAY", v)))
+            .envs(self.xdisplay_env())
+            .spawn()
+        {
+            error!(cmd, %err, "Failed to spawn command");
+        }
+    }
+
     /// Applies a single [`spitfire_config::Command`] pushed by a Lua bind
     /// callback (or by top-level code in the config script, drained right
     /// after [`spitfire_config::Config::load`]).
@@ -145,15 +165,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         match cmd {
             ConfigCommand::Spawn(cmd) => {
                 info!(cmd, "Spawning (spitfire.spawn)");
-                if let Err(err) = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(&cmd)
-                    .envs(self.socket_name.clone().map(|v| ("WAYLAND_DISPLAY", v)))
-                    .envs(self.xdisplay_env())
-                    .spawn()
-                {
-                    error!(cmd, %err, "Failed to spawn command");
-                }
+                self.spawn(&cmd);
             }
 
             ConfigCommand::LayoutSet(mode) => {
@@ -212,6 +224,14 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
 
             ConfigCommand::WindowToggleScratchpad => {
                 self.toggle_scratchpad();
+            }
+
+            ConfigCommand::ScratchpadToggle {
+                name,
+                spawn_cmd,
+                app_id,
+            } => {
+                self.toggle_named_scratchpad(&name, &spawn_cmd, &app_id);
             }
 
             ConfigCommand::Quit => {

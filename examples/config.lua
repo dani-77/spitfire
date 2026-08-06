@@ -62,7 +62,17 @@ spitfire.bind("Mod4", "k", function() spitfire.window.focus_prev() end)
 -- focused to bring it back, centered on screen. Same bind toggles both
 -- directions — it always acts on whatever's already stashed once the slot
 -- is full, regardless of what's currently focused.
-spitfire.bind("Mod4", "grave", function() spitfire.window.toggle_scratchpad() end)
+spitfire.bind("Mod4+Shift", "grave", function() spitfire.window.toggle_scratchpad() end)
+
+-- Named scratchpad — a drop-down terminal, XMonad/LeftWM-style: the same
+-- bind spawns it the first time, then shows/hides that exact instance
+-- (same process, scrollback and all) every time after. `--class` gives it
+-- an app_id distinct from any other alacritty window, so spitfire knows
+-- which newly-mapped window to claim as "the" scratchpad terminal instead
+-- of grabbing the next alacritty you happen to open normally.
+spitfire.bind("Mod4", "grave", function()
+  spitfire.scratchpad.toggle("term", "alacritty --class scratchterm", "scratchterm")
+end)
 
 -- Window rules — floating windows are left out of the tiling arrangement
 -- entirely (their geometry is never touched). Add `centered = true` to have

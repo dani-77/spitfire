@@ -204,6 +204,25 @@ pub(crate) fn install(
         spitfire.set("window", window_table)?;
     }
 
+    // spitfire.scratchpad.toggle(name, spawn_cmd, app_id) — named,
+    // app-specific scratchpad (see spitfire.window.toggle_scratchpad()
+    // right above for the simpler, unnamed single-slot version).
+    {
+        let scratchpad_table = lua.create_table()?;
+        let commands = commands.clone();
+        let toggle_fn =
+            lua.create_function(move |_, (name, spawn_cmd, app_id): (String, String, String)| {
+                commands.borrow_mut().push(Command::ScratchpadToggle {
+                    name,
+                    spawn_cmd,
+                    app_id,
+                });
+                Ok(())
+            })?;
+        scratchpad_table.set("toggle", toggle_fn)?;
+        spitfire.set("scratchpad", scratchpad_table)?;
+    }
+
     // spitfire.rule({ app_id = "...", floating = true, centered = true })
     {
         let rules = rules.clone();
