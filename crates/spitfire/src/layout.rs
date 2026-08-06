@@ -131,8 +131,25 @@ impl TilingLayout {
                     toplevel.send_pending_configure();
                 }
             }
-            debug!(?rect, "placing window");
-            space.map_element(window, Point::from((rect.x, rect.y)), false);
+            // `Space::map_element` unconditionally moves the element to the
+            // top of the z-order — that's true even when it's already
+            // mapped and only its location is being updated (see its own
+            // smithay doc comment: "move it to top of the stack ... can
+            // safely be called on an already mapped window to update its
+            // location"). This `arrange` runs every frame (see this fn's
+            // doc comment above), so calling it unconditionally here would
+            // re-raise every tiled window on every single frame forever —
+            // which permanently buries any floating window behind them the
+            // instant a tiled window's next `arrange` pass runs, typically
+            // the very next frame after the floating window opened. Only
+            // remap when the position actually changed, so a tiled window
+            // that isn't moving doesn't keep stealing the top of the stack
+            // from whatever's floating above it.
+            let target_loc = Point::from((rect.x, rect.y));
+            if space.element_location(&window) != Some(target_loc) {
+                debug!(?rect, "placing window");
+                space.map_element(window, target_loc, false);
+            }
         }
     }
 }
