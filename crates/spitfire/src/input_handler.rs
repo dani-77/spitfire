@@ -2,7 +2,11 @@ use std::{convert::TryInto, sync::atomic::Ordering};
 
 use spitfire_config::Command as ConfigCommand;
 
-use crate::{focus::PointerFocusTarget, shell::FullscreenSurface, SpitfireState};
+use crate::{
+    focus::{KeyboardFocusTarget, PointerFocusTarget},
+    shell::{FullscreenSurface, WindowElement},
+    SpitfireState,
+};
 
 #[cfg(feature = "udev")]
 use crate::udev::UdevData;
@@ -320,11 +324,33 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
     fn keyboard_key_to_action<B: InputBackend>(&mut self, evt: B::KeyboardKeyEvent) -> KeyAction {
         let keycode = evt.key_code();
         let state = evt.state();
-        debug!(?keycode, ?state, "key");
         let serial = SCOUNTER.next_serial();
         let time = Event::time_msec(&evt);
         let mut suppressed_keys = self.suppressed_keys.clone();
         let keyboard = self.seat.get_keyboard().unwrap();
+
+        // TEMPORARY diagnostic, chasing intermittent "stuck/misdirected
+        // key" reports: an audit of every keycode press/release
+        // spitfire's ever logged (across several days of a real session)
+        // found zero cases of a lost/duplicated event at this level — the
+        // compositor's own press/release bookkeeping is clean. So if a
+        // key visibly "does the wrong thing", the leading suspect is that
+        // it's reaching a *different* surface than the user thinks has
+        // focus (exactly what the XWayland-windows-visible-on-every-
+        // workspace bug did, before it was fixed) — logging which
+        // surface actually has keyboard focus for every single key event
+        // is what would catch that: compare it against whatever surface
+        // was visibly in front the next time this happens.
+        let focus_desc = keyboard.current_focus().map(|f| match f {
+            KeyboardFocusTarget::Window(w) => format!(
+                "Window({})",
+                WindowElement(w).app_id().unwrap_or_else(|| "?".into())
+            ),
+            KeyboardFocusTarget::LayerSurface(_) => "LayerSurface".to_string(),
+            KeyboardFocusTarget::Popup(_) => "Popup".to_string(),
+            KeyboardFocusTarget::LockSurface(_) => "LockSurface".to_string(),
+        });
+        debug!(?keycode, ?state, ?focus_desc, "key");
 
         // While locked, nothing gets to steal focus away from the lock
         // surface — not even an exclusive-keyboard layer-shell surface
