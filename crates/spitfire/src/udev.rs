@@ -688,6 +688,9 @@ struct SurfaceData {
     dmabuf_feedback: Option<SurfaceDmabufFeedback>,
     last_presentation_time: Option<Time<Monotonic>>,
     vblank_throttle_timer: Option<RegistrationToken>,
+    /// Backing buffers for `spitfire.border`'s rects on this CRTC, reused
+    /// frame to frame — see `render::RectCache`.
+    border_cache: RectCache,
 }
 
 impl Drop for SurfaceData {
@@ -1123,6 +1126,7 @@ impl SpitfireState<UdevData> {
                 dmabuf_feedback,
                 last_presentation_time: None,
                 vblank_throttle_timer: None,
+                border_cache: RectCache::default(),
             };
 
             device.surfaces.insert(crtc, surface);
@@ -1605,6 +1609,7 @@ impl SpitfireState<UdevData> {
             bar_margin,
             &bar_data,
             &bar_status_text,
+            &mut self.bar,
         );
         let reschedule = match result {
             Ok((has_rendered, states)) => {
@@ -1698,6 +1703,7 @@ fn render_surface<'a>(
     bar_margin: i32,
     bar_data: &crate::bar::BarData,
     bar_status_text: &str,
+    bar: &mut crate::bar::Bar,
 ) -> Result<(bool, RenderElementStates), SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1788,6 +1794,7 @@ fn render_surface<'a>(
             bar_data,
             bar_status_text,
             scale,
+            bar,
         ));
     }
 
@@ -1802,6 +1809,7 @@ fn render_surface<'a>(
         border_width,
         border_active,
         border_inactive,
+        &mut surface.border_cache,
     );
 
     let frame_mode = if surface.disable_direct_scanout {
