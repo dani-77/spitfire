@@ -125,6 +125,19 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         }
     }
 
+    /// `("DISPLAY", ":N")` once XWayland is up, for handing to spawned
+    /// processes alongside `WAYLAND_DISPLAY`. `None` before XWayland is
+    /// ready, or unconditionally when the `xwayland` feature is off.
+    #[cfg(feature = "xwayland")]
+    fn xdisplay_env(&self) -> Option<(&'static str, String)> {
+        self.xdisplay.map(|n| ("DISPLAY", format!(":{n}")))
+    }
+
+    #[cfg(not(feature = "xwayland"))]
+    fn xdisplay_env(&self) -> Option<(&'static str, String)> {
+        None
+    }
+
     /// Applies a single [`spitfire_config::Command`] pushed by a Lua bind
     /// callback (or by top-level code in the config script, drained right
     /// after [`spitfire_config::Config::load`]).
@@ -136,6 +149,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                     .arg("-c")
                     .arg(&cmd)
                     .envs(self.socket_name.clone().map(|v| ("WAYLAND_DISPLAY", v)))
+                    .envs(self.xdisplay_env())
                     .spawn()
                 {
                     error!(cmd, %err, "Failed to spawn command");
@@ -211,6 +225,11 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
     /// backend has finished initializing (so `WAYLAND_DISPLAY` is already
     /// set) and before the main loop starts. This is how the Utumno
     /// frontend gets launched — see `examples/config.lua`.
+    ///
+    /// Note this runs before XWayland has necessarily finished starting
+    /// (`start_xwayland` is lazy), so `self.xdisplay` may still be `None`
+    /// here even on sessions where XWayland is enabled — autostart entries
+    /// that need `DISPLAY` should launch it themselves or wait.
     pub fn spawn_autostart(&self) {
         for cmd in &self.config.autostart {
             info!(cmd, "Autostart (spitfire.autostart)");
@@ -218,6 +237,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 .arg("-c")
                 .arg(cmd)
                 .envs(self.socket_name.clone().map(|v| ("WAYLAND_DISPLAY", v)))
+                .envs(self.xdisplay_env())
                 .spawn()
             {
                 error!(cmd, %err, "Failed to spawn autostart command");
