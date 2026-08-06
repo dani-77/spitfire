@@ -11,4 +11,10 @@ set -eu
 log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/spitfire"
 mkdir -p "$log_dir"
 
-exec spitfire --udev >>"$log_dir/session.log" 2>&1
+# dbus-run-session opens a private D-Bus *session* bus and exports
+# DBUS_SESSION_BUS_ADDRESS into it before exec'ing spitfire, so every
+# autostart client spitfire spawns (dunst, udiskie, ...) inherits a working
+# bus too — nothing upstream of this script (greetd et al.) sets one up.
+# Without it, DBUS_SESSION_BUS_ADDRESS never exists anywhere in the
+# session and D-Bus clients fail with "Cannot connect to DBus".
+exec dbus-run-session -- spitfire --udev >>"$log_dir/session.log" 2>&1

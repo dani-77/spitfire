@@ -41,6 +41,16 @@ spitfire.bind("Mod4", "Return", function() spitfire.spawn("alacritty") end)
 spitfire.bind("Mod4+Shift", "q", function() spitfire.quit() end)
 spitfire.bind("Mod4+Shift", "r", function() spitfire.reload() end)
 
+-- Media keys — dedicated hardware keys, so no modifier needed (they can't
+-- collide with anything text-related). Raise/lower/mute via ALSA
+-- (amixer); swap for "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+-/mute-toggle"
+-- (PipeWire) or "pactl set-sink-volume/set-sink-mute @DEFAULT_SINK@ ..."
+-- (PulseAudio via pactl) if amixer/ALSA isn't what your system mixes
+-- through.
+spitfire.bind("", "XF86AudioRaiseVolume", function() spitfire.spawn("amixer -q set Master 5%+") end)
+spitfire.bind("", "XF86AudioLowerVolume", function() spitfire.spawn("amixer -q set Master 5%-") end)
+spitfire.bind("", "XF86AudioMute", function() spitfire.spawn("amixer -q set Master toggle") end)
+
 -- Window management — close the focused window, cycle which one has
 -- keyboard focus (dwm-style j/k; wraps around).
 spitfire.bind("Mod4", "q", function() spitfire.window.close() end)
