@@ -26,12 +26,18 @@ use mlua::Lua;
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 use tracing::warn;
 
-/// `spitfire.border = { width = 2, active = "#7aa2f7", inactive = "#414868" }`.
+/// `spitfire.border = { width = 2, active = "#7aa2f7", inactive = "#414868", radius = 8 }`.
+///
+/// `radius`: corner radius in logical pixels, `0` (the default) draws the
+/// classic square-cornered border exactly as before — see
+/// `render::border_elements`'s doc comment for how a nonzero radius changes
+/// what gets drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BorderConfig {
     pub width: i32,
     pub active: u32,
     pub inactive: u32,
+    pub radius: i32,
 }
 
 impl Default for BorderConfig {
@@ -40,6 +46,7 @@ impl Default for BorderConfig {
             width: 2,
             active: 0x7aa2f7,
             inactive: 0x414868,
+            radius: 0,
         }
     }
 }
@@ -284,6 +291,13 @@ mod tests {
         assert_eq!(config.border.width, 3);
         assert_eq!(config.border.active, 0xff0000);
         assert_eq!(config.border.inactive, 0x00ff00);
+        assert_eq!(config.border.radius, 0);
+    }
+
+    #[test]
+    fn reads_border_radius() {
+        let config = load_str(r#"spitfire.border = { radius = 10 }"#);
+        assert_eq!(config.border.radius, 10);
     }
 
     #[test]

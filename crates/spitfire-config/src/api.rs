@@ -300,6 +300,9 @@ pub(crate) fn read_globals(
                 );
             }
         }
+        if let Ok(v) = b.get::<i32>("radius") {
+            border.radius = v;
+        }
     }
 
     if let Ok(t) = spitfire.get::<Table>("bar") {
