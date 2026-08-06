@@ -92,6 +92,30 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `assets/logo/`), installable via `make install` — see [Packaging](#packaging).
   `XDG_CURRENT_DESKTOP=spitfire` is set for autostarted clients, same convention as
   niri/Hyprland/sway.
+- **A D-Bus session bus + `xdg-desktop-portal` backend selection**, both handled by
+  `packaging/spitfire-session`/`spawn_autostart` rather than left to the user: nothing
+  upstream of spitfire (greetd et al.) provisions `DBUS_SESSION_BUS_ADDRESS` on this kind
+  of session, so `spitfire-session` wraps the compositor in `dbus-run-session`, which
+  opens a private bus and exports that variable before `exec`ing `spitfire --udev`.
+  That bus exists *before* spitfire runs, though, so D-Bus-activated services (notably
+  `xdg-desktop-portal`'s backends) don't inherit `WAYLAND_DISPLAY`/`DISPLAY` just because
+  spitfire itself has them — `spawn_autostart` (`input_handler.rs`) now runs
+  `dbus-update-activation-environment` synchronously first, pushing
+  `WAYLAND_DISPLAY`/`DISPLAY`/`XDG_CURRENT_DESKTOP` into the bus's activation environment
+  before any autostart entry gets a chance to trigger a portal call. Without this,
+  `xdg-desktop-portal-gtk` exited immediately with `Gtk-WARNING: cannot open display` in
+  a crash/re-activate loop the moment anything asked for a `FileChooser`/`Settings`/etc.
+  portal. `packaging/spitfire-portals.conf` (installed to
+  `/etc/xdg-desktop-portal/spitfire-portals.conf`) then picks `xdg-desktop-portal-gtk` as
+  the preferred backend for those interfaces instead of leaving it to the generic
+  `portals.conf`'s ambiguous `default=*`, which could otherwise land on
+  `xdg-desktop-portal-gnome` with no `gnome-shell`/Mutter actually backing it.
+  `ScreenCast`/`Screenshot` aren't covered by this config — spitfire doesn't implement
+  `wlr-screencopy`/`ext-image-copy-capture-v1` yet, so there's nothing for
+  `xdg-desktop-portal-wlr` to call into even if it were installed. Verified live: a fresh
+  session restart on real hardware, `xdg-desktop-portal-gtk` activates cleanly and stays
+  up, `FileChooser`/`Settings` (via the `gnome` backend for the latter, which doesn't
+  need Mutter for plain `GSettings` reads) both answer over D-Bus.
 - **Optional built-in bar** (`crate::bar`, on by default in `examples/config.lua` —
   `spitfire.bar = { enable, height, bg, fg, fg_active }`). Not a client or a protocol:
   drawn by the compositor itself as solid-color rectangles, the same
@@ -158,7 +182,8 @@ crates/
 ├── spitfire-config/    # Lua config loader (mlua)
 └── spitfire-ipc/       # control socket (JSON lines) + spitfirectl binary, no Wayland deps either
 assets/logo/            # app icon (SVG + PNG sizes)
-packaging/               # spitfire.desktop (wayland-sessions entry) + spitfire-session (logging wrapper)
+packaging/               # spitfire.desktop (wayland-sessions entry), spitfire-session (D-Bus/logging
+                        # wrapper), spitfire-portals.conf (xdg-desktop-portal backend preference)
 examples/config.lua     # default config.lua
 doc/README.md            # this file
 ```
@@ -189,13 +214,17 @@ Config file: `$XDG_CONFIG_HOME/spitfire/config.lua` (falls back to
 
 `sudo make install` builds in release mode (with `udev,xwayland` — see `Makefile`) and
 installs `spitfire`/`spitfirectl`/`spitfire-session` to `$PREFIX/bin`, the icon
-(`assets/logo/`) into the `hicolor` theme, and a
+(`assets/logo/`) into the `hicolor` theme, a
 [`packaging/spitfire.desktop`](../packaging/spitfire.desktop) session entry into
-`$PREFIX/share/wayland-sessions/` (`make uninstall` reverses it; `PREFIX` defaults to
+`$PREFIX/share/wayland-sessions/`, and
+[`packaging/spitfire-portals.conf`](../packaging/spitfire-portals.conf) into
+`/etc/xdg-desktop-portal/spitfire-portals.conf` — note that last one is *not* under
+`$PREFIX`, only `$DESTDIR` (`make uninstall` reverses all of it; `PREFIX` defaults to
 `/usr`, override with `make PREFIX=... install`). The `.desktop` entry launches
-`spitfire-session`, a thin wrapper around `spitfire --udev` that redirects its
-stdout/stderr to `$XDG_STATE_HOME/spitfire/session.log` (a bare `Exec=` line otherwise
-has nowhere obvious to send that output) — this log is what made diagnosing the
-DRM/KMS-only bugs above possible. Both the `.desktop` entry and the DRM/KMS backend it
-launches have now had a real hands-on pass on real hardware (see above), including
-through `greetd`.
+`spitfire-session`, a thin wrapper around `spitfire --udev` (via `dbus-run-session`, see
+[What's implemented](#whats-implemented) above for the D-Bus/portal details) that
+redirects its stdout/stderr to `$XDG_STATE_HOME/spitfire/session.log` (a bare `Exec=`
+line otherwise has nowhere obvious to send that output) — this log is what made
+diagnosing the DRM/KMS-only bugs above possible, and the D-Bus activation ones. Both the
+`.desktop` entry and the DRM/KMS backend it launches have now had a real hands-on pass on
+real hardware (see above), including through `greetd`.

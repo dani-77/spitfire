@@ -36,6 +36,9 @@ the window manager.
   older/non-Wayland-native applications still work.
 - Works as a real login-screen session (via `greetd` and similar) or nested inside
   another desktop session for trying it out first.
+- **Your apps' file-open dialogs, notifications, and system prompts just work** — the
+  behind-the-scenes plumbing apps use for those (D-Bus, "portals") is set up
+  automatically as part of installing spitfire, nothing to configure yourself.
 
 ## Installing
 
@@ -79,8 +82,11 @@ sudo make install
 
 This builds spitfire in release mode and installs the `spitfire`/`spitfirectl` binaries,
 an app icon, and a session entry so your login screen (greetd, GDM, SDDM, ...) can offer
-**spitfire** as a login option, the same way it already offers GNOME, Hyprland, etc. Log
-out, pick spitfire from the session list, log back in.
+**spitfire** as a login option, the same way it already offers GNOME, Hyprland, etc. It
+also drops in a small config file that tells your system which app to use for things
+like file-open dialogs and notifications while running spitfire — you don't need to
+touch it, it's just there so those keep working out of the box. Log out, pick spitfire
+from the session list, log back in.
 
 To try it out first without logging out — nested inside your current desktop session,
 in a window:
