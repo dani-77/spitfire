@@ -195,13 +195,18 @@ pub(crate) fn install(
         spitfire.set("window", window_table)?;
     }
 
-    // spitfire.rule({ app_id = "...", floating = true })
+    // spitfire.rule({ app_id = "...", floating = true, centered = true })
     {
         let rules = rules.clone();
         let rule_fn = lua.create_function(move |_, tbl: Table| {
             let app_id: Option<String> = tbl.get("app_id").unwrap_or(None);
             let floating: bool = tbl.get("floating").unwrap_or(false);
-            rules.borrow_mut().push(WindowRule { app_id, floating });
+            let centered: bool = tbl.get("centered").unwrap_or(false);
+            rules.borrow_mut().push(WindowRule {
+                app_id,
+                floating,
+                centered,
+            });
             Ok(())
         })?;
         spitfire.set("rule", rule_fn)?;

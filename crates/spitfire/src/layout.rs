@@ -7,8 +7,7 @@
 use smithay::{
     desktop::{layer_map_for_output, Space},
     output::Output,
-    utils::{IsAlive, Point, Size, SERIAL_COUNTER},
-    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
+    utils::{IsAlive, Logical, Point, Rectangle, Size, SERIAL_COUNTER},
 };
 use spitfire_config::WindowRule;
 use spitfire_layout::{arrange as layout_arrange, LayoutParams, Rect};
@@ -96,32 +95,10 @@ impl TilingLayout {
             return;
         }
 
-        let Some(output_geo) = space.output_geometry(output) else {
+        let Some(area) = usable_area(space, output, bar_height, bar_margin) else {
             return;
         };
-        let zone = {
-            let map = layer_map_for_output(output);
-            map.non_exclusive_zone()
-        };
-        let mut area = Rect::new(
-            output_geo.loc.x + zone.loc.x,
-            output_geo.loc.y + zone.loc.y,
-            zone.size.w,
-            zone.size.h,
-        );
-        // The bar floats now (spitfire.gaps.outer inset on top/left/right,
-        // see bar.rs), so the reserved strip is bar_margin (above it) +
-        // bar_height + bar_margin (below it, before windows start) — not
-        // just bar_height. bar_margin is 0 whenever the bar itself is (see
-        // arrange_tiling), so this is a no-op with the bar disabled.
-        let bar_reserved = if bar_height > 0 {
-            bar_margin.max(0) + bar_height + bar_margin.max(0)
-        } else {
-            0
-        }
-        .min(area.h);
-        area.y += bar_reserved;
-        area.h -= bar_reserved;
+        let area = Rect::new(area.loc.x, area.loc.y, area.size.w, area.size.h);
 
         let Some(placements) = layout_arrange(&tiled, area, &self.params) else {
             // Floating layout mode: the engine deliberately doesn't touch
@@ -160,24 +137,49 @@ impl TilingLayout {
     }
 }
 
-/// Reads a window's current `app_id` (set by the client via
-/// `xdg_toplevel.set_app_id`, may still be `None` right after mapping) and
-/// checks it against the configured rules.
+/// Checks a window's current `app_id` (see `WindowElement::app_id`, may
+/// still be `None` right after mapping) against the configured rules.
 fn matches_floating_rule(window: &WindowElement, rules: &[WindowRule]) -> bool {
-    let Some(surface) = window.wl_surface() else {
-        return false;
-    };
-    let app_id = with_states(&surface, |states| {
-        states
-            .data_map
-            .get::<XdgToplevelSurfaceData>()
-            .and_then(|data| data.lock().ok())
-            .and_then(|attrs| attrs.app_id.clone())
-    });
+    let app_id = window.app_id();
     rules
         .iter()
         .find(|rule| rule.matches(app_id.as_deref()))
         .is_some_and(|rule| rule.floating)
+}
+
+/// The portion of `output` windows should actually occupy: its full
+/// geometry minus whatever `layer_map_for_output` reserves as an exclusive
+/// zone (a layer-shell bar, typically) and minus the built-in bar's own
+/// reserved strip — it isn't a layer-surface, so it isn't in that exclusive
+/// zone at all (see `bar.rs`). `bar_height`/`bar_margin` are 0 whenever the
+/// built-in bar itself is off, which makes that part a no-op.
+///
+/// Shared by the tiling `arrange` pass above and anything else that needs
+/// "the usable screen area" to place a window relative to it — right now
+/// that's centering a `spitfire.rule({ floating = true, centered = true })`
+/// window (see `shell::center_if_ruled`); a future scratchpad toggle would
+/// reuse the same call to reposition its window each time it's shown.
+pub(crate) fn usable_area(
+    space: &Space<WindowElement>,
+    output: &Output,
+    bar_height: i32,
+    bar_margin: i32,
+) -> Option<Rectangle<i32, Logical>> {
+    let output_geo = space.output_geometry(output)?;
+    let zone = layer_map_for_output(output).non_exclusive_zone();
+    let mut area = Rectangle::new(output_geo.loc + zone.loc, zone.size);
+    // The bar floats now (spitfire.gaps.outer inset on top/left/right, see
+    // bar.rs), so the reserved strip is bar_margin (above it) + bar_height +
+    // bar_margin (below it, before windows start) — not just bar_height.
+    let bar_reserved = if bar_height > 0 {
+        bar_margin.max(0) + bar_height + bar_margin.max(0)
+    } else {
+        0
+    }
+    .min(area.size.h);
+    area.loc.y += bar_reserved;
+    area.size.h -= bar_reserved;
+    Some(area)
 }
 
 impl<BackendData: Backend + 'static> SpitfireState<BackendData> {

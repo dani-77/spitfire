@@ -58,8 +58,10 @@ spitfire.bind("Mod4", "j", function() spitfire.window.focus_next() end)
 spitfire.bind("Mod4", "k", function() spitfire.window.focus_prev() end)
 
 -- Window rules — floating windows are left out of the tiling arrangement
--- entirely (their geometry is never touched).
-spitfire.rule({ app_id = "pavucontrol", floating = true })
+-- entirely (their geometry is never touched). Add `centered = true` to have
+-- it open in the middle of the screen instead of wherever it happened to
+-- cascade to.
+spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 
 spitfire.border = { width = 2, active = "#7aa2f7", inactive = "#414868" }
 spitfire.gaps = { inner = 6, outer = 10 }
