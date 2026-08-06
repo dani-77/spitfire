@@ -69,9 +69,13 @@ spitfire.bind("Mod4+Shift", "grave", function() spitfire.window.toggle_scratchpa
 -- (same process, scrollback and all) every time after. `--class` gives it
 -- an app_id distinct from any other alacritty window, so spitfire knows
 -- which newly-mapped window to claim as "the" scratchpad terminal instead
--- of grabbing the next alacritty you happen to open normally.
+-- of grabbing the next alacritty you happen to open normally. The last two
+-- args (both optional) size it as a fraction of the screen's usable area
+-- the moment it's claimed — here, full width, half height, so it doesn't
+-- default to filling the whole usable area top to bottom. Drop both to
+-- just keep whatever size alacritty opens itself at.
 spitfire.bind("Mod4", "grave", function()
-  spitfire.scratchpad.toggle("term", "alacritty --class scratchterm", "scratchterm")
+  spitfire.scratchpad.toggle("term", "alacritty --class scratchterm", "scratchterm", 1.0, 0.5)
 end)
 
 -- Window rules — floating windows are left out of the tiling arrangement

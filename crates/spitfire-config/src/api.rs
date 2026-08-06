@@ -204,21 +204,34 @@ pub(crate) fn install(
         spitfire.set("window", window_table)?;
     }
 
-    // spitfire.scratchpad.toggle(name, spawn_cmd, app_id) — named,
-    // app-specific scratchpad (see spitfire.window.toggle_scratchpad()
-    // right above for the simpler, unnamed single-slot version).
+    // spitfire.scratchpad.toggle(name, spawn_cmd, app_id, width_frac?,
+    // height_frac?) — named, app-specific scratchpad (see
+    // spitfire.window.toggle_scratchpad() right above for the simpler,
+    // unnamed single-slot version). width_frac/height_frac are each
+    // optional (0.0..=1.0, fraction of the output's usable area) —
+    // omitted, the window just keeps whatever size it opened itself at.
     {
         let scratchpad_table = lua.create_table()?;
         let commands = commands.clone();
-        let toggle_fn =
-            lua.create_function(move |_, (name, spawn_cmd, app_id): (String, String, String)| {
+        let toggle_fn = lua.create_function(
+            move |_,
+                  (name, spawn_cmd, app_id, width_frac, height_frac): (
+                String,
+                String,
+                String,
+                Option<f64>,
+                Option<f64>,
+            )| {
                 commands.borrow_mut().push(Command::ScratchpadToggle {
                     name,
                     spawn_cmd,
                     app_id,
+                    width_frac,
+                    height_frac,
                 });
                 Ok(())
-            })?;
+            },
+        )?;
         scratchpad_table.set("toggle", toggle_fn)?;
         spitfire.set("scratchpad", scratchpad_table)?;
     }

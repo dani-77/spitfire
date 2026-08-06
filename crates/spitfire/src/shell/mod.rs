@@ -578,11 +578,12 @@ fn place_new_window(
 }
 
 /// Moves `window` to the middle of `output`'s usable area (see
-/// `layout::usable_area`). Shared by `center_if_ruled` below (a one-shot
-/// placement for `spitfire.rule({ floating = true, centered = true })`
-/// windows) and `SpitfireState::toggle_scratchpad` (workspace.rs), which
-/// re-centers the scratchpad window every time it's shown. Returns `false`
-/// (and does nothing) if `output` has no usable area to speak of.
+/// `layout::usable_area`), using its current `bbox().size`. Shared by
+/// `center_if_ruled` below (a one-shot placement for `spitfire.rule({
+/// floating = true, centered = true })` windows) and
+/// `SpitfireState::toggle_scratchpad` (workspace.rs), which re-centers the
+/// scratchpad window every time it's shown. Returns `false` (and does
+/// nothing) if `output` has no usable area to speak of.
 pub(crate) fn center_on_output(
     space: &mut Space<WindowElement>,
     output: &Output,
@@ -590,10 +591,31 @@ pub(crate) fn center_on_output(
     bar_height: i32,
     bar_margin: i32,
 ) -> bool {
+    center_on_output_with_size(space, output, window, window.bbox().size, bar_height, bar_margin)
+}
+
+/// Same as `center_on_output`, but centers around an explicit `size`
+/// instead of reading `window.bbox().size` — for a caller that's *also*
+/// resizing the window in the same breath (see
+/// `SpitfireState::claim_pending_named_scratchpad`'s
+/// `spitfire.scratchpad.toggle(..., width_frac, height_frac)` handling):
+/// `bbox()` still reflects whatever size the client committed most
+/// recently, not the size a configure just asked it to resize to (that
+/// only becomes true once the client redraws and commits again), so
+/// centering from `bbox()` right after sending that configure would
+/// center around the *old* size for one frame.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn center_on_output_with_size(
+    space: &mut Space<WindowElement>,
+    output: &Output,
+    window: &WindowElement,
+    size: Size<i32, Logical>,
+    bar_height: i32,
+    bar_margin: i32,
+) -> bool {
     let Some(area) = usable_area(space, output, bar_height, bar_margin) else {
         return false;
     };
-    let size = window.bbox().size;
     let x = area.loc.x + (area.size.w - size.w).max(0) / 2;
     let y = area.loc.y + (area.size.h - size.h).max(0) / 2;
     space.map_element(window.clone(), (x, y), false);

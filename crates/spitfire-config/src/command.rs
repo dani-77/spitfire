@@ -36,16 +36,22 @@ pub enum Command {
     /// re-shows/refocuses whatever's already stashed there if nothing
     /// relevant is focused. See `SpitfireState::toggle_scratchpad`.
     WindowToggleScratchpad,
-    /// `spitfire.scratchpad.toggle(name, spawn_cmd, app_id)` — a named,
-    /// app-specific scratchpad slot (XMonad/LeftWM-style): spawns
-    /// `spawn_cmd` if nothing's registered yet under `name`, claiming the
-    /// next window that maps with the given `app_id` as that slot's
-    /// window; otherwise shows or hides whichever window is already
-    /// registered there. See `SpitfireState::toggle_named_scratchpad`.
+    /// `spitfire.scratchpad.toggle(name, spawn_cmd, app_id, width_frac?,
+    /// height_frac?)` — a named, app-specific scratchpad slot
+    /// (XMonad/LeftWM-style): spawns `spawn_cmd` if nothing's registered
+    /// yet under `name`, claiming the next window that maps with the given
+    /// `app_id` as that slot's window; otherwise shows or hides whichever
+    /// window is already registered there. `width_frac`/`height_frac`
+    /// (each `0.0..=1.0`, either or both omittable) size the window, as a
+    /// fraction of the output's usable area, the moment it's claimed —
+    /// omitted entirely, it just keeps whatever size it opened itself at.
+    /// See `SpitfireState::toggle_named_scratchpad`.
     ScratchpadToggle {
         name: String,
         spawn_cmd: String,
         app_id: String,
+        width_frac: Option<f64>,
+        height_frac: Option<f64>,
     },
     /// `spitfire.quit()`.
     Quit,

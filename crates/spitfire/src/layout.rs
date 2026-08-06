@@ -77,6 +77,7 @@ impl TilingLayout {
         space: &mut Space<WindowElement>,
         output: &Output,
         rules: &[WindowRule],
+        pending_scratchpad_app_ids: &[String],
         bar_height: i32,
         bar_margin: i32,
     ) {
@@ -88,7 +89,7 @@ impl TilingLayout {
         let tiled: Vec<WindowElement> = self
             .order
             .iter()
-            .filter(|w| !matches_floating_rule(w, rules))
+            .filter(|w| !matches_floating_rule(w, rules, pending_scratchpad_app_ids))
             .cloned()
             .collect();
         if tiled.is_empty() {
@@ -166,13 +167,40 @@ impl TilingLayout {
 pub(crate) struct ForceFloating;
 
 /// Checks a window's current `app_id` (see `WindowElement::app_id`, may
-/// still be `None` right after mapping) against the configured rules, or
-/// whether it's carrying a `ForceFloating` marker (see its own doc comment).
-fn matches_floating_rule(window: &WindowElement, rules: &[WindowRule]) -> bool {
+/// still be `None` right after mapping) against the configured rules, a
+/// `ForceFloating` marker (see its own doc comment), or
+/// `pending_scratchpad_app_ids` — `app_id`s a
+/// `spitfire.scratchpad.toggle(...)` call is currently waiting to claim
+/// (see `SpitfireState::claim_pending_named_scratchpad`).
+///
+/// That last check matters for timing, not just correctness: a
+/// newly-spawned scratchpad window's `app_id` becomes known (via
+/// `set_app_id`) well before it commits its first buffer, and this
+/// `arrange` runs every frame — so without it, a scratchpad window would
+/// sit in the *tiled* set for however many frames pass in between, getting
+/// a real tile-slot size `send_pending_configure`d to it before
+/// `claim_pending_named_scratchpad` (which only runs at that first-buffer
+/// commit) ever gets a chance to mark it `ForceFloating`. A terminal
+/// generally honors whatever size it's told before it ever draws, so that
+/// tile-slot size is exactly what it opens at — e.g. the full height of
+/// the usable area, if it was briefly the tiling set's only window.
+/// Checking here closes that window (no pun intended) instead of relying
+/// on `ForceFloating` alone, which only ever prevents *future* passes from
+/// re-tiling it, not the one that already sent a bad initial size.
+fn matches_floating_rule(
+    window: &WindowElement,
+    rules: &[WindowRule],
+    pending_scratchpad_app_ids: &[String],
+) -> bool {
     if window.0.user_data().get::<ForceFloating>().is_some() {
         return true;
     }
     let app_id = window.app_id();
+    if let Some(app_id) = app_id.as_deref() {
+        if pending_scratchpad_app_ids.iter().any(|id| id == app_id) {
+            return true;
+        }
+    }
     rules
         .iter()
         .find(|rule| rule.matches(app_id.as_deref()))
@@ -224,6 +252,14 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             return;
         };
         let rules = self.config.rules().clone();
+        let pending_scratchpad_app_ids: Vec<String> = self
+            .named_scratchpads
+            .values()
+            .filter_map(|slot| match slot {
+                crate::workspace::NamedScratchpad::Pending { app_id, .. } => Some(app_id.clone()),
+                _ => None,
+            })
+            .collect();
         let bar_height = if self.config.bar.enabled {
             self.config.bar.height
         } else {
@@ -234,6 +270,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             &mut self.space,
             &output,
             &rules,
+            &pending_scratchpad_app_ids,
             bar_height,
             bar_margin,
         );

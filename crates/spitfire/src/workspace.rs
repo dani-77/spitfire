@@ -10,16 +10,16 @@
 //! `HashMap<Output, WorkspaceSet>` instead of rewriting this.
 
 use smithay::{
-    desktop::WindowSurface,
+    desktop::{space::SpaceElement, WindowSurface},
     output::Output,
-    utils::{IsAlive, SERIAL_COUNTER},
+    utils::{IsAlive, Logical, Size, SERIAL_COUNTER},
 };
 use tracing::info;
 
 use crate::{
     focus::KeyboardFocusTarget,
-    layout::{ForceFloating, TilingLayout},
-    shell::{center_on_output, WindowElement},
+    layout::{usable_area, ForceFloating, TilingLayout},
+    shell::{center_on_output, center_on_output_with_size, WindowElement},
     state::{Backend, SpitfireState},
 };
 
@@ -184,15 +184,23 @@ impl WorkspaceSet {
     }
 }
 
-/// One `spitfire.scratchpad.toggle(name, spawn_cmd, app_id)` slot's state
-/// — see `SpitfireState::toggle_named_scratchpad`'s doc comment for the
-/// whole flow this drives.
+/// One `spitfire.scratchpad.toggle(name, spawn_cmd, app_id, width_frac?,
+/// height_frac?)` slot's state — see
+/// `SpitfireState::toggle_named_scratchpad`'s doc comment for the whole
+/// flow this drives.
 #[derive(Debug)]
 pub enum NamedScratchpad {
     /// `spawn_cmd` has already been run; waiting for a window whose
     /// `app_id` matches to map so `SpitfireState::claim_pending_named_scratchpad`
-    /// can claim it.
-    Pending { app_id: String },
+    /// can claim it. `width_frac`/`height_frac` are what it'll be resized
+    /// to (each a fraction of the output's usable area) once claimed, if
+    /// given at all — `None` leaves that axis at whatever size the window
+    /// opened itself at.
+    Pending {
+        app_id: String,
+        width_frac: Option<f64>,
+        height_frac: Option<f64>,
+    },
     /// Currently visible.
     Shown(WindowElement),
     /// Currently stashed (unmapped, out of every workspace's tiling order).
@@ -369,15 +377,18 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         self.space.unmap_elem(window);
     }
 
-    /// `spitfire.scratchpad.toggle(name, spawn_cmd, app_id)` — a named,
-    /// app-specific scratchpad slot (XMonad/LeftWM-style "named
-    /// scratchpad"), as opposed to `toggle_scratchpad`'s single anonymous
-    /// one: `name` identifies the slot, `spawn_cmd` is what launches the
-    /// app the first time (or again, if the window it previously held
-    /// died), and `app_id` is how the freshly spawned window gets
-    /// recognized and claimed once it maps — see
-    /// `claim_pending_named_scratchpad`, called from `shell::commit` right
-    /// when a new window gets its first real buffer.
+    /// `spitfire.scratchpad.toggle(name, spawn_cmd, app_id, width_frac?,
+    /// height_frac?)` — a named, app-specific scratchpad slot
+    /// (XMonad/LeftWM-style "named scratchpad"), as opposed to
+    /// `toggle_scratchpad`'s single anonymous one: `name` identifies the
+    /// slot, `spawn_cmd` is what launches the app the first time (or
+    /// again, if the window it previously held died), and `app_id` is how
+    /// the freshly spawned window gets recognized and claimed once it
+    /// maps — see `claim_pending_named_scratchpad`, called from
+    /// `shell::commit` right when a new window gets its first real buffer.
+    /// `width_frac`/`height_frac` (each `0.0..=1.0`, either omittable) size
+    /// it, as a fraction of the output's usable area, at that same claim
+    /// point — omitted, it just keeps whatever size it opened itself at.
     ///
     /// - Nothing registered under `name` yet, or the window it held died:
     ///   spawns `spawn_cmd` and starts waiting for `app_id` to map. The
@@ -385,12 +396,21 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     ///   pressing the bind on an app that isn't running yet opens it
     ///   visibly, matching XMonad/LeftWM.
     /// - Registered and currently shown: hides it.
-    /// - Registered and currently hidden: shows it.
+    /// - Registered and currently hidden: shows it (at whatever size it
+    ///   currently is — `width_frac`/`height_frac` only ever apply once,
+    ///   right when the window is first claimed).
     ///
     /// A second toggle while still waiting for the spawned window to map
     /// is a deliberate no-op — otherwise a fast double-press would spawn
     /// the app twice.
-    pub fn toggle_named_scratchpad(&mut self, name: &str, spawn_cmd: &str, app_id: &str) {
+    pub fn toggle_named_scratchpad(
+        &mut self,
+        name: &str,
+        spawn_cmd: &str,
+        app_id: &str,
+        width_frac: Option<f64>,
+        height_frac: Option<f64>,
+    ) {
         let entry = match self.named_scratchpads.remove(name) {
             // Normalize a dead window (closed while shown or hidden) to
             // "nothing registered" so it falls into the same respawn path
@@ -412,12 +432,13 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                     name.to_string(),
                     NamedScratchpad::Pending {
                         app_id: app_id.to_string(),
+                        width_frac,
+                        height_frac,
                     },
                 );
             }
-            Some(NamedScratchpad::Pending { app_id }) => {
-                self.named_scratchpads
-                    .insert(name.to_string(), NamedScratchpad::Pending { app_id });
+            Some(pending @ NamedScratchpad::Pending { .. }) => {
+                self.named_scratchpads.insert(name.to_string(), pending);
             }
             Some(NamedScratchpad::Shown(window)) => {
                 self.hide_scratchpad_window(&window);
@@ -434,11 +455,13 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
 
     /// Checks whether `window`'s `app_id` matches any
     /// `NamedScratchpad::Pending` slot, and if so, claims it: marks it
-    /// floating, centers it on `output`, joins the active workspace's
-    /// tiling order, and transitions that slot to `Shown`. Doesn't touch
-    /// keyboard focus — the caller (`shell::commit`'s first-buffer path)
-    /// already hands every newly mapped window focus regardless, so doing
-    /// it here too would just be a redundant second `set_focus` call.
+    /// floating, resizes it to that slot's `width_frac`/`height_frac` (if
+    /// either was given), centers it on `output`, joins the active
+    /// workspace's tiling order, and transitions the slot to `Shown`.
+    /// Doesn't touch keyboard focus — the caller (`shell::commit`'s
+    /// first-buffer path) already hands every newly mapped window focus
+    /// regardless, so doing it here too would just be a redundant second
+    /// `set_focus` call.
     ///
     /// A no-op (returns `false`) if nothing's waiting for this `app_id`.
     pub(crate) fn claim_pending_named_scratchpad(
@@ -451,19 +474,42 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         let Some(window_app_id) = window.app_id() else {
             return false;
         };
-        let Some(name) = self.named_scratchpads.iter().find_map(|(name, slot)| {
-            match slot {
-                NamedScratchpad::Pending { app_id } if *app_id == window_app_id => {
-                    Some(name.clone())
-                }
+        let Some((name, width_frac, height_frac)) =
+            self.named_scratchpads.iter().find_map(|(name, slot)| match slot {
+                NamedScratchpad::Pending {
+                    app_id,
+                    width_frac,
+                    height_frac,
+                } if *app_id == window_app_id => Some((name.clone(), *width_frac, *height_frac)),
                 _ => None,
-            }
-        }) else {
+            })
+        else {
             return false;
         };
 
         window.0.user_data().insert_if_missing(|| ForceFloating);
-        center_on_output(&mut self.space, output, window, bar_height, bar_margin);
+
+        if width_frac.is_some() || height_frac.is_some() {
+            if let Some(area) = usable_area(&self.space, output, bar_height, bar_margin) {
+                let natural = window.bbox().size;
+                let size = Size::from((
+                    width_frac.map_or(natural.w, |f| ((area.size.w as f64) * f).round() as i32),
+                    height_frac.map_or(natural.h, |f| ((area.size.h as f64) * f).round() as i32),
+                ));
+                resize_window(window, size);
+                center_on_output_with_size(
+                    &mut self.space,
+                    output,
+                    window,
+                    size,
+                    bar_height,
+                    bar_margin,
+                );
+            }
+        } else {
+            center_on_output(&mut self.space, output, window, bar_height, bar_margin);
+        }
+
         self.workspaces.active_mut().tiling.push(window.clone());
         self.named_scratchpads
             .insert(name, NamedScratchpad::Shown(window.clone()));
@@ -514,6 +560,31 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             .collect();
         for window in to_hide {
             self.space.unmap_elem(&window);
+        }
+    }
+}
+
+/// Sends `window` a configure requesting `size` — used only by
+/// `SpitfireState::claim_pending_named_scratchpad`'s
+/// `width_frac`/`height_frac` handling. The resize itself isn't
+/// synchronous: the client redraws and commits a new buffer at its own
+/// pace, same as any other resize (see `center_on_output_with_size`'s doc
+/// comment for why the caller centers around the *requested* size rather
+/// than waiting for that commit).
+fn resize_window(window: &WindowElement, size: Size<i32, Logical>) {
+    match window.0.underlying_surface() {
+        WindowSurface::Wayland(toplevel) => {
+            toplevel.with_pending_state(|state| {
+                state.size = Some(size);
+            });
+            if toplevel.is_initial_configure_sent() {
+                toplevel.send_pending_configure();
+            }
+        }
+        #[cfg(feature = "xwayland")]
+        WindowSurface::X11(x11) => {
+            let loc = x11.geometry().loc;
+            let _ = x11.configure(smithay::utils::Rectangle::new(loc, size));
         }
     }
 }

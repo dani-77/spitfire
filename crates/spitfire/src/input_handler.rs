@@ -230,8 +230,10 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 name,
                 spawn_cmd,
                 app_id,
+                width_frac,
+                height_frac,
             } => {
-                self.toggle_named_scratchpad(&name, &spawn_cmd, &app_id);
+                self.toggle_named_scratchpad(&name, &spawn_cmd, &app_id, width_frac, height_frac);
             }
 
             ConfigCommand::Quit => {
