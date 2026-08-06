@@ -23,6 +23,17 @@ mkdir -p "$log_dir"
 # xdg-desktop-portal-gnome with no gnome-shell actually running).
 export XDG_CURRENT_DESKTOP=spitfire
 
+# Default to just enough logging to diagnose input issues (every key
+# press/release spitfire's input handler sees, and which keysym/action it
+# resolved to — see the `debug!` calls in input_handler.rs) without
+# drowning session.log in per-frame render noise. Scoped to that one
+# module rather than a blanket `debug` level for the same reason. Doesn't
+# override an already-exported RUST_LOG, so this is a default, not a
+# floor — set your own before invoking this script (or edit the line
+# below) if you need something else logged.
+: "${RUST_LOG:=spitfire::input_handler=debug}"
+export RUST_LOG
+
 # dbus-run-session opens a private D-Bus *session* bus and exports
 # DBUS_SESSION_BUS_ADDRESS into it before exec'ing spitfire, so every
 # autostart client spitfire spawns (dunst, udiskie, ...) inherits a working
