@@ -55,14 +55,36 @@ impl<BackendData: Backend> XdgShellHandler for SpitfireState<BackendData> {
             true,
         );
 
-        // Phase 1/5: joins the active workspace's tiling order and the
-        // active layout is reapplied right here — in tile/fibonacci/monocle
-        // mode this immediately overrides the cascaded position from
-        // place_new_window above; in floating mode it keeps that position,
-        // which is exactly what we want. New windows always land on
-        // whichever workspace is currently focused.
+        // Phase 1/5: joins the active workspace's tiling order. New windows
+        // always land on whichever workspace is currently focused.
+        //
+        // Deliberately *not* calling `arrange_tiling()` here: `new_toplevel`
+        // fires on `get_toplevel`, before the client's `set_app_id` request
+        // has even been processed (it's a separate, later request in the
+        // same batch), so `matches_floating_rule` would still see `app_id =
+        // None` and misclassify a soon-to-be-floating window as tiled.
+        // `TilingLayout::arrange` sets a tiled window's pending
+        // `xdg_toplevel` size unconditionally (only the *sending* of that
+        // configure is gated on `is_initial_configure_sent()`), so that
+        // wrong classification would stick a tile-sized geometry into the
+        // pending state — and since the client's own initial (empty)
+        // commit lands later in this same dispatch batch (after
+        // `set_app_id` *is* processed), `ensure_initial_configure` would
+        // ship that bogus tiled size as the window's very first configure.
+        // A `spitfire.rule({ floating = true, centered = true })` window
+        // would then open at the wrong size, get centered around it (see
+        // `center_if_ruled` in shell/mod.rs), and visibly resize/jump once
+        // the client settles on its real size — the "flickering centered
+        // window" bug.
+        //
+        // Leaving this to the per-frame `arrange_tiling()` call instead
+        // (winit.rs's main loop / udev.rs's `render_surface`, both of which
+        // run after the event loop has drained the whole batch above) means
+        // the first arrange pass this window is ever subject to sees the
+        // correct `app_id`, and therefore the correct floating/tiled
+        // classification, before any configure carrying a size has gone
+        // out to it.
         self.workspaces.active_mut().tiling.push(window);
-        self.arrange_tiling();
 
         // Queued for keyboard focus the moment it has an actual buffer to
         // show (see `commit()` in shell/mod.rs) — dwm-style "new window
