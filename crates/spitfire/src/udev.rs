@@ -724,6 +724,9 @@ struct SurfaceData {
     /// Backing buffers for `spitfire.border`'s rects on this CRTC, reused
     /// frame to frame — see `render::RectCache`.
     border_cache: RectCache,
+    /// `spitfire.border.radius`'s corner masks for this CRTC, reused frame
+    /// to frame — see `render::CornerMaskCache`.
+    corner_masks: crate::render::CornerMaskCache,
 }
 
 impl Drop for SurfaceData {
@@ -1160,6 +1163,7 @@ impl SpitfireState<UdevData> {
                 last_presentation_time: None,
                 vblank_throttle_timer: None,
                 border_cache: RectCache::default(),
+                corner_masks: crate::render::CornerMaskCache::default(),
             };
 
             device.surfaces.insert(crtc, surface);
@@ -1636,6 +1640,7 @@ impl SpitfireState<UdevData> {
             locked_surface.as_ref(),
             &border_rects,
             border.width,
+            border.radius,
             crate::render::hex_to_color32f(border.active),
             crate::render::hex_to_color32f(border.inactive),
             &bar_config,
@@ -1730,6 +1735,7 @@ fn render_surface<'a>(
     locked_surface: Option<&wl_surface::WlSurface>,
     borders: &[BorderRect],
     border_width: i32,
+    border_radius: i32,
     border_active: smithay::backend::renderer::Color32F,
     border_inactive: smithay::backend::renderer::Color32F,
     bar_config: &spitfire_config::BarConfig,
@@ -1840,9 +1846,11 @@ fn render_surface<'a>(
         locked_surface,
         borders,
         border_width,
+        border_radius,
         border_active,
         border_inactive,
         &mut surface.border_cache,
+        &mut surface.corner_masks,
     );
 
     let frame_mode = if surface.disable_direct_scanout {

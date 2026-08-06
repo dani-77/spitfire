@@ -63,6 +63,10 @@ pub struct WinitData {
     /// Backing buffers for `spitfire.border`'s rects, reused frame to frame
     /// — see `render::RectCache`.
     border_cache: crate::render::RectCache,
+    /// `spitfire.border.radius`'s corner masks, reused frame to frame and
+    /// only rebuilt when the radius/width/colors actually change — see
+    /// `render::CornerMaskCache`.
+    corner_masks: crate::render::CornerMaskCache,
     #[cfg(feature = "debug")]
     pub fps: fps_ticker::Fps,
 }
@@ -219,6 +223,7 @@ pub fn run_winit() {
             dmabuf_state,
             full_redraw: 0,
             border_cache: crate::render::RectCache::default(),
+            corner_masks: crate::render::CornerMaskCache::default(),
             #[cfg(feature = "debug")]
             fps: fps_ticker::Fps::default(),
         }
@@ -328,6 +333,7 @@ pub fn run_winit() {
             let space = &mut state.space;
             let damage_tracker = &mut state.backend_data.damage_tracker;
             let border_cache = &mut state.backend_data.border_cache;
+            let corner_masks = &mut state.backend_data.corner_masks;
             let show_window_preview = state.show_window_preview;
             let locked = state.locked;
             let lock_surfaces = &state.lock_surfaces;
@@ -447,9 +453,11 @@ pub fn run_winit() {
                     locked_surface,
                     &border_rects,
                     border.width,
+                    border.radius,
                     crate::render::hex_to_color32f(border.active),
                     crate::render::hex_to_color32f(border.inactive),
                     border_cache,
+                    corner_masks,
                 )
                 .map_err(|err| match err {
                     OutputDamageTrackerError::Rendering(err) => err.into(),

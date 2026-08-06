@@ -63,7 +63,10 @@ spitfire.bind("Mod4", "k", function() spitfire.window.focus_prev() end)
 -- cascade to.
 spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 
-spitfire.border = { width = 2, active = "#7aa2f7", inactive = "#414868" }
+-- `radius` (logical pixels, default 0) rounds the border's corners — and,
+-- since it's drawn on top of the window, masks the window's own square
+-- corners along with it. 0 keeps the classic square-cornered look.
+spitfire.border = { width = 2, active = "#7aa2f7", inactive = "#414868", radius = 8 }
 spitfire.gaps = { inner = 6, outer = 10 }
 
 -- Keyboard layout — empty string means "let xkbcommon pick its own
