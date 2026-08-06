@@ -145,6 +145,32 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
         h: Option<u32>,
         _reorder: Option<Reorder>,
     ) {
+        // Override-redirect windows (menus, dropdowns, tooltips) position
+        // and size themselves directly over X11 — the window manager isn't
+        // in the loop for them by definition (that's what "override
+        // redirect" means). Confirmed in smithay's own source
+        // (xwayland/xwm/surface.rs): `X11Surface::configure()` immediately
+        // errors out and does *nothing* — no XCB request goes out at all —
+        // if called with `Some(rect)` on one of these. The code below used
+        // to call it unconditionally and silently drop that `Err` via
+        // `let _ =`, meaning every override-redirect ConfigureRequest —
+        // Steam's own menu asking to be placed under the button that
+        // opened it, a submenu asking to be placed next to its parent —
+        // was a complete no-op: the window just stayed wherever it was
+        // originally created (the screen's top-left corner), and hovering
+        // into a submenu did nothing since its own "move over here"
+        // request was silently swallowed the exact same way.
+        //
+        // These windows still end up wherever they asked to be regardless
+        // of what we do here — the X server applies their own
+        // ConfigureWindow request immediately and reports the result via
+        // ConfigureNotify either way, which `configure_notify` below is
+        // what actually keeps `self.space` in sync with. There's nothing
+        // left for us to usefully do with a ConfigureRequest from one.
+        if window.is_override_redirect() {
+            return;
+        }
+
         // Just set the new size, but don't let windows move themselves
         // around freely — same tiling-friendly restriction xdg-shell
         // windows are already under.
