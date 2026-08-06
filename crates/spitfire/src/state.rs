@@ -157,6 +157,14 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// `new_toplevel`, drained on that first commit (or on destroy, so a
     /// toplevel closed before ever mapping doesn't linger here).
     pub pending_initial_focus: Vec<WlSurface>,
+    /// Every window that's held keyboard focus, oldest first, most
+    /// recently focused last — updated from `SeatHandler::focus_changed`
+    /// below, so it stays accurate regardless of *why* focus moved (click,
+    /// `spitfire.window.focus_next`, a newly-mapped window stealing it,
+    /// ...). Read by `arrange_tiling` to refocus the previously-focused
+    /// window whenever the current one vanishes (closed) instead of
+    /// leaving focus on nothing.
+    pub focus_history: Vec<WindowElement>,
     /// Phase 5: dynamic per-output workspace list (v1: a single output, so
     /// a single `WorkspaceSet`) — each workspace owns its own
     /// tile/floating/fibonacci/monocle layout state. See `crate::workspace`.
@@ -342,6 +350,19 @@ impl<BackendData: Backend> SeatHandler for SpitfireState<BackendData> {
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, target: Option<&KeyboardFocusTarget>) {
+        // Record window focus for `arrange_tiling`'s "refocus the previous
+        // window when the current one closes" — see `focus_history`'s own
+        // docs. Re-focusing an already-topmost entry (e.g. clicking the
+        // already-focused window) is deliberately a no-op below rather
+        // than a no-op dedup-and-repush, so it doesn't reorder anything.
+        if let Some(KeyboardFocusTarget::Window(w)) = target {
+            let window = WindowElement(w.clone());
+            if self.focus_history.last() != Some(&window) {
+                self.focus_history.retain(|w| w != &window);
+                self.focus_history.push(window);
+            }
+        }
+
         let dh = &self.display_handle;
 
         let wl_surface = target.and_then(WaylandFocus::wl_surface);
@@ -784,6 +805,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             space: Space::default(),
             popups: PopupManager::default(),
             pending_initial_focus: Vec::new(),
+            focus_history: Vec::new(),
             compositor_state,
             data_device_state,
             layer_shell_state,

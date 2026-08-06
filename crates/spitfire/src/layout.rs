@@ -7,7 +7,7 @@
 use smithay::{
     desktop::{layer_map_for_output, Space},
     output::Output,
-    utils::{IsAlive, Point, Size},
+    utils::{IsAlive, Point, Size, SERIAL_COUNTER},
     wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
 use spitfire_config::WindowRule;
@@ -15,6 +15,7 @@ use spitfire_layout::{arrange as layout_arrange, LayoutParams, Rect};
 use tracing::debug;
 
 use crate::{
+    focus::KeyboardFocusTarget,
     shell::WindowElement,
     state::{Backend, SpitfireState},
 };
@@ -201,5 +202,48 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             bar_height,
             bar_margin,
         );
+        self.refocus_if_dangling();
+    }
+
+    /// If keyboard focus is on nothing, or on a window that's gone (closed)
+    /// or no longer part of the active workspace, hands it to whichever of
+    /// the active workspace's windows was focused most recently before
+    /// that — so closing the focused window falls back to the previous
+    /// one (dwm/i3-style) instead of leaving focus on nothing. Runs every
+    /// frame, right after the tiling order's own dead-window pruning above
+    /// — same reasoning: there is no dedicated "window closed" hook.
+    fn refocus_if_dangling(&mut self) {
+        let Some(keyboard) = self.seat.get_keyboard() else {
+            return;
+        };
+
+        let focus_ok = match keyboard.current_focus() {
+            Some(KeyboardFocusTarget::Window(w)) => {
+                let window = WindowElement(w);
+                window.alive() && self.workspaces.active().tiling.windows().contains(&window)
+            }
+            // Non-window focus (a layer-shell surface, a popup, the lock
+            // screen, ...) is left alone — this is only about windows.
+            Some(_) => return,
+            None => false,
+        };
+        if focus_ok {
+            return;
+        }
+
+        self.focus_history.retain(|w| w.alive());
+        let active_windows = self.workspaces.active().tiling.windows();
+        let Some(window) = self
+            .focus_history
+            .iter()
+            .rev()
+            .find(|w| active_windows.contains(w))
+            .cloned()
+        else {
+            return;
+        };
+
+        let serial = SERIAL_COUNTER.next_serial();
+        keyboard.set_focus(self, Some(window.into()), serial);
     }
 }
