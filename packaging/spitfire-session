@@ -11,6 +11,18 @@ set -eu
 log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/spitfire"
 mkdir -p "$log_dir"
 
+# spitfire's own main.rs also sets XDG_CURRENT_DESKTOP=spitfire via
+# std::env::set_var, but that only reaches children spitfire spawns *after*
+# that line runs — it can't retroactively reach the dbus-daemon started
+# below by dbus-run-session, since that's already-launched by the time
+# spitfire's own code runs. xdg-desktop-portal (D-Bus-activated by that
+# daemon) reads XDG_CURRENT_DESKTOP from its own inherited environment to
+# pick $XDG_CURRENT_DESKTOP-portals.conf (packaging installs
+# spitfire-portals.conf); without it here, it falls back to the generic
+# portals.conf and can launch an arbitrary/wrong backend (e.g.
+# xdg-desktop-portal-gnome with no gnome-shell actually running).
+export XDG_CURRENT_DESKTOP=spitfire
+
 # dbus-run-session opens a private D-Bus *session* bus and exports
 # DBUS_SESSION_BUS_ADDRESS into it before exec'ing spitfire, so every
 # autostart client spitfire spawns (dunst, udiskie, ...) inherits a working
