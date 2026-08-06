@@ -32,7 +32,7 @@ use smithay::{
         xwayland_shell::{XWaylandShellHandler, XWaylandShellState},
     },
     xwayland::{
-        xwm::{Reorder, ResizeEdge as X11ResizeEdge, XwmId},
+        xwm::{Reorder, ResizeEdge as X11ResizeEdge, WmWindowType, XwmId},
         X11Surface, X11Wm, XwmHandler,
     },
 };
@@ -80,6 +80,31 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
 
     fn map_window_request(&mut self, _xwm: XwmId, window: X11Surface) {
         window.set_mapped(true).unwrap();
+
+        // A window that's positioned relative to something else (a menu
+        // under the button that opened it, a submenu next to its parent, a
+        // dialog centered on its owner) needs to end up wherever it
+        // actually asked to be, not wherever `place_new_window`'s random
+        // cascade or `TilingLayout::arrange`'s tiling puts it. Genuinely
+        // override-redirect windows already get this — they never reach
+        // this function at all, see `mapped_override_redirect_window` —
+        // but plenty of real-world popups/menus (Steam's own CEF-based UI
+        // among them) map as ordinary, non-override-redirect windows that
+        // just happen to be transient-for their opener or carry an EWMH
+        // `_NET_WM_WINDOW_TYPE` marking them as a menu/tooltip/notification.
+        // Treating those the same way here — keep their own geometry,
+        // don't tile them — is what actually fixes "Steam's menu opens in
+        // the wrong place" (a plain floating-window fix doesn't cover it,
+        // since without this check it's `place_new_window` and then
+        // `TilingLayout::arrange` fighting over where the window sits, not
+        // just one or the other).
+        if is_positioned_by_client(&window) {
+            let location = window.geometry().loc;
+            let window = WindowElement(Window::new_x11_window(window));
+            self.space.map_element(window, location, true);
+            return;
+        }
+
         let window = WindowElement(Window::new_x11_window(window));
         place_new_window(
             &mut self.space,
@@ -167,7 +192,14 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
         // ConfigureNotify either way, which `configure_notify` below is
         // what actually keeps `self.space` in sync with. There's nothing
         // left for us to usefully do with a ConfigureRequest from one.
-        if window.is_override_redirect() {
+        //
+        // `is_positioned_by_client` extends the same treatment to
+        // non-override-redirect windows that are still clearly
+        // self-positioned — transient-for another window, or EWMH-typed
+        // as a menu/tooltip/notification — for the same reason
+        // `map_window_request` skips tiling them: see that function's
+        // doc comment.
+        if window.is_override_redirect() || is_positioned_by_client(&window) {
             return;
         }
 
@@ -522,4 +554,28 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         let pointer = self.pointer.clone();
         pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
+}
+
+/// Whether `window` positions itself and should be left alone by
+/// `place_new_window`'s cascade and `TilingLayout::arrange`'s tiling —
+/// true override-redirect windows already get this treatment
+/// unconditionally (they never reach `map_window_request`/
+/// `configure_request` at all, see `mapped_override_redirect_window`), but
+/// plenty of real popups/menus/dialogs (Steam's own CEF-based UI among
+/// them) map as ordinary windows instead. `is_transient_for` covers dialogs
+/// positioned relative to their owner; the EWMH window-type check covers
+/// menus, dropdowns, tooltips and notifications, which are positioned
+/// relative to whatever opened them rather than the owner window itself.
+fn is_positioned_by_client(window: &X11Surface) -> bool {
+    window.is_transient_for().is_some()
+        || matches!(
+            window.window_type(),
+            Some(
+                WmWindowType::Menu
+                    | WmWindowType::DropdownMenu
+                    | WmWindowType::PopupMenu
+                    | WmWindowType::Tooltip
+                    | WmWindowType::Notification
+            )
+        )
 }
