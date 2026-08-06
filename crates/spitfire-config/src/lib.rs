@@ -319,6 +319,18 @@ mod tests {
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].app_id.as_deref(), Some("pavucontrol"));
         assert!(rules[0].floating);
+        assert!(!rules[0].centered);
+    }
+
+    #[test]
+    fn collects_centered_rule() {
+        let config = load_str(
+            r#"spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })"#,
+        );
+        let rules = config.rules();
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].floating);
+        assert!(rules[0].centered);
     }
 
     #[test]

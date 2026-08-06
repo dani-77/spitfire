@@ -1,13 +1,18 @@
-/// A `spitfire.rule({ app_id = "...", floating = true })` rule.
+/// A `spitfire.rule({ app_id = "...", floating = true, centered = true })`
+/// rule.
 ///
-/// Phase 2 only implements `floating`: windows whose `app_id` matches the
-/// rule are left out of the tiling order entirely (the layout engine never
-/// touches their geometry). `workspace = n` is left for Phase 5, once more
-/// than one workspace exists.
+/// `floating`: windows whose `app_id` matches the rule are left out of the
+/// tiling order entirely (the layout engine never touches their geometry).
+/// `centered`: only meaningful alongside `floating` — the window is placed
+/// in the middle of the output's usable area the first time it maps,
+/// instead of wherever `place_new_window`'s cascade would have put it.
+/// `workspace = n` is left for Phase 5, once more than one workspace
+/// exists.
 #[derive(Debug, Clone, Default)]
 pub struct WindowRule {
     pub app_id: Option<String>,
     pub floating: bool,
+    pub centered: bool,
 }
 
 impl WindowRule {
@@ -32,6 +37,7 @@ mod tests {
         let rule = WindowRule {
             app_id: Some("pavucontrol".into()),
             floating: true,
+            centered: false,
         };
         assert!(rule.matches(Some("pavucontrol")));
         assert!(!rule.matches(Some("foot")));
@@ -43,6 +49,7 @@ mod tests {
         let rule = WindowRule {
             app_id: None,
             floating: true,
+            centered: false,
         };
         assert!(rule.matches(Some("anything")));
         assert!(rule.matches(None));

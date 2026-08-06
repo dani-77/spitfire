@@ -43,9 +43,11 @@ use smithay::{
 
 use crate::{
     focus::KeyboardFocusTarget,
+    layout::usable_area,
     state::{Backend, SpitfireState},
     ClientState,
 };
+use spitfire_config::WindowRule;
 
 mod element;
 mod grabs;
@@ -232,6 +234,32 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                         .unwrap_or(false);
                         if has_buffer {
                             self.pending_initial_focus.remove(pos);
+
+                            // spitfire.rule({ floating = true, centered =
+                            // true }): override place_new_window's random
+                            // cascade now that the window's real size (via
+                            // this first buffer) is known. See
+                            // `center_if_ruled`'s docs for why this is the
+                            // right point to do it.
+                            let output = self.space.outputs().next().cloned();
+                            if let Some(output) = output {
+                                let rules = self.config.rules().clone();
+                                let bar_height = if self.config.bar.enabled {
+                                    self.config.bar.height
+                                } else {
+                                    0
+                                };
+                                let bar_margin = self.config.gaps.outer;
+                                center_if_ruled(
+                                    &mut self.space,
+                                    &output,
+                                    &window,
+                                    &rules,
+                                    bar_height,
+                                    bar_margin,
+                                );
+                            }
+
                             if !self.locked {
                                 if let Some(keyboard) = self.seat.get_keyboard() {
                                     keyboard.set_focus(
@@ -534,6 +562,44 @@ fn place_new_window(
     let y = y_range.sample(&mut rng);
 
     space.map_element(window.clone(), (x, y), activate);
+}
+
+/// If `window` is matched by a `spitfire.rule({ floating = true, centered =
+/// true })` rule, moves it to the middle of `output`'s usable area (see
+/// `layout::usable_area`) — overriding wherever `place_new_window`'s random
+/// cascade put it. A no-op for anything else, including a `floating = true`
+/// rule without `centered`.
+///
+/// Called once, right when a window's first real buffer commits (see
+/// `commit()` below) — like `floating` itself, this is a one-shot
+/// placement, not a constraint kept up over the window's lifetime: resizing
+/// the output afterwards won't re-center it. A future scratchpad toggle
+/// that shows/hides a designated window could call this same helper again
+/// each time it re-shows it, to have it reappear centered instead of
+/// wherever it was left.
+pub(crate) fn center_if_ruled(
+    space: &mut Space<WindowElement>,
+    output: &Output,
+    window: &WindowElement,
+    rules: &[WindowRule],
+    bar_height: i32,
+    bar_margin: i32,
+) {
+    let app_id = window.app_id();
+    let centered = rules
+        .iter()
+        .find(|rule| rule.matches(app_id.as_deref()))
+        .is_some_and(|rule| rule.floating && rule.centered);
+    if !centered {
+        return;
+    }
+    let Some(area) = usable_area(space, output, bar_height, bar_margin) else {
+        return;
+    };
+    let size = window.bbox().size;
+    let x = area.loc.x + (area.size.w - size.w).max(0) / 2;
+    let y = area.loc.y + (area.size.h - size.h).max(0) / 2;
+    space.map_element(window.clone(), (x, y), false);
 }
 
 pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point<f64, Logical>) {
