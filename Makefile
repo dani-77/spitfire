@@ -21,6 +21,7 @@ install: build
 	install -Dm755 target/release/spitfirectl $(DESTDIR)$(PREFIX)/bin/spitfirectl
 	install -Dm755 packaging/spitfire-session $(DESTDIR)$(PREFIX)/bin/spitfire-session
 	install -Dm644 packaging/spitfire.desktop $(DESTDIR)$(PREFIX)/share/wayland-sessions/spitfire.desktop
+	install -Dm644 packaging/spitfire-portals.conf $(DESTDIR)/etc/xdg-desktop-portal/spitfire-portals.conf
 	install -Dm644 assets/logo/spitfire-wc-icon.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/spitfire.svg
 	install -Dm644 assets/logo/spitfire-wc-icon-16.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/16x16/apps/spitfire.png
 	install -Dm644 assets/logo/spitfire-wc-icon-32.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/32x32/apps/spitfire.png
@@ -32,6 +33,7 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/spitfirectl
 	rm -f $(DESTDIR)$(PREFIX)/bin/spitfire-session
 	rm -f $(DESTDIR)$(PREFIX)/share/wayland-sessions/spitfire.desktop
+	rm -f $(DESTDIR)/etc/xdg-desktop-portal/spitfire-portals.conf
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/spitfire.svg
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/16x16/apps/spitfire.png
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/32x32/apps/spitfire.png
