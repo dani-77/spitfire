@@ -222,6 +222,14 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 self.cycle_window_focus(false);
             }
 
+            ConfigCommand::WindowSwapNext => {
+                self.swap_focused_window(true);
+            }
+
+            ConfigCommand::WindowSwapPrev => {
+                self.swap_focused_window(false);
+            }
+
             ConfigCommand::WindowToggleScratchpad => {
                 self.toggle_scratchpad();
             }

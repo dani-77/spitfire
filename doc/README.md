@@ -41,10 +41,11 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`. Mod4/Super and Mod1/Alt are both
   first-class modifiers, freely mixable per bind. See `../examples/config.lua` for the
   default bindings.
-  - `spitfire.window.close()`/`.focus_next()`/`.focus_prev()`: close the focused window,
-    cycle keyboard focus within the active workspace (dwm-style, wraps around). Newly
-    mapped windows also grab keyboard focus automatically now, the moment their first
-    buffer commits — no pointer hover/click required.
+  - `spitfire.window.close()`/`.focus_next()`/`.focus_prev()`/`.swap_next()`/`.swap_prev()`: close
+    the focused window, cycle keyboard focus or swap the window's position within the active
+    workspace tiling order (dwm-style, wraps around). Newly mapped windows also grab keyboard
+    focus automatically now, the moment their first buffer commits — no pointer hover/click
+    required.
   - `spitfire.keyboard = { layout, variant, model, options, rules }`: XKB config from
     Lua instead of always defaulting to `"us"`, applied at startup and hot-reloaded via
     `spitfire.reload()` (`KeyboardHandle::set_xkb_config`, no restart needed).

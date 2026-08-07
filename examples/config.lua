@@ -52,10 +52,12 @@ spitfire.bind("", "XF86AudioLowerVolume", function() spitfire.spawn("amixer -q s
 spitfire.bind("", "XF86AudioMute", function() spitfire.spawn("amixer -q set Master toggle") end)
 
 -- Window management — close the focused window, cycle which one has
--- keyboard focus (dwm-style j/k; wraps around).
+-- keyboard focus (dwm-style j/k; wraps around), swap window order (Shift+j/k).
 spitfire.bind("Mod4", "q", function() spitfire.window.close() end)
 spitfire.bind("Mod4", "j", function() spitfire.window.focus_next() end)
 spitfire.bind("Mod4", "k", function() spitfire.window.focus_prev() end)
+spitfire.bind("Mod4+Shift", "j", function() spitfire.window.swap_next() end)
+spitfire.bind("Mod4+Shift", "k", function() spitfire.window.swap_prev() end)
 
 -- Scratchpad — a single hidden slot. Press once on the focused window to
 -- stash it (unmapped, out of the way); press again with nothing relevant

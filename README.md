@@ -133,6 +133,7 @@ these is just a line in `config.lua`, so rebind anything to anything.
 | `Alt` + `1`-`9` | Move the focused window to workspace 1-9 |
 | `Mod` + `Q` | Close the focused window |
 | `Mod` + `J` / `K` | Move keyboard focus to the next / previous window |
+| `Mod` + `Shift` + `J` / `K` | Swap the focused window with the next / previous window |
 | `Mod` + `Shift` + `` ` `` | Toggle the scratchpad: stash the focused window, or bring back whatever's stashed |
 | `Mod` + `` ` `` | Toggle a named scratchpad drop-down terminal (spawns it the first time) |
 | `Mod` + `Shift` + `Q` | Quit spitfire (ends the session) |

@@ -195,6 +195,22 @@ pub(crate) fn install(
         }
         {
             let commands = commands.clone();
+            let swap_next_fn = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WindowSwapNext);
+                Ok(())
+            })?;
+            window_table.set("swap_next", swap_next_fn)?;
+        }
+        {
+            let commands = commands.clone();
+            let swap_prev_fn = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WindowSwapPrev);
+                Ok(())
+            })?;
+            window_table.set("swap_prev", swap_prev_fn)?;
+        }
+        {
+            let commands = commands.clone();
             let toggle_scratchpad_fn = lua.create_function(move |_, ()| {
                 commands.borrow_mut().push(Command::WindowToggleScratchpad);
                 Ok(())

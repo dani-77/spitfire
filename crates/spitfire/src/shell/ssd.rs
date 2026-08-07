@@ -55,6 +55,19 @@ const CLOSE_COLOR_HOVER: [f32; 4] = [0.8588f32, 0.2941f32, 0.2941f32, 1f32]; // 
 pub const HEADER_BAR_HEIGHT: i32 = 11;
 const BUTTON_HEIGHT: u32 = HEADER_BAR_HEIGHT as u32;
 const BUTTON_WIDTH: u32 = 11;
+const BUTTON_RIGHT_MARGIN: u32 = 3;
+
+fn is_close_hover(pointer_loc: Option<&Point<f64, Logical>>, width: u32) -> bool {
+    let min_x = width.saturating_sub(BUTTON_WIDTH + BUTTON_RIGHT_MARGIN) as f64;
+    let max_x = width.saturating_sub(BUTTON_RIGHT_MARGIN) as f64;
+    pointer_loc.map(|l| l.x >= min_x && l.x < max_x).unwrap_or(false)
+}
+
+fn is_maximize_hover(pointer_loc: Option<&Point<f64, Logical>>, width: u32) -> bool {
+    let min_x = width.saturating_sub(BUTTON_WIDTH * 2 + BUTTON_RIGHT_MARGIN) as f64;
+    let max_x = width.saturating_sub(BUTTON_WIDTH + BUTTON_RIGHT_MARGIN) as f64;
+    pointer_loc.map(|l| l.x >= min_x && l.x < max_x).unwrap_or(false)
+}
 
 impl HeaderBar {
     pub fn pointer_enter(&mut self, loc: Point<f64, Logical>) {
@@ -72,48 +85,43 @@ impl HeaderBar {
         window: &WindowElement,
         serial: Serial,
     ) {
-        match self.pointer_loc.as_ref() {
-            Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {
-                match window.0.underlying_surface() {
-                    WindowSurface::Wayland(w) => w.send_close(),
-                    #[cfg(feature = "xwayland")]
-                    WindowSurface::X11(w) => {
-                        let _ = w.close();
-                    }
-                };
-            }
-            Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {
-                match window.0.underlying_surface() {
-                    WindowSurface::Wayland(w) => state.maximize_request(w.clone()),
-                    #[cfg(feature = "xwayland")]
-                    WindowSurface::X11(w) => {
-                        let surface = w.clone();
-                        state
-                            .handle
-                            .insert_idle(move |data| data.maximize_request_x11(&surface));
-                    }
-                };
-            }
-            Some(_) => {
-                match window.0.underlying_surface() {
-                    WindowSurface::Wayland(w) => {
-                        let seat = seat.clone();
-                        let toplevel = w.clone();
-                        state.handle.insert_idle(move |data| {
-                            data.move_request_xdg(&toplevel, &seat, serial)
-                        });
-                    }
-                    #[cfg(feature = "xwayland")]
-                    WindowSurface::X11(w) => {
-                        let window = w.clone();
-                        state
-                            .handle
-                            .insert_idle(move |data| data.move_request_x11(&window));
-                    }
-                };
-            }
-            _ => {}
-        };
+        if is_close_hover(self.pointer_loc.as_ref(), self.width) {
+            match window.0.underlying_surface() {
+                WindowSurface::Wayland(w) => w.send_close(),
+                #[cfg(feature = "xwayland")]
+                WindowSurface::X11(w) => {
+                    let _ = w.close();
+                }
+            };
+        } else if is_maximize_hover(self.pointer_loc.as_ref(), self.width) {
+            match window.0.underlying_surface() {
+                WindowSurface::Wayland(w) => state.maximize_request(w.clone()),
+                #[cfg(feature = "xwayland")]
+                WindowSurface::X11(w) => {
+                    let surface = w.clone();
+                    state
+                        .handle
+                        .insert_idle(move |data| data.maximize_request_x11(&surface));
+                }
+            };
+        } else if self.pointer_loc.is_some() {
+            match window.0.underlying_surface() {
+                WindowSurface::Wayland(w) => {
+                    let seat = seat.clone();
+                    let toplevel = w.clone();
+                    state.handle.insert_idle(move |data| {
+                        data.move_request_xdg(&toplevel, &seat, serial)
+                    });
+                }
+                #[cfg(feature = "xwayland")]
+                WindowSurface::X11(w) => {
+                    let window = w.clone();
+                    state
+                        .handle
+                        .insert_idle(move |data| data.move_request_x11(&window));
+                }
+            };
+        }
     }
 
     pub fn touch_down<BackendData: Backend>(
@@ -123,29 +131,27 @@ impl HeaderBar {
         window: &WindowElement,
         serial: Serial,
     ) {
-        match self.pointer_loc.as_ref() {
-            Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {}
-            Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {}
-            Some(_) => {
-                match window.0.underlying_surface() {
-                    WindowSurface::Wayland(w) => {
-                        let seat = seat.clone();
-                        let toplevel = w.clone();
-                        state.handle.insert_idle(move |data| {
-                            data.move_request_xdg(&toplevel, &seat, serial)
-                        });
-                    }
-                    #[cfg(feature = "xwayland")]
-                    WindowSurface::X11(w) => {
-                        let window = w.clone();
-                        state
-                            .handle
-                            .insert_idle(move |data| data.move_request_x11(&window));
-                    }
-                };
-            }
-            _ => {}
-        };
+        if !is_close_hover(self.pointer_loc.as_ref(), self.width)
+            && !is_maximize_hover(self.pointer_loc.as_ref(), self.width)
+            && self.pointer_loc.is_some()
+        {
+            match window.0.underlying_surface() {
+                WindowSurface::Wayland(w) => {
+                    let seat = seat.clone();
+                    let toplevel = w.clone();
+                    state.handle.insert_idle(move |data| {
+                        data.move_request_xdg(&toplevel, &seat, serial)
+                    });
+                }
+                #[cfg(feature = "xwayland")]
+                WindowSurface::X11(w) => {
+                    let window = w.clone();
+                    state
+                        .handle
+                        .insert_idle(move |data| data.move_request_x11(&window));
+                }
+            };
+        }
     }
 
     pub fn touch_up<BackendData: Backend>(
@@ -155,30 +161,26 @@ impl HeaderBar {
         window: &WindowElement,
         _serial: Serial,
     ) {
-        match self.pointer_loc.as_ref() {
-            Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {
-                match window.0.underlying_surface() {
-                    WindowSurface::Wayland(w) => w.send_close(),
-                    #[cfg(feature = "xwayland")]
-                    WindowSurface::X11(w) => {
-                        let _ = w.close();
-                    }
-                };
-            }
-            Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {
-                match window.0.underlying_surface() {
-                    WindowSurface::Wayland(w) => state.maximize_request(w.clone()),
-                    #[cfg(feature = "xwayland")]
-                    WindowSurface::X11(w) => {
-                        let surface = w.clone();
-                        state
-                            .handle
-                            .insert_idle(move |data| data.maximize_request_x11(&surface));
-                    }
-                };
-            }
-            _ => {}
-        };
+        if is_close_hover(self.pointer_loc.as_ref(), self.width) {
+            match window.0.underlying_surface() {
+                WindowSurface::Wayland(w) => w.send_close(),
+                #[cfg(feature = "xwayland")]
+                WindowSurface::X11(w) => {
+                    let _ = w.close();
+                }
+            };
+        } else if is_maximize_hover(self.pointer_loc.as_ref(), self.width) {
+            match window.0.underlying_surface() {
+                WindowSurface::Wayland(w) => state.maximize_request(w.clone()),
+                #[cfg(feature = "xwayland")]
+                WindowSurface::X11(w) => {
+                    let surface = w.clone();
+                    state
+                        .handle
+                        .insert_idle(move |data| data.maximize_request_x11(&surface));
+                }
+            };
+        }
     }
 
     pub fn redraw(&mut self, width: u32) {
@@ -196,51 +198,25 @@ impl HeaderBar {
             self.width = width;
         }
 
-        if self
-            .pointer_loc
-            .as_ref()
-            .map(|l| l.x >= (width - BUTTON_WIDTH) as f64)
-            .unwrap_or(false)
-            && (needs_redraw_buttons || !self.close_button_hover)
-        {
+        let close_hover = is_close_hover(self.pointer_loc.as_ref(), width);
+        if close_hover && (needs_redraw_buttons || !self.close_button_hover) {
             self.close_button.update(
                 (BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32),
                 CLOSE_COLOR_HOVER,
             );
             self.close_button_hover = true;
-        } else if !self
-            .pointer_loc
-            .as_ref()
-            .map(|l| l.x >= (width - BUTTON_WIDTH) as f64)
-            .unwrap_or(false)
-            && (needs_redraw_buttons || self.close_button_hover)
-        {
+        } else if !close_hover && (needs_redraw_buttons || self.close_button_hover) {
             self.close_button
                 .update((BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32), CLOSE_COLOR);
             self.close_button_hover = false;
         }
 
-        if self
-            .pointer_loc
-            .as_ref()
-            .map(|l| {
-                l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64
-            })
-            .unwrap_or(false)
-            && (needs_redraw_buttons || !self.maximize_button_hover)
-        {
+        let max_hover = is_maximize_hover(self.pointer_loc.as_ref(), width);
+        if max_hover && (needs_redraw_buttons || !self.maximize_button_hover) {
             self.maximize_button
                 .update((BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32), MAX_COLOR_HOVER);
             self.maximize_button_hover = true;
-        } else if !self
-            .pointer_loc
-            .as_ref()
-            .map(|l| {
-                l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64
-            })
-            .unwrap_or(false)
-            && (needs_redraw_buttons || self.maximize_button_hover)
-        {
+        } else if !max_hover && (needs_redraw_buttons || self.maximize_button_hover) {
             self.maximize_button
                 .update((BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32), MAX_COLOR);
             self.maximize_button_hover = false;
@@ -258,7 +234,8 @@ impl<R: Renderer> AsRenderElements<R> for HeaderBar {
         scale: smithay::utils::Scale<f64>,
         alpha: f32,
     ) -> Vec<C> {
-        let header_end_offset: Point<i32, Logical> = Point::from((self.width as i32, 0));
+        let header_end_offset: Point<i32, Logical> =
+            Point::from((self.width.saturating_sub(BUTTON_RIGHT_MARGIN) as i32, 0));
         let button_offset: Point<i32, Logical> = Point::from((BUTTON_WIDTH as i32, 0));
 
         vec![

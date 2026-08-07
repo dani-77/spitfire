@@ -31,6 +31,10 @@ pub enum Command {
     /// `spitfire.window.focus_prev()` — dwm-style MODKEY+k: same as
     /// `WindowFocusNext`, other direction.
     WindowFocusPrev,
+    /// `spitfire.window.swap_next()` — moves focused window next in tiling order.
+    WindowSwapNext,
+    /// `spitfire.window.swap_prev()` — moves focused window previous in tiling order.
+    WindowSwapPrev,
     /// `spitfire.window.toggle_scratchpad()` — hides the focused window
     /// into the (single-slot) scratchpad if it's currently visible, or
     /// re-shows/refocuses whatever's already stashed there if nothing

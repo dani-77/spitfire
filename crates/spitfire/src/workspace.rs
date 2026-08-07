@@ -309,6 +309,20 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             .set_focus(self, Some(window.into()), serial);
     }
 
+    /// `spitfire.window.swap_next()` / `.swap_prev()` — swaps the position of
+    /// the currently focused window with the next/previous window in the
+    /// active workspace's tiling layout.
+    pub fn swap_focused_window(&mut self, forward: bool) {
+        let Some(KeyboardFocusTarget::Window(window)) =
+            self.seat.get_keyboard().and_then(|kb| kb.current_focus())
+        else {
+            return;
+        };
+        let window = WindowElement(window);
+        self.workspaces.active_mut().tiling.swap_window(&window, forward);
+        self.arrange_tiling();
+    }
+
     /// `spitfire.window.toggle_scratchpad()` — a single-slot, dwm-style
     /// scratchpad. If the slot is empty, stashes whichever window
     /// currently has keyboard focus: unmaps it and takes it out of its

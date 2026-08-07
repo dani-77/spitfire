@@ -56,6 +56,24 @@ impl TilingLayout {
         &self.order
     }
 
+    /// Swaps the position of a window with the next or previous window in order.
+    pub fn swap_window(&mut self, window: &WindowElement, forward: bool) {
+        self.order.retain(|w| w.alive());
+        let len = self.order.len();
+        if len < 2 {
+            return;
+        }
+        if let Some(idx) = self.order.iter().position(|w| w == window) {
+            let target_idx = if forward {
+                (idx + 1) % len
+            } else {
+                (idx + len - 1) % len
+            };
+            self.order.swap(idx, target_idx);
+        }
+    }
+
+
     /// Reapplies the active layout to every managed window in the usable
     /// area of `output` — that area already excludes the exclusive zone
     /// reserved by layer-surfaces (a client bar, for example), via
