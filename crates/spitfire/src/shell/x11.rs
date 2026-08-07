@@ -231,7 +231,16 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
         else {
             return;
         };
-        self.space.map_element(elem, geometry.loc, false);
+        // `Space::map_element` also raises an already-mapped element.  X11
+        // clients can send ConfigureNotify without having moved (notably
+        // while their activation state changes), so mapping unconditionally
+        // here makes an unrelated XWayland window jump above a newly shown
+        // Wayland scratchpad.  The X11 surface itself owns its size; `Space`
+        // only needs updating when its compositor-side location changed.
+        if self.space.element_location(&elem) != Some(geometry.loc) {
+            self.space.map_element(elem, geometry.loc, false);
+            self.raise_floating_windows();
+        }
         // Override-redirect window stacking order isn't tracked here —
         // they're always mapped on top and never reordered afterward. Same
         // known limitation anvil ships with.

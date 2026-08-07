@@ -292,7 +292,46 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             bar_height,
             bar_margin,
         );
+        self.raise_floating_windows();
         self.refocus_if_dangling();
+    }
+
+    /// Re-raises all floating windows (scratchpads, rule-matched floating
+    /// windows, ForceFloating windows) in `Space` so they stay in a distinct layer
+    /// above all tiled windows.
+    ///
+    /// Smithay's `Space::map_element` unconditionally moves whatever element
+    /// it's called on to the top of the z-order — including when a tiled window
+    /// commits a buffer delta (`shell::commit`), is configured, or is placed by
+    /// `TilingLayout::arrange`. Calling this re-raises floating elements in
+    /// their existing relative z-order so they stay on top of all tiled windows.
+    pub fn raise_floating_windows(&mut self) {
+        let rules = self.config.rules().clone();
+        let pending_scratchpad_app_ids: Vec<String> = self
+            .named_scratchpads
+            .values()
+            .filter_map(|slot| match slot {
+                crate::workspace::NamedScratchpad::Pending { app_id, .. } => Some(app_id.clone()),
+                _ => None,
+            })
+            .collect();
+
+        let floating_windows: Vec<WindowElement> = self
+            .space
+            .elements()
+            .filter(|w| matches_floating_rule(w, &rules, &pending_scratchpad_app_ids))
+            .cloned()
+            .collect();
+
+        for window in floating_windows {
+            self.space.raise_element(&window, false);
+            #[cfg(feature = "xwayland")]
+            if let Some(surface) = window.0.x11_surface() {
+                if let Some(xwm) = self.xwm.as_mut() {
+                    let _ = xwm.raise_window(surface);
+                }
+            }
+        }
     }
 
     /// If keyboard focus is on nothing, or on a window that's gone (closed)

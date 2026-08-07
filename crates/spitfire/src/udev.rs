@@ -1134,7 +1134,16 @@ impl SpitfireState<UdevData> {
                 }
             };
 
-            let disable_direct_scanout = std::env::var("SPITFIRE_DISABLE_DIRECT_SCANOUT").is_ok();
+            // Direct scanout is only an optimization.  More importantly,
+            // it must be dropped immediately when the scene changes from a
+            // single XWayland window to a composited stack.  Some drivers
+            // keep the old X11 buffer on the primary plane for that
+            // transition, so a Wayland scratchpad gets only its
+            // compositor-drawn border while the old window remains visible
+            // inside it.  Keep compositing authoritative by default;
+            // direct scanout remains available as an explicit opt-in for
+            // hardware where that transition is known to work.
+            let disable_direct_scanout = std::env::var("SPITFIRE_ENABLE_DIRECT_SCANOUT").is_err();
 
             let dmabuf_feedback = drm_output.with_compositor(|compositor| {
                 compositor.set_debug_flags(self.backend_data.debug_flags);

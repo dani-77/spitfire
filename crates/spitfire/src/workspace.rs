@@ -373,7 +373,19 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             let bar_margin = self.config.gaps.outer;
             center_on_output(&mut self.space, &output, &window, bar_height, bar_margin);
         }
+        // `Space` owns the compositor's render order, but XWayland keeps
+        // a separate X11 stacking order too.  Re-mapping only in `Space`
+        // leaves an X11 scratchpad below an already-mapped X11 window: its
+        // compositor-drawn border is visible, while its client buffer is
+        // hidden underneath.  Keep both orders in sync, as the normal
+        // focus paths do.
+        self.space.raise_element(&window, true);
+        #[cfg(feature = "xwayland")]
+        if let Some(surface) = window.0.x11_surface() {
+            self.xwm.as_mut().unwrap().raise_window(surface).unwrap();
+        }
         self.workspaces.active_mut().tiling.push(window.clone());
+        self.raise_floating_windows();
         let serial = SERIAL_COUNTER.next_serial();
         self.seat
             .get_keyboard()
@@ -524,9 +536,16 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             center_on_output(&mut self.space, output, window, bar_height, bar_margin);
         }
 
+        self.space.raise_element(window, true);
+        #[cfg(feature = "xwayland")]
+        if let Some(surface) = window.0.x11_surface() {
+            self.xwm.as_mut().unwrap().raise_window(surface).unwrap();
+        }
+
         self.workspaces.active_mut().tiling.push(window.clone());
         self.named_scratchpads
             .insert(name, NamedScratchpad::Shown(window.clone()));
+        self.raise_floating_windows();
         true
     }
 

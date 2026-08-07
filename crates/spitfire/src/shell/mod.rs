@@ -205,6 +205,7 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                         let current_loc = self.space.element_location(&window).unwrap();
                         self.space
                             .map_element(window.clone(), current_loc + buffer_offset, false);
+                        self.raise_floating_windows();
                     }
 
                     // First-map focus: the moment a queued toplevel (see
