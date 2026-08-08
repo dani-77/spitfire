@@ -49,7 +49,7 @@ const CLOSE_COLOR_HOVER: [f32; 4] = [0.8588f32, 0.2941f32, 0.2941f32, 1f32]; // 
 pub const HEADER_BAR_HEIGHT: i32 = 11;
 const BUTTON_HEIGHT: u32 = HEADER_BAR_HEIGHT as u32;
 const BUTTON_WIDTH: u32 = 11;
-const BUTTON_RIGHT_MARGIN: u32 = 5;
+const BUTTON_RIGHT_MARGIN: u32 = 11;
 
 fn is_close_hover(pointer_loc: Option<&Point<f64, Logical>>, width: u32) -> bool {
     let min_x = width.saturating_sub(BUTTON_WIDTH + BUTTON_RIGHT_MARGIN) as f64;
