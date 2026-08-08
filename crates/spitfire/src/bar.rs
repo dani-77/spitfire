@@ -115,9 +115,8 @@ impl Bar {
             if let Some((prev_total, prev_idle)) = self.prev_cpu.replace((total, idle)) {
                 let total_delta = total.saturating_sub(prev_total);
                 let idle_delta = idle.saturating_sub(prev_idle);
-                if total_delta > 0 {
-                    let usage = 100u64.saturating_sub(idle_delta.saturating_mul(100) / total_delta);
-                    self.cpu_text = format!("{usage}%");
+                if let Some(usage) = idle_delta.saturating_mul(100).checked_div(total_delta) {
+                    self.cpu_text = format!("{}%", 100u64.saturating_sub(usage));
                 }
             }
         }
@@ -189,9 +188,9 @@ fn read_ram_percent() -> Option<u64> {
     let mut available = None;
     for line in content.lines() {
         if let Some(rest) = line.strip_prefix("MemTotal:") {
-            total = rest.trim().split_whitespace().next()?.parse::<u64>().ok();
+            total = rest.split_whitespace().next()?.parse::<u64>().ok();
         } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
-            available = rest.trim().split_whitespace().next()?.parse::<u64>().ok();
+            available = rest.split_whitespace().next()?.parse::<u64>().ok();
         }
     }
     let (total, available) = (total?, available?);
@@ -537,7 +536,11 @@ impl GlyphBatch {
     /// it actually differs from what was drawn last frame, and returns the
     /// render element for this frame — `None` if `rects` is empty (nothing
     /// to draw, e.g. an empty status text).
-    fn element(&mut self, rects: Vec<Rectangle<i32, Physical>>, color: Color32F) -> Option<GlyphBatchElement> {
+    fn element(
+        &mut self,
+        rects: Vec<Rectangle<i32, Physical>>,
+        color: Color32F,
+    ) -> Option<GlyphBatchElement> {
         if rects.is_empty() {
             return None;
         }
@@ -610,7 +613,8 @@ fn glyph_rects(glyph: &Glyph) -> Vec<(i32, i32, i32, i32)> {
             continue;
         }
         let mut height = 1;
-        while row + height < row_intervals.len() && row_intervals[row + height] == row_intervals[row]
+        while row + height < row_intervals.len()
+            && row_intervals[row + height] == row_intervals[row]
         {
             height += 1;
         }
@@ -646,10 +650,7 @@ fn draw_text(
             for (col, row, w, h) in glyph_rects(&glyph) {
                 push_phys_rect(
                     rects,
-                    Rectangle::new(
-                        (x + col * px, y + row * px).into(),
-                        (w * px, h * px).into(),
-                    ),
+                    Rectangle::new((x + col * px, y + row * px).into(), (w * px, h * px).into()),
                     output_scale,
                 );
             }
@@ -807,16 +808,43 @@ where
     let mut x = outer_gap + pad;
     let content_y = outer_gap + pad;
     for item in &data.workspaces {
-        let rects = if item.active { &mut fg_active_rects } else { &mut fg_rects };
-        x = draw_text(rects, &item.number.to_string(), x, content_y, glyph_h, gap, output_scale);
+        let rects = if item.active {
+            &mut fg_active_rects
+        } else {
+            &mut fg_rects
+        };
+        x = draw_text(
+            rects,
+            &item.number.to_string(),
+            x,
+            content_y,
+            glyph_h,
+            gap,
+            output_scale,
+        );
         x += pad;
     }
-    draw_layout_icon(&mut fg_rects, data.mode, x, content_y, glyph_h, output_scale);
+    draw_layout_icon(
+        &mut fg_rects,
+        data.mode,
+        x,
+        content_y,
+        glyph_h,
+        output_scale,
+    );
 
     // Right: CPU/RAM/NETWORK/clock/date, right-aligned.
     let text_w = measure_text(status_text, glyph_h, gap);
     let start_x = (outer_gap + bar_width - pad - text_w).max(x);
-    draw_text(&mut fg_rects, status_text, start_x, content_y, glyph_h, gap, output_scale);
+    draw_text(
+        &mut fg_rects,
+        status_text,
+        start_x,
+        content_y,
+        glyph_h,
+        gap,
+        output_scale,
+    );
 
     if let Some(e) = bar.fg_batch.element(fg_rects, fg) {
         elements.push(CustomRenderElements::GlyphBatch(e));
@@ -880,7 +908,9 @@ mod tests {
     fn merged_rects_cover_exactly_the_lit_pixels_for_every_glyph() {
         // '0'-'9', 'A'-'Z', and the handful of symbols glyph_for knows —
         // every character that can actually reach draw_text.
-        let chars = ('0'..='9').chain('A'..='Z').chain(['%', '+', '-', '_', ':', '.', '|']);
+        let chars = ('0'..='9')
+            .chain('A'..='Z')
+            .chain(['%', '+', '-', '_', ':', '.', '|']);
         for c in chars {
             let glyph = glyph_for(c).unwrap_or_else(|| panic!("no glyph for {c:?}"));
             let rects = glyph_rects(&glyph);
@@ -888,7 +918,10 @@ mod tests {
 
             let mut seen = std::collections::HashSet::new();
             for p in &pixels {
-                assert!(seen.insert(*p), "{c:?}: pixel {p:?} covered by overlapping rects");
+                assert!(
+                    seen.insert(*p),
+                    "{c:?}: pixel {p:?} covered by overlapping rects"
+                );
             }
             assert_eq!(
                 seen,
@@ -944,7 +977,9 @@ mod tests {
     #[test]
     fn empty_rects_produce_no_element() {
         let mut batch = GlyphBatch::default();
-        assert!(batch.element(Vec::new(), Color32F::new(1.0, 1.0, 1.0, 1.0)).is_none());
+        assert!(batch
+            .element(Vec::new(), Color32F::new(1.0, 1.0, 1.0, 1.0))
+            .is_none());
     }
 
     /// The whole reason `GlyphBatch` exists: a realistic status line's
@@ -955,8 +990,9 @@ mod tests {
     /// path `bar_elements` uses, just without needing a real renderer.
     #[test]
     fn a_realistic_bar_collapses_to_a_handful_of_glyph_batches() {
-        let status = "CPU: 66% | RAM: 45% | BAT: 82%+ | NETWORK: MYHOMEWIFI 80% | 14:23 - 06.08.2026"
-            .to_uppercase();
+        let status =
+            "CPU: 66% | RAM: 45% | BAT: 82%+ | NETWORK: MYHOMEWIFI 80% | 14:23 - 06.08.2026"
+                .to_uppercase();
         let scale = Scale::from(1.0);
 
         let mut fg_rects = Vec::new();
@@ -969,7 +1005,11 @@ mod tests {
         draw_text(&mut fg_rects, &status, x, 0, 21, 3, scale);
 
         // Hundreds of individual glyph rects, as expected...
-        assert!(fg_rects.len() > 200, "expected a few hundred glyph rects, got {}", fg_rects.len());
+        assert!(
+            fg_rects.len() > 200,
+            "expected a few hundred glyph rects, got {}",
+            fg_rects.len()
+        );
 
         // ...but batched into exactly one render element, not one each.
         let mut batch = GlyphBatch::default();

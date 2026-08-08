@@ -54,7 +54,9 @@ const BUTTON_RIGHT_MARGIN: u32 = 11;
 fn is_close_hover(pointer_loc: Option<&Point<f64, Logical>>, width: u32) -> bool {
     let min_x = width.saturating_sub(BUTTON_WIDTH + BUTTON_RIGHT_MARGIN) as f64;
     let max_x = width.saturating_sub(BUTTON_RIGHT_MARGIN) as f64;
-    pointer_loc.map(|l| l.x >= min_x && l.x < max_x).unwrap_or(false)
+    pointer_loc
+        .map(|l| l.x >= min_x && l.x < max_x)
+        .unwrap_or(false)
 }
 
 impl HeaderBar {
@@ -86,9 +88,9 @@ impl HeaderBar {
                 WindowSurface::Wayland(w) => {
                     let seat = seat.clone();
                     let toplevel = w.clone();
-                    state.handle.insert_idle(move |data| {
-                        data.move_request_xdg(&toplevel, &seat, serial)
-                    });
+                    state
+                        .handle
+                        .insert_idle(move |data| data.move_request_xdg(&toplevel, &seat, serial));
                 }
                 #[cfg(feature = "xwayland")]
                 WindowSurface::X11(w) => {
@@ -113,9 +115,9 @@ impl HeaderBar {
                 WindowSurface::Wayland(w) => {
                     let seat = seat.clone();
                     let toplevel = w.clone();
-                    state.handle.insert_idle(move |data| {
-                        data.move_request_xdg(&toplevel, &seat, serial)
-                    });
+                    state
+                        .handle
+                        .insert_idle(move |data| data.move_request_xdg(&toplevel, &seat, serial));
                 }
                 #[cfg(feature = "xwayland")]
                 WindowSurface::X11(w) => {

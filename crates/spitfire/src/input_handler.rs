@@ -312,7 +312,10 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         }
         match cmd.status() {
             Ok(status) if !status.success() => {
-                warn!(?status, "dbus-update-activation-environment exited non-zero");
+                warn!(
+                    ?status,
+                    "dbus-update-activation-environment exited non-zero"
+                );
             }
             Err(err) => {
                 warn!(%err, "Failed to run dbus-update-activation-environment");
@@ -1163,16 +1166,16 @@ impl SpitfireState<UdevData> {
                     self.seat.add_touch();
                 }
             }
-            InputEvent::DeviceRemoved { device } => {
-                if device.has_capability(DeviceCapability::TabletTool) {
-                    let tablet_seat = self.seat.tablet_seat();
+            InputEvent::DeviceRemoved { device }
+                if device.has_capability(DeviceCapability::TabletTool) =>
+            {
+                let tablet_seat = self.seat.tablet_seat();
 
-                    tablet_seat.remove_tablet(&TabletDescriptor::from(&device));
+                tablet_seat.remove_tablet(&TabletDescriptor::from(&device));
 
-                    // If there are no tablets in seat we can remove all tools
-                    if tablet_seat.count_tablets() == 0 {
-                        tablet_seat.clear_tools();
-                    }
+                // If there are no tablets in seat we can remove all tools
+                if tablet_seat.count_tablets() == 0 {
+                    tablet_seat.clear_tools();
                 }
             }
             _ => {
@@ -1202,7 +1205,7 @@ impl SpitfireState<UdevData> {
             with_pointer_constraint(&surface, &pointer, |constraint| match constraint {
                 Some(constraint) if constraint.is_active() => {
                     // Constraint does not apply if not within region
-                    if !constraint.region().map_or(true, |x| {
+                    if !constraint.region().is_none_or(|x| {
                         x.contains((pointer_location - *surface_loc).to_i32_round())
                     }) {
                         return;
@@ -1284,7 +1287,7 @@ impl SpitfireState<UdevData> {
                     let point = (pointer_location - surface_location).to_i32_round();
                     if constraint
                         .region()
-                        .map_or(true, |region| region.contains(point))
+                        .is_none_or(|region| region.contains(point))
                     {
                         constraint.activate();
                     }

@@ -21,13 +21,23 @@ pub(crate) fn arrange(n: usize, area: Rect, gap_outer: i32, gap_inner: i32) -> V
             let w = (((remaining.w - gap) as f64) / 2.0).floor() as i32;
             let w = w.max(0);
             rects.push(Rect::new(remaining.x, remaining.y, w, remaining.h));
-            remaining = Rect::new(remaining.x + w + gap, remaining.y, (remaining.w - w - gap).max(0), remaining.h);
+            remaining = Rect::new(
+                remaining.x + w + gap,
+                remaining.y,
+                (remaining.w - w - gap).max(0),
+                remaining.h,
+            );
         } else {
             // split horizontally: this window gets the top half
             let h = (((remaining.h - gap) as f64) / 2.0).floor() as i32;
             let h = h.max(0);
             rects.push(Rect::new(remaining.x, remaining.y, remaining.w, h));
-            remaining = Rect::new(remaining.x, remaining.y + h + gap, remaining.w, (remaining.h - h - gap).max(0));
+            remaining = Rect::new(
+                remaining.x,
+                remaining.y + h + gap,
+                remaining.w,
+                (remaining.h - h - gap).max(0),
+            );
         }
     }
     rects
@@ -80,7 +90,10 @@ mod tests {
         for n in 1..=8usize {
             let rects = arrange(n, area(), 10, 6);
             for r in &rects {
-                assert!(r.x >= area().x + 10 && r.y >= area().y + 10, "n={n} rect={r:?}");
+                assert!(
+                    r.x >= area().x + 10 && r.y >= area().y + 10,
+                    "n={n} rect={r:?}"
+                );
                 assert!(r.x + r.w <= area().x + area().w - 10, "n={n} rect={r:?}");
                 assert!(r.y + r.h <= area().y + area().h - 10, "n={n} rect={r:?}");
             }

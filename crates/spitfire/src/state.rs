@@ -764,7 +764,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         SecurityContextState::new::<Self, _>(&dh, |client| {
             client
                 .get_data::<ClientState>()
-                .map_or(true, |client_state| client_state.security_context.is_none())
+                .is_none_or(|client_state| client_state.security_context.is_none())
         });
 
         // Loaded before the keyboard below needs it (spitfire.keyboard =
@@ -1235,7 +1235,13 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                     }
                 });
 
-                send_frames_surface_tree(&surface, output, time, throttle, surface_primary_scanout_output);
+                send_frames_surface_tree(
+                    &surface,
+                    output,
+                    time,
+                    throttle,
+                    surface_primary_scanout_output,
+                );
                 if let Some(dmabuf_feedback) = dmabuf_feedback.as_ref() {
                     send_dmabuf_feedback_surface_tree(
                         &surface,

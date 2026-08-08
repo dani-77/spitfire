@@ -4,7 +4,14 @@ use crate::Rect;
 /// the left with width `mfact` of the available area; the rest get stacked
 /// in a column on the right. If `nmaster` is 0 or covers every window, it's
 /// a single full-width column.
-pub(crate) fn arrange(n: usize, area: Rect, nmaster: usize, mfact: f64, gap_outer: i32, gap_inner: i32) -> Vec<Rect> {
+pub(crate) fn arrange(
+    n: usize,
+    area: Rect,
+    nmaster: usize,
+    mfact: f64,
+    gap_outer: i32,
+    gap_inner: i32,
+) -> Vec<Rect> {
     if n == 0 {
         return Vec::new();
     }
@@ -113,9 +120,18 @@ mod tests {
             for nmaster in 0..=n {
                 let rects = arrange(n, area(), nmaster, 0.55, 10, 6);
                 for r in &rects {
-                    assert!(r.x >= area().x && r.y >= area().y, "n={n} nmaster={nmaster} rect={r:?}");
-                    assert!(r.x + r.w <= area().x + area().w, "n={n} nmaster={nmaster} rect={r:?}");
-                    assert!(r.y + r.h <= area().y + area().h, "n={n} nmaster={nmaster} rect={r:?}");
+                    assert!(
+                        r.x >= area().x && r.y >= area().y,
+                        "n={n} nmaster={nmaster} rect={r:?}"
+                    );
+                    assert!(
+                        r.x + r.w <= area().x + area().w,
+                        "n={n} nmaster={nmaster} rect={r:?}"
+                    );
+                    assert!(
+                        r.y + r.h <= area().y + area().h,
+                        "n={n} nmaster={nmaster} rect={r:?}"
+                    );
                 }
             }
         }

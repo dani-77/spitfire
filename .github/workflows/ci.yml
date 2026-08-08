@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Built with --features udev,xwayland everywhere below: the feature set the
+# Makefile/PKGBUILD/xbps template all actually ship with (see the top-level
+# Makefile's `build:` target). Default features (winit,egl only) would miss
+# real compile coverage of the udev/DRM/libinput and XWayland code paths.
+
+jobs:
+  rust:
+    name: Rust (build, test, fmt, clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config libwayland-dev libxkbcommon-dev libgbm-dev \
+            libegl1-mesa-dev libseat-dev libinput-dev \
+            libdisplay-info-dev libpixman-1-dev wayland-protocols
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build
+        run: cargo build --release --locked --features udev,xwayland
+
+      - name: cargo test
+        run: cargo test --release --locked --features udev,xwayland
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --features udev,xwayland -- -D warnings
+
+  make:
+    name: Makefile (build, install, uninstall)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config libwayland-dev libxkbcommon-dev libgbm-dev \
+            libegl1-mesa-dev libseat-dev libinput-dev \
+            libdisplay-info-dev libpixman-1-dev wayland-protocols
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: make build
+        run: make build
+
+      # Installs into a throwaway DESTDIR rather than the real /usr, so this
+      # runner never touches system paths.
+      - name: make install (staging DESTDIR)
+        run: make install DESTDIR="${{ github.workspace }}/staging" PREFIX=/usr
+
+      - name: verify installed files
+        run: |
+          set -eu
+          staging="${{ github.workspace }}/staging"
+          test -x "$staging/usr/bin/spitfire"
+          test -x "$staging/usr/bin/spitfirectl"
+          test -x "$staging/usr/bin/spitfire-session"
+          test -f "$staging/usr/share/wayland-sessions/spitfire.desktop"
+          test -f "$staging/etc/xdg-desktop-portal/spitfire-portals.conf"
+          test -f "$staging/usr/share/icons/hicolor/scalable/apps/spitfire.svg"
+          test -f "$staging/usr/share/icons/hicolor/16x16/apps/spitfire.png"
+          test -f "$staging/usr/share/icons/hicolor/32x32/apps/spitfire.png"
+          test -f "$staging/usr/share/icons/hicolor/192x192/apps/spitfire.png"
+          test -f "$staging/usr/share/icons/hicolor/512x512/apps/spitfire.png"
+
+      - name: make uninstall removes everything it installed
+        run: |
+          set -eu
+          make uninstall DESTDIR="${{ github.workspace }}/staging" PREFIX=/usr
+          test ! -e "${{ github.workspace }}/staging/usr/bin/spitfire"
+          test ! -e "${{ github.workspace }}/staging/usr/share/wayland-sessions/spitfire.desktop"

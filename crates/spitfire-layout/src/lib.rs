@@ -28,7 +28,11 @@ pub use params::{Gaps, LayoutMode, LayoutParams, MFACT_MAX, MFACT_MIN};
 /// `Monocle`, every window gets the same area and it's up to whoever
 /// consumes the result to decide which one is "on top" of the stack
 /// (usually `windows[0]`).
-pub fn arrange<W: Clone>(windows: &[W], area: Rect, params: &LayoutParams) -> Option<Vec<(W, Rect)>> {
+pub fn arrange<W: Clone>(
+    windows: &[W],
+    area: Rect,
+    params: &LayoutParams,
+) -> Option<Vec<(W, Rect)>> {
     let rects = match params.mode {
         LayoutMode::Floating => return None,
         LayoutMode::Tile => tile::arrange(
@@ -39,7 +43,9 @@ pub fn arrange<W: Clone>(windows: &[W], area: Rect, params: &LayoutParams) -> Op
             params.gaps.outer,
             params.gaps.inner,
         ),
-        LayoutMode::Fibonacci => fibonacci::arrange(windows.len(), area, params.gaps.outer, params.gaps.inner),
+        LayoutMode::Fibonacci => {
+            fibonacci::arrange(windows.len(), area, params.gaps.outer, params.gaps.inner)
+        }
         LayoutMode::Monocle => monocle::arrange(windows.len(), area, params.gaps.outer),
     };
     debug_assert_eq!(rects.len(), windows.len());

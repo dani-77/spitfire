@@ -58,7 +58,10 @@ fn main() {
     let response = match send_request(&path, &request) {
         Ok(resp) => resp,
         Err(err) => {
-            eprintln!("spitfirectl: couldn't reach spitfire at {}: {err}", path.display());
+            eprintln!(
+                "spitfirectl: couldn't reach spitfire at {}: {err}",
+                path.display()
+            );
             std::process::exit(1);
         }
     };
