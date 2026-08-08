@@ -1,6 +1,6 @@
 # Maintainer: Daniel Azevedo <daniazevedo77@posteo.net>
 pkgname=spitfire
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="A tiling Wayland compositor in the spirit of dwm — one Lua config file, reloadable without restarting your session"
 arch=('x86_64' 'aarch64')
@@ -14,7 +14,7 @@ optdepends=('xorg-xwayland: run X11-only apps under spitfire (XWayland support)'
 provides=('wayland-session')
 backup=('etc/xdg-desktop-portal/spitfire-portals.conf')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/spitfire/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('f0762efc87a107613d7b82f3831f299ad744caf7421d63c11c48b2d8a4ecfb66')
+sha256sums=('SKIP')
 
 # Smithay (the Wayland compositor library spitfire is built on) is pinned as
 # a git dependency in Cargo.lock rather than pulled from crates.io, so

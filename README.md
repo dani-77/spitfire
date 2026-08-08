@@ -31,6 +31,8 @@ the window manager.
   it off with one line if you'd rather run your own (waybar, eww, ...).
 - **Window borders and gaps**, colored however you like — with optional rounded
   corners.
+- **Output scale**, niri-style — set a starting value in `config.lua`, or rescale live
+  at any time with `Mod+Shift+P`/`M`.
 - **Scratchpad windows** — a single hidden slot for whatever's focused, or a named,
   app-specific one (a drop-down terminal, XMonad/LeftWM-style: same keybind spawns it
   the first time, shows/hides that exact instance every time after).
@@ -138,6 +140,7 @@ these is just a line in `config.lua`, so rebind anything to anything.
 | `Mod` + `` ` `` | Toggle a named scratchpad drop-down terminal (spawns it the first time) |
 | `Mod` + `Shift` + `Q` | Quit spitfire (ends the session) |
 | `Mod` + `Shift` + `R` | Reload `config.lua` — no logout needed |
+| `Mod` + `Shift` + `P` / `M` | Scale the output up / down live (see `spitfire.output` below for a starting value instead of always `1.0`) |
 
 ## Configuring
 

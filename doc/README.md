@@ -38,7 +38,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   (`$XDG_CONFIG_HOME/spitfire/config.lua`, falling back to
   `~/.config/spitfire/config.lua`), reloadable at runtime with `spitfire.reload()` — no
   recompile. `spitfire.bind`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`window`/
-  `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`. Mod4/Super and Mod1/Alt are both
+  `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`. Mod4/Super and Mod1/Alt are both
   first-class modifiers, freely mixable per bind. See `../examples/config.lua` for the
   default bindings.
   - `spitfire.window.close()`/`.focus_next()`/`.focus_prev()`/`.swap_next()`/`.swap_prev()`: close
@@ -128,9 +128,18 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
       instead of only ever preventing *future* passes (`ForceFloating` isn't set until
       the claim itself runs, which is too late for the *first* configure).
 - **Server-side decoration header bar** (`shell/ssd.rs`, for clients that don't draw
-  their own — e.g. alacritty): a thin 11px strip with close/maximize buttons, colored
-  from the Tokyo Night palette (background `#414868`, close `#f7768e`, maximize
-  `#9ece6a`) — same palette `spitfire.border`'s own defaults already use.
+  their own — e.g. alacritty): a thin 11px strip with a single close button (the
+  maximize button was dropped — unused clutter next to it on a client with no
+  titlebar of its own), 5px in from the right edge, colored from the Tokyo Night
+  palette (background `#414868`, close `#f7768e`) — same palette `spitfire.border`'s
+  own defaults already use.
+- **`spitfire.output.scale`** (niri-style): a fractional multiplier (`>= 1.0`, default
+  `1.0`) applied to every output at startup — `OutputConfig` in `spitfire-config`,
+  applied via `Output::change_current_state` in both `winit.rs` and `udev.rs`, and
+  re-applied live on `spitfire.reload()`. Just a starting value: `Mod4+Shift+P`/`M`
+  already rescaled outputs live at runtime before this config field existed
+  (`KeyAction::ScaleUp`/`ScaleDown` in `input_handler.rs`); this only seeds that same
+  mechanism instead of always starting at `1.0`.
 - **A `.desktop` session entry + app icon** (`packaging/spitfire.desktop`,
   `assets/logo/`), installable via `make install` — see [Packaging](#packaging).
   `XDG_CURRENT_DESKTOP=spitfire` is set for autostarted clients, same convention as
@@ -295,6 +304,13 @@ Needs `wayland-client`/`wayland-server`, `xkbcommon`, EGL, and GBM installed (de
 packages) at minimum; `--features udev` additionally needs `libseat`, `libinput`, and
 `libdisplay-info` development packages (`libseat-devel`/`libinput-devel`/
 `libdisplay-info-devel` on Void, `-dev` on Debian/Ubuntu, no suffix on Arch).
+
+The crate's own `winit`/`udev`/`xwayland` cargo features are independent of each
+other (`--no-default-features --features udev,xwayland` builds and runs fine with no
+nested `--winit` mode compiled in at all — `main.rs`'s no-argument default falls back
+to `--udev` in that case) — verified across all four combinations (`winit,egl`
+default; `winit,xwayland,egl`; `udev,xwayland,egl`; `udev,xwayland,winit,egl`, the
+real packaging build).
 
 Config file: `$XDG_CONFIG_HOME/spitfire/config.lua` (falls back to
 `~/.config/spitfire/config.lua`). See `../examples/config.lua` for the default.
