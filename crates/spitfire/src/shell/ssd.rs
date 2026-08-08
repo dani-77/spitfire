@@ -9,7 +9,6 @@ use smithay::{
     desktop::WindowSurface,
     input::Seat,
     utils::{Logical, Point, Serial},
-    wayland::shell::xdg::XdgShellHandler,
 };
 
 use std::cell::{RefCell, RefMut};
@@ -28,22 +27,17 @@ pub struct HeaderBar {
     pub pointer_loc: Option<Point<f64, Logical>>,
     pub width: u32,
     pub close_button_hover: bool,
-    pub maximize_button_hover: bool,
     pub background: SolidColorBuffer,
     pub close_button: SolidColorBuffer,
-    pub maximize_button: SolidColorBuffer,
 }
 
 // Tokyo Night palette (same one `spitfire.border`'s defaults already draw
 // from — #7aa2f7/#414868 in examples/config.lua) — the original pastel
 // green/yellow read as too soft against a dark terminal to tell the header
 // apart from its own content. Background is Tokyo Night's `terminal_black`
-// (#414868), a blue-leaning gray; close is `red`/`red1` (#f7768e/#db4b4b),
-// maximize is `green` (#9ece6a) darkened ~40% for its hover state.
+// (#414868), a blue-leaning gray; close is `red`/`red1` (#f7768e/#db4b4b).
 const BG_COLOR: [f32; 4] = [0.2549f32, 0.2824f32, 0.4078f32, 1f32]; // #414868
-const MAX_COLOR: [f32; 4] = [0.6196f32, 0.8078f32, 0.4157f32, 1f32]; // #9ece6a
 const CLOSE_COLOR: [f32; 4] = [0.9686f32, 0.4627f32, 0.5569f32, 1f32]; // #f7768e
-const MAX_COLOR_HOVER: [f32; 4] = [0.3718f32, 0.4847f32, 0.2494f32, 1f32]; // #9ece6a, darkened
 const CLOSE_COLOR_HOVER: [f32; 4] = [0.8588f32, 0.2941f32, 0.2941f32, 1f32]; // #db4b4b
 
 // Both were 32 (a square button, header as tall as the button) — shrunk to
@@ -55,17 +49,11 @@ const CLOSE_COLOR_HOVER: [f32; 4] = [0.8588f32, 0.2941f32, 0.2941f32, 1f32]; // 
 pub const HEADER_BAR_HEIGHT: i32 = 11;
 const BUTTON_HEIGHT: u32 = HEADER_BAR_HEIGHT as u32;
 const BUTTON_WIDTH: u32 = 11;
-const BUTTON_RIGHT_MARGIN: u32 = 3;
+const BUTTON_RIGHT_MARGIN: u32 = 5;
 
 fn is_close_hover(pointer_loc: Option<&Point<f64, Logical>>, width: u32) -> bool {
     let min_x = width.saturating_sub(BUTTON_WIDTH + BUTTON_RIGHT_MARGIN) as f64;
     let max_x = width.saturating_sub(BUTTON_RIGHT_MARGIN) as f64;
-    pointer_loc.map(|l| l.x >= min_x && l.x < max_x).unwrap_or(false)
-}
-
-fn is_maximize_hover(pointer_loc: Option<&Point<f64, Logical>>, width: u32) -> bool {
-    let min_x = width.saturating_sub(BUTTON_WIDTH * 2 + BUTTON_RIGHT_MARGIN) as f64;
-    let max_x = width.saturating_sub(BUTTON_WIDTH + BUTTON_RIGHT_MARGIN) as f64;
     pointer_loc.map(|l| l.x >= min_x && l.x < max_x).unwrap_or(false)
 }
 
@@ -91,17 +79,6 @@ impl HeaderBar {
                 #[cfg(feature = "xwayland")]
                 WindowSurface::X11(w) => {
                     let _ = w.close();
-                }
-            };
-        } else if is_maximize_hover(self.pointer_loc.as_ref(), self.width) {
-            match window.0.underlying_surface() {
-                WindowSurface::Wayland(w) => state.maximize_request(w.clone()),
-                #[cfg(feature = "xwayland")]
-                WindowSurface::X11(w) => {
-                    let surface = w.clone();
-                    state
-                        .handle
-                        .insert_idle(move |data| data.maximize_request_x11(&surface));
                 }
             };
         } else if self.pointer_loc.is_some() {
@@ -131,10 +108,7 @@ impl HeaderBar {
         window: &WindowElement,
         serial: Serial,
     ) {
-        if !is_close_hover(self.pointer_loc.as_ref(), self.width)
-            && !is_maximize_hover(self.pointer_loc.as_ref(), self.width)
-            && self.pointer_loc.is_some()
-        {
+        if !is_close_hover(self.pointer_loc.as_ref(), self.width) && self.pointer_loc.is_some() {
             match window.0.underlying_surface() {
                 WindowSurface::Wayland(w) => {
                     let seat = seat.clone();
@@ -157,7 +131,7 @@ impl HeaderBar {
     pub fn touch_up<BackendData: Backend>(
         &mut self,
         _seat: &Seat<SpitfireState<BackendData>>,
-        state: &mut SpitfireState<BackendData>,
+        _state: &mut SpitfireState<BackendData>,
         window: &WindowElement,
         _serial: Serial,
     ) {
@@ -167,17 +141,6 @@ impl HeaderBar {
                 #[cfg(feature = "xwayland")]
                 WindowSurface::X11(w) => {
                     let _ = w.close();
-                }
-            };
-        } else if is_maximize_hover(self.pointer_loc.as_ref(), self.width) {
-            match window.0.underlying_surface() {
-                WindowSurface::Wayland(w) => state.maximize_request(w.clone()),
-                #[cfg(feature = "xwayland")]
-                WindowSurface::X11(w) => {
-                    let surface = w.clone();
-                    state
-                        .handle
-                        .insert_idle(move |data| data.maximize_request_x11(&surface));
                 }
             };
         }
@@ -210,17 +173,6 @@ impl HeaderBar {
                 .update((BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32), CLOSE_COLOR);
             self.close_button_hover = false;
         }
-
-        let max_hover = is_maximize_hover(self.pointer_loc.as_ref(), width);
-        if max_hover && (needs_redraw_buttons || !self.maximize_button_hover) {
-            self.maximize_button
-                .update((BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32), MAX_COLOR_HOVER);
-            self.maximize_button_hover = true;
-        } else if !max_hover && (needs_redraw_buttons || self.maximize_button_hover) {
-            self.maximize_button
-                .update((BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32), MAX_COLOR);
-            self.maximize_button_hover = false;
-        }
     }
 }
 
@@ -248,16 +200,6 @@ impl<R: Renderer> AsRenderElements<R> for HeaderBar {
             )
             .into(),
             SolidColorRenderElement::from_buffer(
-                &self.maximize_button,
-                location
-                    + (header_end_offset - button_offset.upscale(2))
-                        .to_physical_precise_round(scale),
-                scale,
-                alpha,
-                Kind::Unspecified,
-            )
-            .into(),
-            SolidColorRenderElement::from_buffer(
                 &self.background,
                 location,
                 scale,
@@ -278,10 +220,8 @@ impl WindowElement {
                     pointer_loc: None,
                     width: 0,
                     close_button_hover: false,
-                    maximize_button_hover: false,
                     background: SolidColorBuffer::default(),
                     close_button: SolidColorBuffer::default(),
-                    maximize_button: SolidColorBuffer::default(),
                 },
             })
         });
