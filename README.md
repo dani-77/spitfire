@@ -152,6 +152,10 @@ config is to read through it. A few of the things you can set:
 spitfire.border = { width = 5, active = "#7aa2f7", inactive = "#414868", radius = 12 }
 spitfire.gaps = { inner = 20, outer = 10 }
 
+-- Output scale (niri-style), >= 1.0, default 1.0 — same live rescale
+-- Mod+Shift+P/M already does at runtime, just as a starting value
+-- spitfire.output = { scale = 1.0 }
+
 -- Keyboard layout (leave unset for the system default)
 spitfire.keyboard = { layout = "de" }  -- or "pt", "fr", whatever setxkbmap would take
 

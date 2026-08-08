@@ -95,6 +95,13 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 spitfire.border = { width = 5, active = "#7aa2f7", inactive = "#414868", radius = 12 }
 spitfire.gaps = { inner = 20, outer = 10 }
 
+-- Output scale (niri-style): a fractional multiplier applied to every
+-- output at startup, `1.0` (the default) being the classic 1:1 behavior.
+-- Just a starting value — Mod+Shift+P/M already rescale up/down live at
+-- runtime; this only seeds that same mechanism, and re-applies live on
+-- spitfire.reload() too. Must be >= 1.0.
+-- spitfire.output = { scale = 1.0 }
+
 -- Keyboard layout — empty string means "let xkbcommon pick its own
 -- default" (in practice, "us"). Same fields/meaning as setxkbmap's flags
 -- of the same names. Applied at startup and again on every

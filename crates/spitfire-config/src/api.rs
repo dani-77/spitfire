@@ -15,7 +15,7 @@ use crate::{
     bind::{Bind, Modifiers},
     command::Command,
     rule::WindowRule,
-    BarConfig, BorderConfig, KeyboardConfig,
+    BarConfig, BorderConfig, KeyboardConfig, OutputConfig,
 };
 
 pub(crate) fn install(
@@ -316,11 +316,13 @@ pub(crate) fn read_globals(
     BorderConfig,
     BarConfig,
     KeyboardConfig,
+    OutputConfig,
 )> {
     let mut gaps = spitfire_layout::Gaps::default();
     let mut border = BorderConfig::default();
     let mut bar = BarConfig::default();
     let mut keyboard = KeyboardConfig::default();
+    let mut output = OutputConfig::default();
 
     let spitfire: Table = lua.globals().get("spitfire")?;
 
@@ -416,7 +418,20 @@ pub(crate) fn read_globals(
         }
     }
 
-    Ok((gaps, border, bar, keyboard))
+    if let Ok(t) = spitfire.get::<Table>("output") {
+        if let Ok(v) = t.get::<f64>("scale") {
+            if v >= 1.0 && v.is_finite() {
+                output.scale = v;
+            } else {
+                warn!(
+                    value = v,
+                    "spitfire.output.scale: must be >= 1.0, keeping the default"
+                );
+            }
+        }
+    }
+
+    Ok((gaps, border, bar, keyboard, output))
 }
 
 fn parse_hex_color(s: &str) -> Option<u32> {

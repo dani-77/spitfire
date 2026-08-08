@@ -77,6 +77,25 @@ impl Default for BarConfig {
     }
 }
 
+/// `spitfire.output = { scale = 1.0 }`.
+///
+/// Niri-style output scale: a fractional multiplier applied to every output
+/// at startup (`1.0` is the classic 1:1 behavior, unchanged from before this
+/// existed). Purely a starting value — `Mod+Shift+P`/`M` already rescale
+/// outputs live at runtime (see `KeyAction::ScaleUp`/`ScaleDown` in
+/// `input_handler.rs`); this just seeds that same mechanism instead of
+/// always starting at `1.0`, and re-applies on `spitfire.reload()` too.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OutputConfig {
+    pub scale: f64,
+}
+
+impl Default for OutputConfig {
+    fn default() -> Self {
+        OutputConfig { scale: 1.0 }
+    }
+}
+
 /// `spitfire.keyboard = { layout = "pt", variant = "", model = "", options = "", rules = "" }`.
 ///
 /// Same fields/meaning as `xkbcommon`'s `XkbConfig` (and `setxkbmap`'s
@@ -107,6 +126,7 @@ pub struct Config {
     pub border: BorderConfig,
     pub bar: BarConfig,
     pub keyboard: KeyboardConfig,
+    pub output: OutputConfig,
 }
 
 impl Config {
@@ -156,7 +176,7 @@ impl Config {
             }
         }
 
-        let (gaps, border, bar, keyboard) = api::read_globals(&lua)?;
+        let (gaps, border, bar, keyboard, output) = api::read_globals(&lua)?;
         // Can't `Rc::try_unwrap` here: the `spitfire.autostart` closure kept
         // inside `lua` holds a live reference to this Rc for as long as
         // `lua` exists. `autostart` only ever gets filled in the script's
@@ -174,6 +194,7 @@ impl Config {
             border,
             bar,
             keyboard,
+            output,
         })
     }
 
@@ -224,6 +245,7 @@ impl std::fmt::Debug for Config {
             .field("border", &self.border)
             .field("bar", &self.bar)
             .field("keyboard", &self.keyboard)
+            .field("output", &self.output)
             .finish_non_exhaustive()
     }
 }

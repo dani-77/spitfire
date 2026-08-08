@@ -31,7 +31,7 @@ use smithay::{
         keyboard::LedState,
         pointer::{CursorImageAttributes, CursorImageStatus},
     },
-    output::{Mode, Output, PhysicalProperties, Subpixel},
+    output::{Mode, Output, PhysicalProperties, Scale as OutputScale, Subpixel},
     reexports::{
         calloop::EventLoop,
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
@@ -232,6 +232,15 @@ pub fn run_winit() {
     state
         .shm_state
         .update_formats(state.backend_data.backend.renderer().shm_formats());
+    // `spitfire.output = { scale = ... }` — a starting value only, from here
+    // on `Mod+Shift+P`/`M` rescale live the same way they always have (see
+    // `KeyAction::ScaleUp`/`ScaleDown`).
+    output.change_current_state(
+        None,
+        None,
+        Some(OutputScale::Fractional(state.config.output.scale)),
+        None,
+    );
     state.space.map_output(&output, (0, 0));
     crate::ipc::start(&event_loop.handle());
 

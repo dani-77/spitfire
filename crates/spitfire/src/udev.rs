@@ -64,7 +64,7 @@ use smithay::{
         keyboard::LedState,
         pointer::{CursorImageAttributes, CursorImageStatus},
     },
-    output::{Mode as WlMode, Output, PhysicalProperties},
+    output::{Mode as WlMode, Output, PhysicalProperties, Scale as OutputScale},
     reexports::{
         calloop::{
             timer::{TimeoutAction, Timer},
@@ -1074,7 +1074,14 @@ impl SpitfireState<UdevData> {
             let position = (x, 0).into();
 
             output.set_preferred(wl_mode);
-            output.change_current_state(Some(wl_mode), None, None, Some(position));
+            // `spitfire.output = { scale = ... }` — starting value, same
+            // caveat as in winit.rs.
+            output.change_current_state(
+                Some(wl_mode),
+                None,
+                Some(OutputScale::Fractional(self.config.output.scale)),
+                Some(position),
+            );
             self.space.map_output(&output, position);
 
             output.user_data().insert_if_missing(|| UdevOutputId {

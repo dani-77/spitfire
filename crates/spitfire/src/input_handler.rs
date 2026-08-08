@@ -341,6 +341,22 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                         error!(%err, "spitfire.keyboard: invalid XKB config, keeping the previous layout");
                     }
                 }
+                // Same live-rescale mechanism `Mod+Shift+P`/`M` already use,
+                // just re-seeded from the reloaded config instead of a step
+                // from the current value.
+                if new_config.output.scale != self.config.output.scale {
+                    let outputs: Vec<_> = self.space.outputs().cloned().collect();
+                    for output in outputs {
+                        output.change_current_state(
+                            None,
+                            None,
+                            Some(Scale::Fractional(new_config.output.scale)),
+                            None,
+                        );
+                        self.backend_data.reset_buffers(&output);
+                    }
+                    crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
+                }
                 self.config = new_config;
                 self.arrange_tiling();
                 info!(path = %path.display(), "Config reloaded");
