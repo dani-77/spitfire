@@ -343,6 +343,24 @@ mod tests {
     }
 
     #[test]
+    fn output_scale_defaults_to_one() {
+        let config = load_str("");
+        assert_eq!(config.output.scale, 1.0);
+    }
+
+    #[test]
+    fn reads_output_scale() {
+        let config = load_str(r#"spitfire.output = { scale = 1.25 }"#);
+        assert_eq!(config.output.scale, 1.25);
+    }
+
+    #[test]
+    fn rejects_sub_one_output_scale() {
+        let config = load_str(r#"spitfire.output = { scale = 0.5 }"#);
+        assert_eq!(config.output.scale, 1.0);
+    }
+
+    #[test]
     fn collects_autostart_commands() {
         let config = load_str(r#"spitfire.autostart({ "foo", "bar" })"#);
         assert_eq!(config.autostart, vec!["foo".to_string(), "bar".to_string()]);
