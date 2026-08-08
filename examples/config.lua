@@ -88,9 +88,12 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 
 -- `radius` (logical pixels, default 0) rounds the border's corners — and,
 -- since it's drawn on top of the window, masks the window's own square
--- corners along with it. 0 keeps the classic square-cornered look.
-spitfire.border = { width = 2, active = "#7aa2f7", inactive = "#414868", radius = 8 }
-spitfire.gaps = { inner = 6, outer = 10 }
+-- corners along with it. 0 keeps the classic square-cornered look. Keep
+-- `width` comfortably thick relative to `radius` (5:12 below) — too thin a
+-- border can't fully cover the window's own square corner tips at the
+-- radius's curve, leaving a sliver of square corner poking out.
+spitfire.border = { width = 5, active = "#7aa2f7", inactive = "#414868", radius = 12 }
+spitfire.gaps = { inner = 20, outer = 10 }
 
 -- Keyboard layout — empty string means "let xkbcommon pick its own
 -- default" (in practice, "us"). Same fields/meaning as setxkbmap's flags

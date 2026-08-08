@@ -146,9 +146,11 @@ is both the default and a fully-commented reference — the easiest way to learn
 config is to read through it. A few of the things you can set:
 
 ```lua
--- Colors and spacing
-spitfire.border = { width = 2, active = "#7aa2f7", inactive = "#414868" }
-spitfire.gaps = { inner = 6, outer = 10 }
+-- Colors and spacing (radius rounds the border's corners; keep width
+-- comfortably thick relative to it so it fully covers the window's own
+-- square corners — see examples/config.lua for the full explanation)
+spitfire.border = { width = 5, active = "#7aa2f7", inactive = "#414868", radius = 12 }
+spitfire.gaps = { inner = 20, outer = 10 }
 
 -- Keyboard layout (leave unset for the system default)
 spitfire.keyboard = { layout = "de" }  -- or "pt", "fr", whatever setxkbmap would take
