@@ -51,7 +51,9 @@ fn main() {
         }
         #[cfg(not(any(feature = "winit", feature = "udev")))]
         None => {
-            tracing::error!("Built without both the \"winit\" and \"udev\" features — no backend to start");
+            tracing::error!(
+                "Built without both the \"winit\" and \"udev\" features — no backend to start"
+            );
         }
         Some(other) => {
             tracing::error!("Unknown backend: {other}");

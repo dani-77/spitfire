@@ -73,7 +73,6 @@ impl TilingLayout {
         }
     }
 
-
     /// Reapplies the active layout to every managed window in the usable
     /// area of `output` — that area already excludes the exclusive zone
     /// reserved by layer-surfaces (a client bar, for example), via

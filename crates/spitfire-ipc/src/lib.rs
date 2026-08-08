@@ -46,7 +46,10 @@ pub fn read_message<T: serde::de::DeserializeOwned>(stream: &mut impl BufRead) -
     let mut line = String::new();
     let n = stream.read_line(&mut line)?;
     if n == 0 {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "connection closed"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "connection closed",
+        ));
     }
     serde_json::from_str(line.trim_end()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
@@ -87,7 +90,9 @@ mod tests {
 
     #[test]
     fn message_round_trips_through_the_line_framing() {
-        let req = Request::SetLayout { mode: "monocle".into() };
+        let req = Request::SetLayout {
+            mode: "monocle".into(),
+        };
         let mut buf = Vec::new();
         write_message(&mut buf, &req).unwrap();
         assert_eq!(buf.last(), Some(&b'\n'));
@@ -118,7 +123,10 @@ mod tests {
 
     #[test]
     fn bind_listener_replaces_a_stale_socket_file() {
-        let path = std::env::temp_dir().join(format!("spitfire-ipc-test-{:?}.sock", std::thread::current().id()));
+        let path = std::env::temp_dir().join(format!(
+            "spitfire-ipc-test-{:?}.sock",
+            std::thread::current().id()
+        ));
         let _ = std::fs::remove_file(&path);
 
         let first = bind_listener(&path).unwrap();
@@ -128,7 +136,10 @@ mod tests {
         assert!(path.exists());
 
         let second = bind_listener(&path);
-        assert!(second.is_ok(), "bind_listener should clean up a stale socket file");
+        assert!(
+            second.is_ok(),
+            "bind_listener should clean up a stale socket file"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

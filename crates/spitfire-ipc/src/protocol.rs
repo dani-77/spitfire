@@ -67,7 +67,9 @@ mod tests {
 
     #[test]
     fn request_round_trips_through_json() {
-        let req = Request::SetLayout { mode: "tile".into() };
+        let req = Request::SetLayout {
+            mode: "tile".into(),
+        };
         let json = serde_json::to_string(&req).unwrap();
         assert_eq!(json, r#"{"command":"set-layout","mode":"tile"}"#);
         assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), req);

@@ -433,15 +433,21 @@ mod tests {
         // real-hardware bug: Mod4+Shift+r (spitfire.reload()) silently
         // never fired, only the nested --winit path had happened to be
         // tested before.
-        let config = load_str(r#"spitfire.bind("Mod4+Shift", "r", function() spitfire.reload() end)"#);
+        let config =
+            load_str(r#"spitfire.bind("Mod4+Shift", "r", function() spitfire.reload() end)"#);
         let mods = Modifiers {
             logo: true,
             shift: true,
             ..Default::default()
         };
         let shifted_keysym = xkbcommon::xkb::keysym_from_name("R", xkbcommon::xkb::KEYSYM_NO_FLAGS);
-        let idx = config.find_bind(mods, shifted_keysym).expect("bind not found");
-        assert_eq!(config.invoke_bind(idx).unwrap(), vec![Command::ReloadConfig]);
+        let idx = config
+            .find_bind(mods, shifted_keysym)
+            .expect("bind not found");
+        assert_eq!(
+            config.invoke_bind(idx).unwrap(),
+            vec![Command::ReloadConfig]
+        );
     }
 
     #[test]

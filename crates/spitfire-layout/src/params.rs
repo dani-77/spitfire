@@ -36,7 +36,10 @@ pub struct Gaps {
 
 impl Default for Gaps {
     fn default() -> Self {
-        Gaps { inner: 6, outer: 10 }
+        Gaps {
+            inner: 6,
+            outer: 10,
+        }
     }
 }
 
@@ -116,8 +119,10 @@ mod tests {
 
     #[test]
     fn inc_nmaster_never_goes_negative() {
-        let mut params = LayoutParams::default();
-        params.nmaster = 1;
+        let mut params = LayoutParams {
+            nmaster: 1,
+            ..Default::default()
+        };
         params.inc_nmaster(-5);
         assert_eq!(params.nmaster, 0);
         params.inc_nmaster(3);

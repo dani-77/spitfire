@@ -215,10 +215,7 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                     // focused until the pointer happens to hover/click the
                     // new one. Skipped while locked: the lock surface keeps
                     // focus no matter what maps underneath it.
-                    if let Some(pos) = self
-                        .pending_initial_focus
-                        .iter()
-                        .position(|s| s == surface)
+                    if let Some(pos) = self.pending_initial_focus.iter().position(|s| s == surface)
                     {
                         // NB: `SurfaceAttributes.buffer` is *not* usable
                         // here — `on_commit_buffer_handler` above already
@@ -229,10 +226,9 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                         // fired). `RendererSurfaceState::buffer()` is the
                         // durable copy that actually reflects "does this
                         // surface have contents right now".
-                        let has_buffer = with_renderer_surface_state(surface, |state| {
-                            state.buffer().is_some()
-                        })
-                        .unwrap_or(false);
+                        let has_buffer =
+                            with_renderer_surface_state(surface, |state| state.buffer().is_some())
+                                .unwrap_or(false);
                         if has_buffer {
                             self.pending_initial_focus.remove(pos);
 
@@ -256,10 +252,7 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                                 };
                                 let bar_margin = self.config.gaps.outer;
                                 let claimed = self.claim_pending_named_scratchpad(
-                                    &window,
-                                    &output,
-                                    bar_height,
-                                    bar_margin,
+                                    &window, &output, bar_height, bar_margin,
                                 );
                                 if !claimed {
                                     let rules = self.config.rules().clone();
@@ -592,7 +585,14 @@ pub(crate) fn center_on_output(
     bar_height: i32,
     bar_margin: i32,
 ) -> bool {
-    center_on_output_with_size(space, output, window, window.bbox().size, bar_height, bar_margin)
+    center_on_output_with_size(
+        space,
+        output,
+        window,
+        window.bbox().size,
+        bar_height,
+        bar_margin,
+    )
 }
 
 /// Same as `center_on_output`, but centers around an explicit `size`

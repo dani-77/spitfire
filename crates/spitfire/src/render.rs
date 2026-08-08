@@ -8,8 +8,8 @@ use smithay::{
                 solid::{SolidColorBuffer, SolidColorRenderElement},
                 surface::WaylandSurfaceRenderElement,
                 utils::{
-                    ConstrainAlign, ConstrainScaleBehavior, CropRenderElement, RelocateRenderElement,
-                    RescaleRenderElement,
+                    ConstrainAlign, ConstrainScaleBehavior, CropRenderElement,
+                    RelocateRenderElement, RescaleRenderElement,
                 },
                 AsRenderElements, Kind, RenderElement, Wrap,
             },
@@ -200,7 +200,13 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 ///
 /// `flip_x`/`flip_y` mirror this shape to get the other three corners —
 /// see `Corner::flips`.
-fn corner_mask_bgra(radius: i32, width: i32, color: Color32F, flip_x: bool, flip_y: bool) -> Vec<u8> {
+fn corner_mask_bgra(
+    radius: i32,
+    width: i32,
+    color: Color32F,
+    flip_x: bool,
+    flip_y: bool,
+) -> Vec<u8> {
     let tile = (radius + width).max(1);
     let s = tile as f32;
     let inner = radius as f32;
@@ -276,7 +282,13 @@ pub struct CornerMaskCache {
 }
 
 impl CornerMaskCache {
-    fn ensure(&mut self, radius: i32, width: i32, active_color: Color32F, inactive_color: Color32F) {
+    fn ensure(
+        &mut self,
+        radius: i32,
+        width: i32,
+        active_color: Color32F,
+        inactive_color: Color32F,
+    ) {
         let key = (radius, width, active_color, inactive_color);
         if self.key == Some(key) {
             return;
@@ -302,8 +314,13 @@ impl CornerMaskCache {
     }
 
     fn mask(&self, focused: bool, corner: Corner) -> &MemoryRenderBuffer {
-        let set = if focused { &self.active } else { &self.inactive };
-        &set.as_ref().expect("CornerMaskCache::ensure not called before mask")[corner as usize]
+        let set = if focused {
+            &self.active
+        } else {
+            &self.inactive
+        };
+        &set.as_ref()
+            .expect("CornerMaskCache::ensure not called before mask")[corner as usize]
     }
 }
 
@@ -379,8 +396,7 @@ where
             ];
             for (corner, loc) in corners {
                 let loc: Point<i32, Logical> = loc.into();
-                let physical_loc: Point<f64, Physical> =
-                    loc.to_f64().to_physical(output_scale);
+                let physical_loc: Point<f64, Physical> = loc.to_f64().to_physical(output_scale);
                 let mask = corner_masks.mask(b.focused, corner);
                 let element = MemoryRenderBufferRenderElement::from_buffer(
                     renderer,

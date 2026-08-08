@@ -319,7 +319,10 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             return;
         };
         let window = WindowElement(window);
-        self.workspaces.active_mut().tiling.swap_window(&window, forward);
+        self.workspaces
+            .active_mut()
+            .tiling
+            .swap_window(&window, forward);
         self.arrange_tiling();
     }
 
@@ -442,9 +445,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             // "nothing registered" so it falls into the same respawn path
             // below, instead of needing a second toggle to notice it's
             // gone before a third one actually respawns it.
-            Some(NamedScratchpad::Shown(w)) | Some(NamedScratchpad::Hidden(w))
-                if !w.alive() =>
-            {
+            Some(NamedScratchpad::Shown(w)) | Some(NamedScratchpad::Hidden(w)) if !w.alive() => {
                 None
             }
             other => other,
@@ -452,7 +453,10 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
 
         match entry {
             None => {
-                info!(name, spawn_cmd, app_id, "Spawning (spitfire.scratchpad.toggle)");
+                info!(
+                    name,
+                    spawn_cmd, app_id, "Spawning (spitfire.scratchpad.toggle)"
+                );
                 self.spawn(spawn_cmd);
                 self.named_scratchpads.insert(
                     name.to_string(),
@@ -501,14 +505,18 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             return false;
         };
         let Some((name, width_frac, height_frac)) =
-            self.named_scratchpads.iter().find_map(|(name, slot)| match slot {
-                NamedScratchpad::Pending {
-                    app_id,
-                    width_frac,
-                    height_frac,
-                } if *app_id == window_app_id => Some((name.clone(), *width_frac, *height_frac)),
-                _ => None,
-            })
+            self.named_scratchpads
+                .iter()
+                .find_map(|(name, slot)| match slot {
+                    NamedScratchpad::Pending {
+                        app_id,
+                        width_frac,
+                        height_frac,
+                    } if *app_id == window_app_id => {
+                        Some((name.clone(), *width_frac, *height_frac))
+                    }
+                    _ => None,
+                })
         else {
             return false;
         };

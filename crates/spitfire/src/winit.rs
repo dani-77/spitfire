@@ -1,9 +1,9 @@
+#[cfg(feature = "xwayland")]
+use std::time::Instant;
 use std::{
     sync::{atomic::Ordering, Mutex},
     time::Duration,
 };
-#[cfg(feature = "xwayland")]
-use std::time::Instant;
 
 #[cfg(feature = "egl")]
 use smithay::backend::renderer::ImportEgl;
