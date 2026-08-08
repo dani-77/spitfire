@@ -18,6 +18,7 @@ pub mod shell;
 pub mod state;
 #[cfg(feature = "udev")]
 pub mod udev;
+#[cfg(feature = "winit")]
 pub mod winit;
 pub mod workspace;
 

@@ -915,7 +915,13 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         );
         pointer.frame(self);
     }
+}
 
+// Not windowed-specific (VT-switch key release, called from udev.rs on
+// session/VT loss) — kept out of the `winit`/`x11`-gated impl block above,
+// which only actually needs its `winit`/`x11` cfg for the two windowed-only
+// methods next to it.
+impl<BackendData: Backend> SpitfireState<BackendData> {
     pub fn release_all_keys(&mut self) {
         let keyboard = self.seat.get_keyboard().unwrap();
         for keycode in keyboard.pressed_keys() {

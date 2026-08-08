@@ -30,6 +30,7 @@ fn main() {
     let arg = std::env::args().nth(1);
     match arg.as_deref() {
         // No arguments, or "--winit": run as a nested window in the current session.
+        #[cfg(feature = "winit")]
         None | Some("--winit") => {
             tracing::info!("Starting spitfire with the winit backend");
             spitfire::winit::run_winit();
@@ -38,6 +39,19 @@ fn main() {
         Some("--udev") => {
             tracing::info!("Starting spitfire with the DRM/KMS (udev) backend");
             spitfire::udev::run_udev();
+        }
+        // Same "no arguments" default as above, but for a "winit"-less
+        // build (e.g. a minimal --udev-only binary) — there's no nested
+        // mode to fall back to, so go straight for the real session
+        // backend instead of erroring out on the plain, no-flag invocation.
+        #[cfg(all(not(feature = "winit"), feature = "udev"))]
+        None => {
+            tracing::info!("Starting spitfire with the DRM/KMS (udev) backend");
+            spitfire::udev::run_udev();
+        }
+        #[cfg(not(any(feature = "winit", feature = "udev")))]
+        None => {
+            tracing::error!("Built without both the \"winit\" and \"udev\" features — no backend to start");
         }
         Some(other) => {
             tracing::error!("Unknown backend: {other}");
