@@ -19,7 +19,12 @@
 //! - One workspace group, shared by every client (no per-output grouping,
 //!   no `output_enter`/`output_leave` — not needed until real multi-output
 //!   support exists).
-//! - No `id` or `coordinates` events (both optional in the protocol).
+//! - No `id` event (optional in the protocol). `coordinates` *is* sent
+//!   (1D, just the workspace's index) — omitting it left clients that order
+//!   workspaces geometrically (e.g. Quickshell's `WindowManager`) with no
+//!   stable key to sort by, visibly reshuffling the list once it grew past
+//!   whatever size their own internal bookkeeping happened to keep ordered
+//!   by luck.
 //! - Every sync is a full resync (recompute desired state from
 //!   `WorkspaceSet`, reconcile) rather than fine-grained diffing — simpler,
 //!   and the workspace list is small enough that this is free in practice.
@@ -117,6 +122,14 @@ pub struct WorkspaceSnapshot {
     pub id: WorkspaceId,
     pub name: String,
     pub active: bool,
+    /// Its position in `WorkspaceSet`, sent to clients as 1D `coordinates`
+    /// (see `ClientState::sync`) so anything that orders workspaces
+    /// geometrically — e.g. Quickshell's `WindowManager`, which sorts its
+    /// generic `ext-workspace-v1` fallback purely by `coordinates` — has a
+    /// stable key instead of falling back to whatever order its own
+    /// internal bookkeeping happens to iterate in (fine for a handful of
+    /// workspaces, silently reshuffled once it grows past that).
+    pub index: usize,
 }
 
 impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
@@ -124,13 +137,16 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// pushes whatever's changed to every bound `ext-workspace-v1` client.
     /// Call after any create/remove/rename/activate.
     pub fn sync_ext_workspace_state(&mut self) {
+        let active_id = self.workspaces.active().id;
         let snapshot: Vec<WorkspaceSnapshot> = self
             .workspaces
             .iter()
-            .map(|ws| WorkspaceSnapshot {
+            .enumerate()
+            .map(|(index, ws)| WorkspaceSnapshot {
                 id: ws.id,
                 name: ws.name.clone(),
-                active: ws.id == self.workspaces.active().id,
+                active: ws.id == active_id,
+                index,
             })
             .collect();
 
@@ -232,10 +248,26 @@ impl ClientState {
                 WorkspaceState::empty()
             };
             handle.state(state);
+            // 1D coordinates — spitfire just numbers workspaces, no real
+            // grid — but sending them at all is what lets a client that
+            // orders workspaces geometrically (rather than by whatever
+            // order it happened to learn about them in) place this one
+            // correctly. Resent unconditionally on every full resync, same
+            // as `name`/`state` above: simpler than tracking whether a
+            // removal upstream actually shifted this particular index, and
+            // cheap enough (a handful of workspaces) not to matter.
+            handle.coordinates(encode_coordinates(ws.index));
         }
 
         self.manager.done();
     }
+}
+
+/// Packs a single 1D coordinate as the `array` wire type `coordinates`
+/// expects: raw bytes, native-endian `u32`s (Wayland arrays are never
+/// byte-swapped — client and compositor share a host).
+fn encode_coordinates(index: usize) -> Vec<u8> {
+    (index as u32).to_ne_bytes().to_vec()
 }
 
 impl<BackendData: Backend + 'static>
@@ -270,13 +302,16 @@ impl<BackendData: Backend + 'static>
             workspaces: Vec::new(),
         };
 
+        let active_id = state.workspaces.active().id;
         let snapshot: Vec<WorkspaceSnapshot> = state
             .workspaces
             .iter()
-            .map(|ws| WorkspaceSnapshot {
+            .enumerate()
+            .map(|(index, ws)| WorkspaceSnapshot {
                 id: ws.id,
                 name: ws.name.clone(),
-                active: ws.id == state.workspaces.active().id,
+                active: ws.id == active_id,
+                index,
             })
             .collect();
         client_state.sync::<BackendData>(&snapshot, dh);

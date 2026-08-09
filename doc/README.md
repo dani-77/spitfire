@@ -62,6 +62,15 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     the same component Utumno's `Workspaces.qml` uses) in both directions:
     compositor-driven switches show up live in the client, and the client calling
     `activate()` switches the compositor.
+  - Real bug found and fixed via actual multi-workspace use: the list stayed in order
+    for a couple of workspaces, then reshuffled (a newly created one landing leftmost
+    instead of at the end) once there were more. Cause was on the compositor side —
+    `coordinates` (optional in the protocol, meant for exactly this: giving clients a
+    stable key to order workspaces by) was never sent, so Utumno's generic
+    `ext-workspace-v1` widget — which sorts purely by `coordinates` — fell back to
+    whatever order its own internal bookkeeping iterated in, stable only by luck for a
+    handful of workspaces. Fixed by sending 1D `coordinates` (just the workspace's
+    index) on every sync.
 - **wlr-layer-shell-v1** (came wired from Smithay's `anvil` example) — bars, launchers,
   wallpaper backgrounds. Exclusive zones are subtracted from the tiling area. Confirmed
   with a real Quickshell layer-shell client.
