@@ -165,6 +165,9 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// window whenever the current one vanishes (closed) instead of
     /// leaving focus on nothing.
     pub focus_history: Vec<WindowElement>,
+    /// `spitfire.anim`: windows currently mid open-fade or move/resize
+    /// tween, purely for the render path — see `crate::anim`.
+    pub window_anims: crate::anim::WindowAnimations,
     /// Phase 5: dynamic per-output workspace list (v1: a single output, so
     /// a single `WorkspaceSet`) — each workspace owns its own
     /// tile/floating/fibonacci/monocle layout state. See `crate::workspace`.
@@ -797,7 +800,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         XWaylandKeyboardGrabState::new::<Self>(&dh.clone());
 
         let mut workspaces = crate::workspace::WorkspaceSet::default();
-        workspaces.active_mut().tiling.params.gaps = config.gaps;
+        workspaces.apply_gaps(config.gaps);
         let ext_workspace_state = crate::ext_workspace::ExtWorkspaceState::new::<Self>(&dh);
 
         SpitfireState {
@@ -816,6 +819,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             popups: PopupManager::default(),
             pending_initial_focus: Vec::new(),
             focus_history: Vec::new(),
+            window_anims: crate::anim::WindowAnimations::default(),
             compositor_state,
             data_device_state,
             layer_shell_state,

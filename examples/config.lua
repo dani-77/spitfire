@@ -95,6 +95,11 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 spitfire.border = { width = 5, active = "#7aa2f7", inactive = "#414868", radius = 12 }
 spitfire.gaps = { inner = 20, outer = 10 }
 
+-- Window animations (fade+scale-in on open, tween on tiling re-flow) —
+-- purely visual; layout, focus and hit-testing are unaffected. duration is
+-- milliseconds; enabled = false (or duration <= 0) disables both.
+spitfire.anim = { enabled = true, duration = 150 }
+
 -- Output scale (niri-style): a fractional multiplier applied to every
 -- output at startup, `1.0` (the default) being the classic 1:1 behavior.
 -- Just a starting value — Mod+Shift+P/M already rescale up/down live at

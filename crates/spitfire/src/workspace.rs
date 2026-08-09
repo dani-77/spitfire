@@ -14,6 +14,7 @@ use smithay::{
     output::Output,
     utils::{IsAlive, Logical, Size, SERIAL_COUNTER},
 };
+use spitfire_layout::Gaps;
 use tracing::info;
 
 use crate::{
@@ -41,11 +42,13 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    fn new(id: WorkspaceId, name: impl Into<String>) -> Self {
+    fn new(id: WorkspaceId, name: impl Into<String>, gaps: Gaps) -> Self {
+        let mut tiling = TilingLayout::default();
+        tiling.params.gaps = gaps;
         Workspace {
             id,
             name: name.into(),
-            tiling: TilingLayout::default(),
+            tiling,
         }
     }
 }
@@ -57,14 +60,22 @@ pub struct WorkspaceSet {
     workspaces: Vec<Workspace>,
     active: usize,
     next_id: u64,
+    /// `spitfire.gaps`, remembered so a workspace created after startup or
+    /// after a `spitfire.reload()` — dynamic growth, `create()`, or an
+    /// ext-workspace-v1 `create_workspace` request — starts out with the
+    /// user's configured gaps instead of the layout engine's own hardcoded
+    /// `Gaps::default()`. Kept in sync by `apply_gaps`.
+    default_gaps: Gaps,
 }
 
 impl Default for WorkspaceSet {
     fn default() -> Self {
+        let default_gaps = Gaps::default();
         WorkspaceSet {
-            workspaces: vec![Workspace::new(WorkspaceId(0), "1")],
+            workspaces: vec![Workspace::new(WorkspaceId(0), "1", default_gaps)],
             active: 0,
             next_id: 1,
+            default_gaps,
         }
     }
 }
@@ -129,7 +140,8 @@ impl WorkspaceSet {
         while self.workspaces.len() <= idx {
             let n = self.workspaces.len() + 1;
             let id = self.alloc_id();
-            self.workspaces.push(Workspace::new(id, n.to_string()));
+            self.workspaces
+                .push(Workspace::new(id, n.to_string(), self.default_gaps));
         }
     }
 
@@ -153,7 +165,8 @@ impl WorkspaceSet {
         let idx = self.workspaces.len();
         let name = name.unwrap_or_else(|| (idx + 1).to_string());
         let id = self.alloc_id();
-        self.workspaces.push(Workspace::new(id, name));
+        self.workspaces
+            .push(Workspace::new(id, name, self.default_gaps));
         idx
     }
 
@@ -180,6 +193,18 @@ impl WorkspaceSet {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Sets `spitfire.gaps` as the compositor-wide gap preference: applies
+    /// it to every existing workspace immediately (startup /
+    /// `spitfire.reload()`), and remembers it so any workspace created
+    /// afterward starts out with it too, instead of the layout engine's own
+    /// hardcoded `Gaps::default()`.
+    pub fn apply_gaps(&mut self, gaps: Gaps) {
+        self.default_gaps = gaps;
+        for ws in self.workspaces.iter_mut() {
+            ws.tiling.params.gaps = gaps;
         }
     }
 }
@@ -579,6 +604,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             .iter()
             .filter_map(|w| {
                 let geometry = self.space.element_geometry(w)?;
+                let geometry = self.window_anims.on_screen_rect(w, geometry);
                 Some(crate::render::BorderRect {
                     geometry,
                     focused: focused.as_ref() == Some(w),
@@ -711,6 +737,26 @@ mod tests {
     fn rename_out_of_bounds_returns_false() {
         let mut ws = WorkspaceSet::default();
         assert!(!ws.rename(5, "nope"));
+    }
+
+    #[test]
+    fn apply_gaps_seeds_workspaces_created_afterward() {
+        let mut ws = WorkspaceSet::default();
+        let custom = Gaps {
+            inner: 20,
+            outer: 30,
+        };
+        ws.apply_gaps(custom);
+        assert_eq!(ws.active().tiling.params.gaps, custom);
+
+        // A workspace created after apply_gaps (dynamic growth or
+        // create()) should start with the configured gaps too, not the
+        // layout engine's hardcoded default.
+        let idx = ws.create(None);
+        assert_eq!(ws.get(idx).unwrap().tiling.params.gaps, custom);
+
+        assert!(ws.switch_to(5));
+        assert_eq!(ws.active().tiling.params.gaps, custom);
     }
 
     #[test]

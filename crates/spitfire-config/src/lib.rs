@@ -51,6 +51,35 @@ impl Default for BorderConfig {
     }
 }
 
+/// `spitfire.anim = { enabled = true, duration = 150 }` — open/move-resize
+/// window animations. `duration` is milliseconds. `enabled = false` or
+/// `duration <= 0` disables both; purely visual, doesn't affect layout,
+/// focus, or hit-testing (see `crate::anim` in the `spitfire` crate).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnimConfig {
+    pub enabled: bool,
+    pub duration_ms: i32,
+}
+
+impl Default for AnimConfig {
+    fn default() -> Self {
+        AnimConfig {
+            enabled: true,
+            duration_ms: 150,
+        }
+    }
+}
+
+impl AnimConfig {
+    pub fn duration(&self) -> std::time::Duration {
+        if self.enabled && self.duration_ms > 0 {
+            std::time::Duration::from_millis(self.duration_ms as u64)
+        } else {
+            std::time::Duration::ZERO
+        }
+    }
+}
+
 /// `spitfire.bar = { enable = true, height = 24, bg = "#1e1e2e", fg = "#6c7086", fg_active = "#cdd6f4" }`.
 ///
 /// Phase 8, off by default. Drawn by the compositor itself, not a client —
@@ -127,6 +156,7 @@ pub struct Config {
     pub bar: BarConfig,
     pub keyboard: KeyboardConfig,
     pub output: OutputConfig,
+    pub anim: AnimConfig,
 }
 
 impl Config {
@@ -176,7 +206,7 @@ impl Config {
             }
         }
 
-        let (gaps, border, bar, keyboard, output) = api::read_globals(&lua)?;
+        let (gaps, border, bar, keyboard, output, anim) = api::read_globals(&lua)?;
         // Can't `Rc::try_unwrap` here: the `spitfire.autostart` closure kept
         // inside `lua` holds a live reference to this Rc for as long as
         // `lua` exists. `autostart` only ever gets filled in the script's
@@ -195,6 +225,7 @@ impl Config {
             bar,
             keyboard,
             output,
+            anim,
         })
     }
 
@@ -246,6 +277,7 @@ impl std::fmt::Debug for Config {
             .field("bar", &self.bar)
             .field("keyboard", &self.keyboard)
             .field("output", &self.output)
+            .field("anim", &self.anim)
             .finish_non_exhaustive()
     }
 }
