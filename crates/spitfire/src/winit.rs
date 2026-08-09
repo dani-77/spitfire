@@ -304,6 +304,7 @@ pub fn run_winit() {
 
             let border_rects = state.border_rects();
             let border = state.config.border;
+            let anims = state.animated_windows();
 
             let bar_config = state.config.bar;
             let bar_margin = state.config.gaps.outer;
@@ -467,6 +468,7 @@ pub fn run_winit() {
                     crate::render::hex_to_color32f(border.inactive),
                     border_cache,
                     corner_masks,
+                    &anims,
                 )
                 .map_err(|err| match err {
                     OutputDamageTrackerError::Rendering(err) => err.into(),

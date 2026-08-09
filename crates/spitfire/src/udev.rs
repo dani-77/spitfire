@@ -1576,6 +1576,7 @@ impl SpitfireState<UdevData> {
 
         let border_rects = self.border_rects();
         let border = self.config.border;
+        let anims = self.animated_windows();
         let bar_config = self.config.bar;
         let bar_margin = self.config.gaps.outer;
         let bar_data = self.bar_data();
@@ -1664,6 +1665,7 @@ impl SpitfireState<UdevData> {
             &bar_data,
             &bar_status_text,
             &mut self.bar,
+            &anims,
         );
         let reschedule = match result {
             Ok((has_rendered, states)) => {
@@ -1759,6 +1761,7 @@ fn render_surface<'a>(
     bar_data: &crate::bar::BarData,
     bar_status_text: &str,
     bar: &mut crate::bar::Bar,
+    anims: &[crate::anim::AnimatedWindow],
 ) -> Result<(bool, RenderElementStates), SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1867,6 +1870,7 @@ fn render_surface<'a>(
         border_inactive,
         &mut surface.border_cache,
         &mut surface.corner_masks,
+        anims,
     );
 
     let frame_mode = if surface.disable_direct_scanout {

@@ -15,7 +15,7 @@ use crate::{
     bind::{Bind, Modifiers},
     command::Command,
     rule::WindowRule,
-    BarConfig, BorderConfig, KeyboardConfig, OutputConfig,
+    AnimConfig, BarConfig, BorderConfig, KeyboardConfig, OutputConfig,
 };
 
 pub(crate) fn install(
@@ -317,12 +317,14 @@ pub(crate) fn read_globals(
     BarConfig,
     KeyboardConfig,
     OutputConfig,
+    AnimConfig,
 )> {
     let mut gaps = spitfire_layout::Gaps::default();
     let mut border = BorderConfig::default();
     let mut bar = BarConfig::default();
     let mut keyboard = KeyboardConfig::default();
     let mut output = OutputConfig::default();
+    let mut anim = AnimConfig::default();
 
     let spitfire: Table = lua.globals().get("spitfire")?;
 
@@ -431,7 +433,16 @@ pub(crate) fn read_globals(
         }
     }
 
-    Ok((gaps, border, bar, keyboard, output))
+    if let Ok(t) = spitfire.get::<Table>("anim") {
+        if let Ok(v) = t.get::<bool>("enabled") {
+            anim.enabled = v;
+        }
+        if let Ok(v) = t.get::<i32>("duration") {
+            anim.duration_ms = v;
+        }
+    }
+
+    Ok((gaps, border, bar, keyboard, output, anim))
 }
 
 fn parse_hex_color(s: &str) -> Option<u32> {

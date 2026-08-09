@@ -17,8 +17,8 @@ use smithay::{
         },
     },
     desktop::space::{
-        constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements,
-        SurfaceTree,
+        constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceElement,
+        SpaceRenderElements, SurfaceTree,
     },
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -28,6 +28,7 @@ use smithay::{
 #[cfg(feature = "debug")]
 use crate::drawing::FpsElement;
 use crate::{
+    anim::AnimatedWindow,
     drawing::{PointerRenderElement, CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN, CLEAR_COLOR_LOCKED},
     shell::{FullscreenSurface, WindowElement, WindowRenderElement},
 };
@@ -474,6 +475,12 @@ smithay::backend::renderer::element::render_elements! {
     Space=SpaceRenderElements<R, E>,
     Window=Wrap<E>,
     Custom=CustomRenderElements<R>,
+    // Also reused for a window mid open-fade or move/resize tween
+    // (spitfire.anim, see `output_elements`) — same wrapped type, built by
+    // the same `constrain_space_element` helper, just at a different call
+    // site. `render_elements!` derives one `From<T>` impl per inner type,
+    // so a same-typed second variant would conflict with this one — no
+    // need for one anyway, the two never appear in the same code path.
     Preview=CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>>,
 }
 
@@ -571,6 +578,7 @@ pub fn output_elements<R>(
     border_inactive: Color32F,
     border_cache: &mut RectCache,
     corner_masks: &mut CornerMaskCache,
+    anims: &[AnimatedWindow],
 ) -> (
     Vec<OutputRenderElements<R, WindowRenderElement<R>>>,
     Color32F,
@@ -630,6 +638,7 @@ where
             output_render_elements.extend(space_preview_elements(renderer, space, output));
         }
 
+        let output_scale: Scale<f64> = output.current_scale().fractional_scale().into();
         let space_elements = smithay::desktop::space::space_render_elements::<_, WindowElement, _>(
             renderer,
             [space],
@@ -637,7 +646,77 @@ where
             1.0,
         )
         .expect("output without mode?");
-        output_render_elements.extend(space_elements.into_iter().map(OutputRenderElements::Space));
+
+        if anims.is_empty() {
+            // Byte-for-byte today's path when nothing is animating — idle
+            // stays exactly zero-damage, see `RectCache`'s doc comment for
+            // why that matters.
+            output_render_elements
+                .extend(space_elements.into_iter().map(OutputRenderElements::Space));
+        } else {
+            // spitfire.anim: a window mid open-fade or move/resize tween
+            // needs a per-window transform (`constrain_space_element`,
+            // below) instead of the blanket call above — but that blanket
+            // call is still the simplest correct source of the layer-shell
+            // elements it also produces alongside the window ones. Keep
+            // those (`SpaceRenderElements::Surface` — smithay only ever
+            // produces that variant for layer-shell surfaces, never for
+            // windows, which come through `Element` instead — see
+            // smithay's `desktop::space::space_render_elements`) and
+            // rebuild only the window portion ourselves below.
+            output_render_elements.extend(
+                space_elements
+                    .into_iter()
+                    .filter(|e| matches!(e, SpaceRenderElements::Surface(_)))
+                    .map(OutputRenderElements::Space),
+            );
+
+            let output_geo = space.output_geometry(output).unwrap_or_default();
+            let behavior = ConstrainBehavior {
+                reference: ConstrainReference::Geometry,
+                behavior: ConstrainScaleBehavior::Stretch,
+                align: ConstrainAlign::CENTER,
+            };
+            for window in space.elements_for_output(output).rev() {
+                if let Some(anim) = anims.iter().find(|a| &a.window == window) {
+                    let elements = constrain_space_element(
+                        renderer,
+                        window,
+                        anim.target.loc,
+                        anim.alpha,
+                        output_scale,
+                        anim.target,
+                        behavior,
+                    );
+                    output_render_elements.extend(elements.map(OutputRenderElements::Preview));
+                } else {
+                    // Same physical-location formula `Space`'s own internal
+                    // element wrapper uses (smithay's
+                    // `desktop::space::mod.rs`, `InnerElement::render_location`),
+                    // `output_geo` included for when this crate grows
+                    // multi-output — so a non-animating window renders
+                    // identically to the blanket-call path above, even on a
+                    // frame where some *other* window is animating.
+                    let Some(loc) = space.element_location(window) else {
+                        continue;
+                    };
+                    let render_loc = (loc - SpaceElement::geometry(window).loc) - output_geo.loc;
+                    let elements: Vec<WindowRenderElement<R>> =
+                        AsRenderElements::<R>::render_elements(
+                            window,
+                            renderer,
+                            render_loc.to_physical_precise_round(output_scale),
+                            output_scale,
+                            1.0,
+                        );
+                    output_render_elements.extend(
+                        elements
+                            .into_iter()
+                            .map(|e| OutputRenderElements::Window(Wrap::from(e))),
+                    );
+                }
+            }
+        }
 
         // Borders (spitfire.border) — added at the front (top of the
         // z-order). Since each is a thin strip that never overlaps its
@@ -645,14 +724,13 @@ where
         // in the render order doesn't actually matter for correctness; the
         // front avoids relying on the space elements' occlusion tracking
         // to punch a window-shaped hole through anything placed behind them.
-        let scale = output.current_scale().fractional_scale().into();
         let border_elements = border_elements::<R>(
             borders,
             border_width,
             border_radius,
             border_active,
             border_inactive,
-            scale,
+            output_scale,
             border_cache,
             corner_masks,
             renderer,
@@ -683,6 +761,7 @@ pub fn render_output<'a, 'd, R>(
     border_inactive: Color32F,
     border_cache: &mut RectCache,
     corner_masks: &mut CornerMaskCache,
+    anims: &[AnimatedWindow],
 ) -> Result<RenderOutputResult<'d>, OutputDamageTrackerError<R::Error>>
 where
     R: Renderer + ImportAll + ImportMem,
@@ -702,6 +781,7 @@ where
         border_inactive,
         border_cache,
         corner_masks,
+        anims,
     );
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

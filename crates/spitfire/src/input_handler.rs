@@ -332,11 +332,10 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let path = spitfire_config::Config::default_path();
         match spitfire_config::Config::load(&path) {
             Ok(new_config) => {
-                // Gaps are a compositor-wide preference — apply the reload
-                // to every workspace, not just the active one.
-                for ws in self.workspaces.iter_mut() {
-                    ws.tiling.params.gaps = new_config.gaps;
-                }
+                // Gaps are a compositor-wide preference — apply the reload to
+                // every existing workspace, and remember it for any workspace
+                // created afterward too (see WorkspaceSet::apply_gaps).
+                self.workspaces.apply_gaps(new_config.gaps);
                 if let Some(keyboard) = self.seat.get_keyboard() {
                     if let Err(err) = keyboard
                         .set_xkb_config(self, crate::state::xkb_config_from(&new_config.keyboard))

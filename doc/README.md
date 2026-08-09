@@ -38,7 +38,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   (`$XDG_CONFIG_HOME/spitfire/config.lua`, falling back to
   `~/.config/spitfire/config.lua`), reloadable at runtime with `spitfire.reload()` — no
   recompile. `spitfire.bind`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`window`/
-  `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`. Mod4/Super and Mod1/Alt are both
+  `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`/`anim`. Mod4/Super and Mod1/Alt are both
   first-class modifiers, freely mixable per bind. See `../examples/config.lua` for the
   default bindings.
   - `spitfire.window.close()`/`.focus_next()`/`.focus_prev()`/`.swap_next()`/`.swap_prev()`: close
@@ -71,6 +71,17 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     whatever order its own internal bookkeeping iterated in, stable only by luck for a
     handful of workspaces. Fixed by sending 1D `coordinates` (just the workspace's
     index) on every sync.
+  - Real bug found and fixed: `spitfire.gaps` was only ever applied to whichever
+    workspace already existed at startup (`WorkspaceSet::default()`'s single workspace)
+    — any workspace created afterward (dynamic growth via
+    `spitfire.workspace.focus(n)`, `create()`, or an `ext-workspace-v1`
+    `create_workspace` request) silently fell back to the layout engine's own hardcoded
+    gap default instead of whatever was configured. `spitfire.reload()` happened to
+    paper over it for workspaces that already existed at reload time (it loops over all
+    of them), but not for ones created afterward. Fixed by having `WorkspaceSet`
+    remember the last-applied gaps (`apply_gaps`) and seed every newly created
+    workspace with it too, instead of only ever re-applying to workspaces that already
+    exist.
 - **wlr-layer-shell-v1** (came wired from Smithay's `anvil` example) — bars, launchers,
   wallpaper backgrounds. Exclusive zones are subtracted from the tiling area. Confirmed
   with a real Quickshell layer-shell client.
@@ -106,6 +117,49 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     slivers of the window's own square corners that poke out past the rounded inner
     edge, without ever clipping the client's real content. Confirmed working on real
     DRM/KMS hardware, no flicker.
+- **`spitfire.anim`** (`crate::anim`): basic window animations, mangowm-style — a
+  fade+scale-in when a window's content first appears, and a smooth tween whenever
+  `TilingLayout::arrange` moves/resizes a window (a new window joining, a layout/
+  `nmaster`/`mfact` change, another window closing and the rest re-flowing, ...).
+  `spitfire.anim = { enabled = true, duration = 150 }` (milliseconds; `enabled = false`
+  or `duration <= 0` disables both). Interactive drag/resize (`shell/grabs.rs`) is never
+  animated — it's already 1:1 with the pointer.
+  - Purely a render-time visual transform: `Space`-mapped geometry, `xdg_toplevel`
+    configure size, keyboard focus, and input hit-testing are all applied immediately,
+    exactly as before this existed — only what gets *drawn* is interpolated (ease-out
+    cubic) for `duration` after the triggering event. Built on smithay's own
+    `constrain_space_element` (already used for the alt-tab-style preview grid) with
+    `ConstrainScaleBehavior::Stretch`, which already does exactly what a move/resize
+    tween needs (stretch a window's elements to fill an arbitrary target rect) — no
+    hand-rolled rescale/relocate math needed.
+  - No new "wake the compositor" timer infrastructure needed in either backend: verified
+    by reading the scheduling code directly rather than assuming. `winit.rs` already
+    redraws unconditionally every loop iteration; `udev.rs`'s `render_surface`/
+    `frame_finish` reschedule chain already keeps invoking the render pipeline roughly
+    once per output-refresh interval indefinitely once started, regardless of damage.
+    Animation state is just read fresh (`Instant::now()`) every time that already-
+    running pipeline renders a frame.
+  - Idle (nothing animating) renders through the exact same `space_render_elements` call
+    as before this feature existed, byte-for-byte — the per-window animated path in
+    `render::output_elements` only runs on the handful of frames something is actually
+    animating, so it doesn't regress the zero-damage-when-idle behavior the rest of the
+    renderer (`RectCache`, `CornerMaskCache`) is built around.
+  - Real bug found and fixed via actual use: a brand-new window joins the tiling order
+    (and so gets tiled into its real slot) well before it has any content — there's no
+    "this window just appeared" distinction at the layout-engine level, so that very
+    first, pre-content placement animated exactly like any other move. That made
+    `spitfire.border`'s empty outline visibly grow/slide into place before the window
+    had anything to show, out of sync with the open-fade that starts moments later once
+    real content commits — a border animating on its own reads as a glitch, not an
+    animation. Fixed by skipping the move animation (not the placement itself, which
+    still happens instantly as before) for any window still in `pending_initial_focus`.
+  - Deliberately out of scope for now: fade-out on close (no dedicated Wayland "window
+    destroyed" hook exists today — `XdgShellHandler::toplevel_destroyed` is
+    unimplemented — and a client's buffer can become unrenderable mid-fade with no clean
+    recovery) and a workspace-switch slide (needs simultaneous multi-workspace
+    rendering). Move animations apply to XWayland windows for free (same
+    backend-agnostic tiling order); open animations are Wayland-only, since X11 clients
+    typically already have a pixmap by map time.
 - **Scratchpad windows** (`crate::workspace`):
   - `spitfire.window.toggle_scratchpad()`: a single anonymous slot. Stashes whichever
     window has keyboard focus (unmapped, taken out of its workspace's tiling order —

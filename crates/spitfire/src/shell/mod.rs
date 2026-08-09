@@ -267,6 +267,13 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                                 }
                             }
 
+                            // spitfire.anim: fade+scale the window in over
+                            // its first frame — purely visual, doesn't
+                            // affect the focus grab right below. See
+                            // `crate::anim`.
+                            self.window_anims
+                                .push_open(window.clone(), self.config.anim.duration());
+
                             if !self.locked {
                                 if let Some(keyboard) = self.seat.get_keyboard() {
                                     keyboard.set_focus(

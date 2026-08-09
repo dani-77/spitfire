@@ -7,6 +7,7 @@
 use smithay::{
     desktop::{layer_map_for_output, Space},
     output::Output,
+    reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{IsAlive, Logical, Point, Rectangle, Size, SERIAL_COUNTER},
 };
 use spitfire_config::WindowRule;
@@ -89,6 +90,7 @@ impl TilingLayout {
     /// dedicated "window destroyed" hook, so this runs every frame,
     /// alongside the `space.refresh()` call that already existed in
     /// anvil's render loop.
+    #[allow(clippy::too_many_arguments)]
     pub fn arrange(
         &mut self,
         space: &mut Space<WindowElement>,
@@ -97,6 +99,9 @@ impl TilingLayout {
         pending_scratchpad_app_ids: &[String],
         bar_height: i32,
         bar_margin: i32,
+        anims: &mut crate::anim::WindowAnimations,
+        anim_duration: std::time::Duration,
+        pending_initial_focus: &[WlSurface],
     ) {
         self.order.retain(|w| w.alive());
         if self.order.is_empty() {
@@ -163,7 +168,39 @@ impl TilingLayout {
             // remap when the position actually changed, so a tiled window
             // that isn't moving doesn't keep stealing the top of the stack
             // from whatever's floating above it.
+            // spitfire.anim: capture the pre-arrange rect (location *and*
+            // size — a pure resize with unchanged location still deserves a
+            // tween) before it's overwritten below, and register a Move
+            // animation if it actually changed. Purely visual — doesn't
+            // affect the map_element guard right below it, which stays
+            // location-only for the reason explained in its own comment.
+            //
+            // Skipped for a window still awaiting its first buffer commit
+            // (`pending_initial_focus`): a brand-new window joins the tiling
+            // order (`new_toplevel`, shell/xdg.rs) well before it has any
+            // content, so its very first `arrange` here already re-tiles it
+            // from its cascade spot into its real slot — and everything
+            // else in the tiling set right along with it. Animating *that*
+            // would visibly grow/slide `spitfire.border`'s empty outline
+            // into place before the window has anything to show, out of
+            // sync with the open-fade that starts moments later once real
+            // content commits (`shell/mod.rs`'s `push_open`) — a border
+            // popping in and animating on its own reads as a glitch, not an
+            // animation. `space.map_element` below still places it exactly
+            // as before, just without the animated detour.
             let target_loc = Point::from((rect.x, rect.y));
+            let awaiting_first_buffer = window
+                .wl_surface()
+                .is_some_and(|s| pending_initial_focus.contains(s.as_ref()));
+            if !anim_duration.is_zero() && !awaiting_first_buffer {
+                let target_rect =
+                    Rectangle::new(target_loc, Size::from((rect.w.max(1), rect.h.max(1))));
+                if let Some(old_rect) = space.element_geometry(&window) {
+                    if old_rect != target_rect {
+                        anims.push_move(&window, old_rect, anim_duration);
+                    }
+                }
+            }
             if space.element_location(&window) != Some(target_loc) {
                 debug!(?rect, "placing window");
                 space.map_element(window, target_loc, false);
@@ -283,6 +320,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             0
         };
         let bar_margin = self.config.gaps.outer;
+        let anim_duration = self.config.anim.duration();
         self.workspaces.active_mut().tiling.arrange(
             &mut self.space,
             &output,
@@ -290,9 +328,13 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             &pending_scratchpad_app_ids,
             bar_height,
             bar_margin,
+            &mut self.window_anims,
+            anim_duration,
+            &self.pending_initial_focus,
         );
         self.raise_floating_windows();
         self.refocus_if_dangling();
+        self.window_anims.prune();
     }
 
     /// Re-raises all floating windows (scratchpads, rule-matched floating
