@@ -168,6 +168,10 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// `spitfire.anim`: windows currently mid open-scale ("pop") or
     /// move/resize tween, purely for the render path — see `crate::anim`.
     pub window_anims: crate::anim::WindowAnimations,
+    /// `spitfire.anim`: a workspace switch's slide, if one is currently in
+    /// flight — see `crate::workspace::WorkspaceSlide` and
+    /// `SpitfireState::switch_workspace`'s doc comment.
+    pub workspace_slide: Option<crate::workspace::WorkspaceSlide>,
     /// Phase 5: dynamic per-output workspace list (v1: a single output, so
     /// a single `WorkspaceSet`) — each workspace owns its own
     /// tile/floating/fibonacci/monocle layout state. See `crate::workspace`.
@@ -820,6 +824,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             pending_initial_focus: Vec::new(),
             focus_history: Vec::new(),
             window_anims: crate::anim::WindowAnimations::default(),
+            workspace_slide: None,
             compositor_state,
             data_device_state,
             layer_shell_state,

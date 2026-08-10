@@ -31,10 +31,11 @@ the window manager.
   it off with one line if you'd rather run your own (waybar, eww, ...).
 - **Window borders and gaps**, colored however you like — with optional rounded
   corners.
-- **Window animations** — a quick scale-in ("pop") when a window opens, and a smooth tween
+- **Window animations** — a quick scale-in ("pop") when a window opens, a smooth tween
   whenever the tiling layout moves or resizes it (a new window joining, switching
-  layouts, another window closing and the rest re-flowing, ...). On by default, tunable
-  or turned off entirely via `spitfire.anim` in `config.lua`.
+  layouts, another window closing and the rest re-flowing, ...), and a slide when you
+  switch workspaces. On by default, tunable or turned off entirely via `spitfire.anim`
+  in `config.lua`.
 - **Output scale**, niri-style — set a starting value in `config.lua`, or rescale live
   at any time with `Mod+Shift+P`/`M`.
 - **Scratchpad windows** — a single hidden slot for whatever's focused, or a named,
@@ -159,9 +160,10 @@ config is to read through it. A few of the things you can set:
 spitfire.border = { width = 5, active = "#7aa2f7", inactive = "#414868", radius = 12 }
 spitfire.gaps = { inner = 20, outer = 10 }
 
--- Window animations: scale-in ("pop") on open, tween on tiling re-flow.
--- Purely visual — layout, focus, and hit-testing are unaffected. duration is
--- milliseconds; enabled = false (or duration = 0) turns both off.
+-- Window animations: scale-in ("pop") on open, tween on tiling re-flow, slide
+-- on workspace switch. Purely visual — layout, focus, and hit-testing are
+-- unaffected. duration is milliseconds; enabled = false (or duration = 0)
+-- turns all three off.
 spitfire.anim = { enabled = true, duration = 150 }
 
 -- Output scale (niri-style), >= 1.0, default 1.0 — same live rescale

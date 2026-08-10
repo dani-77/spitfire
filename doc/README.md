@@ -117,13 +117,14 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     slivers of the window's own square corners that poke out past the rounded inner
     edge, without ever clipping the client's real content. Confirmed working on real
     DRM/KMS hardware, no flicker.
-- **`spitfire.anim`** (`crate::anim`): basic window animations, mangowm-style — a
-  scale-in ("pop") when a window's content first appears, and a smooth tween whenever
-  `TilingLayout::arrange` moves/resizes a window (a new window joining, a layout/
-  `nmaster`/`mfact` change, another window closing and the rest re-flowing, ...).
+- **`spitfire.anim`** (`crate::anim`, `crate::workspace::WorkspaceSlide`): basic window
+  animations, mangowm-style — a scale-in ("pop") when a window's content first appears, a
+  smooth tween whenever `TilingLayout::arrange` moves/resizes a window (a new window
+  joining, a layout/`nmaster`/`mfact` change, another window closing and the rest
+  re-flowing, ...), and a slide when switching workspaces.
   `spitfire.anim = { enabled = true, duration = 150 }` (milliseconds; `enabled = false`
-  or `duration <= 0` disables both). Interactive drag/resize (`shell/grabs.rs`) is never
-  animated — it's already 1:1 with the pointer.
+  or `duration <= 0` disables all three, one knob for all of it). Interactive drag/resize
+  (`shell/grabs.rs`) is never animated — it's already 1:1 with the pointer.
   - Purely a render-time visual transform: `Space`-mapped geometry, `xdg_toplevel`
     configure size, keyboard focus, and input hit-testing are all applied immediately,
     exactly as before this existed — only what gets *drawn* is interpolated (ease-out
@@ -163,13 +164,44 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     Fixed by making Open scale-only — alpha is always `1.0` now, for every animation kind
     (`anim::open_scale_and_alpha`) — trading the fade for guaranteeing a just-opened
     window is never composited as anything less than fully opaque.
+  - Move animations apply to XWayland windows for free (same backend-agnostic tiling
+    order); open animations are Wayland-only, since X11 clients typically already have
+    a pixmap by map time.
   - Deliberately out of scope for now: fade-out on close (no dedicated Wayland "window
     destroyed" hook exists today — `XdgShellHandler::toplevel_destroyed` is
     unimplemented — and a client's buffer can become unrenderable mid-fade with no clean
-    recovery) and a workspace-switch slide (needs simultaneous multi-workspace
-    rendering). Move animations apply to XWayland windows for free (same
-    backend-agnostic tiling order); open animations are Wayland-only, since X11 clients
-    typically already have a pixmap by map time.
+    recovery).
+  - **Workspace-switch slide** (`WorkspaceSlide` in `workspace.rs`): the one animation
+    that needs two workspaces on screen at once, which nothing else here required.
+    `SpitfireState::switch_workspace` used to unmap the outgoing workspace's windows
+    from `Space` immediately (`hide_inactive_workspaces`) — an instant cut, nothing left
+    to slide out. With `spitfire.anim` enabled it now leaves them mapped instead,
+    registers a `WorkspaceSlide { from_idx, to_idx, start, duration }`, and lets
+    `arrange_tiling` map the incoming workspace's windows as normal — both workspaces'
+    windows are simultaneously live in `Space` for the animation's duration, offset
+    left/right of their real position (switching to a higher index enters from the
+    right, exits left; a lower index is the mirror). Unmapped for real once the slide
+    finishes (`finalize_workspace_slide`, called every frame right alongside
+    `window_anims.prune()`).
+    - **No changes to `render.rs` at all** — its per-window animated path already takes
+      a generic `&[AnimatedWindow]` and doesn't care *why* a window has an entry.
+      `animated_windows()` just folds a slide's offset into each affected window's
+      existing entry (or adds a plain offset-only one, alpha `1.0`, for a window with no
+      independent open/move animation of its own) — reusing the exact
+      `constrain_space_element`/`Stretch` machinery built for points 1/2 unchanged.
+      `border_rects` gets the same treatment so `spitfire.border` never detaches from
+      its window mid-slide.
+    - A second switch while one is still in flight doesn't compound offsets: the *old*
+      slide's outgoing workspace is unmapped for real immediately (no longer relevant to
+      anything), and the workspace it was sliding *into* — which is exactly
+      `self.workspaces.active_index()` at that point — becomes the *new* slide's
+      outgoing one, so it slides back out instead of just vanishing.
+    - Verified by reading rather than assuming: a freshly re-mapped incoming workspace's
+      windows don't spuriously also get a per-window Move animation stacked on top of the
+      slide offset, because `TilingLayout::arrange`'s existing `space.element_geometry`
+      guard (added for point 2) already returns `None` for a window that was unmapped
+      while hidden — the exact case a Move animation needs a real "before" rect to
+      exist to fire at all.
 - **Scratchpad windows** (`crate::workspace`):
   - `spitfire.window.toggle_scratchpad()`: a single anonymous slot. Stashes whichever
     window has keyboard focus (unmapped, taken out of its workspace's tiling order —
