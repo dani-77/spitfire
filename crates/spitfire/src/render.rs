@@ -475,7 +475,7 @@ smithay::backend::renderer::element::render_elements! {
     Space=SpaceRenderElements<R, E>,
     Window=Wrap<E>,
     Custom=CustomRenderElements<R>,
-    // Also reused for a window mid open-fade or move/resize tween
+    // Also reused for a window mid open-scale ("pop") or move/resize tween
     // (spitfire.anim, see `output_elements`) — same wrapped type, built by
     // the same `constrain_space_element` helper, just at a different call
     // site. `render_elements!` derives one `From<T>` impl per inner type,
@@ -654,7 +654,8 @@ where
             output_render_elements
                 .extend(space_elements.into_iter().map(OutputRenderElements::Space));
         } else {
-            // spitfire.anim: a window mid open-fade or move/resize tween
+            // spitfire.anim: a window mid open-scale ("pop") or move/resize
+            // tween
             // needs a per-window transform (`constrain_space_element`,
             // below) instead of the blanket call above — but that blanket
             // call is still the simplest correct source of the layer-shell

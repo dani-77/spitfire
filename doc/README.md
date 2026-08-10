@@ -118,7 +118,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     edge, without ever clipping the client's real content. Confirmed working on real
     DRM/KMS hardware, no flicker.
 - **`spitfire.anim`** (`crate::anim`): basic window animations, mangowm-style — a
-  fade+scale-in when a window's content first appears, and a smooth tween whenever
+  scale-in ("pop") when a window's content first appears, and a smooth tween whenever
   `TilingLayout::arrange` moves/resizes a window (a new window joining, a layout/
   `nmaster`/`mfact` change, another window closing and the rest re-flowing, ...).
   `spitfire.anim = { enabled = true, duration = 150 }` (milliseconds; `enabled = false`
@@ -149,10 +149,20 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     "this window just appeared" distinction at the layout-engine level, so that very
     first, pre-content placement animated exactly like any other move. That made
     `spitfire.border`'s empty outline visibly grow/slide into place before the window
-    had anything to show, out of sync with the open-fade that starts moments later once
-    real content commits — a border animating on its own reads as a glitch, not an
+    had anything to show, out of sync with the open animation that starts moments later
+    once real content commits — a border animating on its own reads as a glitch, not an
     animation. Fixed by skipping the move animation (not the placement itself, which
     still happens instantly as before) for any window still in `pending_initial_focus`.
+  - A second real bug, also found via actual use: the open animation originally faded
+    alpha in (0 → 1) alongside the scale, exactly like most compositors' open animations
+    do. `spitfire.border` was never part of that fade (`border_elements` has no alpha
+    input), so for the animation's ~150ms a newly-opened window's border was instantly
+    opaque around content that was still translucent — see-through straight to whatever
+    was already open underneath. Barely noticeable with only one window on screen;
+    glaring for a floating window (a polkit/sudo prompt, say) opened on top of another.
+    Fixed by making Open scale-only — alpha is always `1.0` now, for every animation kind
+    (`anim::open_scale_and_alpha`) — trading the fade for guaranteeing a just-opened
+    window is never composited as anything less than fully opaque.
   - Deliberately out of scope for now: fade-out on close (no dedicated Wayland "window
     destroyed" hook exists today — `XdgShellHandler::toplevel_destroyed` is
     unimplemented — and a client's buffer can become unrenderable mid-fade with no clean

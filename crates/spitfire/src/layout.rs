@@ -183,8 +183,8 @@ impl TilingLayout {
             // else in the tiling set right along with it. Animating *that*
             // would visibly grow/slide `spitfire.border`'s empty outline
             // into place before the window has anything to show, out of
-            // sync with the open-fade that starts moments later once real
-            // content commits (`shell/mod.rs`'s `push_open`) — a border
+            // sync with the open animation that starts moments later once
+            // real content commits (`shell/mod.rs`'s `push_open`) — a border
             // popping in and animating on its own reads as a glitch, not an
             // animation. `space.map_element` below still places it exactly
             // as before, just without the animated detour.

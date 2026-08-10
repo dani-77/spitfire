@@ -1,4 +1,4 @@
-//! Basic mangowm-style window animations: fade+scale-in on open, and a
+//! Basic mangowm-style window animations: a scale-in ("pop") on open, and a
 //! tween when the tiling engine re-flows a window to a new rect. Both are
 //! **purely a render-time visual transform** — the real compositor state
 //! (`Space`-mapped geometry, `xdg_toplevel` configure size, focus,
@@ -7,6 +7,17 @@
 //! `spitfire.anim.duration` after the triggering event. See `render.rs`'s
 //! `output_elements` for where the interpolated rect/alpha this module
 //! computes actually gets turned into render elements.
+//!
+//! Open is scale-only, never alpha: an earlier version faded alpha in
+//! alongside the scale, which made a just-opened window briefly translucent
+//! — for a floating window opened on top of others (a polkit/sudo prompt,
+//! say), that meant seeing straight through it at whatever was already open
+//! underneath for the animation's duration, `spitfire.border` included
+//! (the border was never part of the fade — see `on_screen_rect`'s doc
+//! comment below — so the mismatch was extra visible: an instantly-opaque
+//! ring around a see-through window). Scale-only keeps the "pop in" feel
+//! without ever compositing a newly-opened window as anything less than
+//! fully opaque.
 //!
 //! Deliberately out of scope: close-fade (no dedicated Wayland "window
 //! destroyed" hook exists today, and a client's buffer can become
@@ -28,7 +39,7 @@ use crate::{
 };
 
 /// Open animation starts at this fraction of the window's real size,
-/// scaling up to `1.0` (about its own center) as it fades in.
+/// scaling up to `1.0` (about its own center) as it pops in.
 const OPEN_START_SCALE: f64 = 0.9;
 
 #[derive(Debug, Clone, Copy)]
@@ -66,8 +77,8 @@ impl WindowAnim {
     }
 }
 
-/// Standard ease-out cubic, shared by both alpha/scale (Open) and the rect
-/// lerp (Move) so both animations share one feel.
+/// Standard ease-out cubic, shared by both the scale ramp (Open) and the
+/// rect lerp (Move) so both animations share one feel.
 fn ease_out_cubic(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
 }
@@ -91,6 +102,14 @@ fn lerp_rect(
     )
 }
 
+/// The Open animation's scale factor and alpha at progress `p` (`0.0` at
+/// trigger, `1.0` once finished): scale ramps `OPEN_START_SCALE` → `1.0`,
+/// alpha is always `1.0` — see this module's doc comment for why Open never
+/// fades.
+fn open_scale_and_alpha(p: f32) -> (f64, f32) {
+    (OPEN_START_SCALE + (1.0 - OPEN_START_SCALE) * p as f64, 1.0)
+}
+
 /// Shrinks `rect` to `factor` of its size, about its own center.
 fn scale_about_center(rect: Rectangle<i32, Logical>, factor: f64) -> Rectangle<i32, Logical> {
     let w = ((rect.size.w as f64) * factor).round() as i32;
@@ -101,7 +120,10 @@ fn scale_about_center(rect: Rectangle<i32, Logical>, factor: f64) -> Rectangle<i
 }
 
 /// What `render.rs` needs for one currently-animating window: the rect to
-/// draw it at this frame, and its alpha.
+/// draw it at this frame, and its alpha. `alpha` is always `1.0` today (no
+/// current animation kind fades) — kept as a field rather than dropped
+/// since a future close-fade (see this module's doc comment for why that's
+/// not implemented yet) would need it.
 pub struct AnimatedWindow {
     pub window: WindowElement,
     pub target: Rectangle<i32, Logical>,
@@ -116,10 +138,10 @@ pub struct AnimatedWindow {
 pub struct WindowAnimations(Vec<WindowAnim>);
 
 impl WindowAnimations {
-    /// Registers an open (fade+scale-in) animation, replacing any in-flight
-    /// Move for the same window — a window that just got its first buffer
-    /// takes priority over wherever the tiling engine placed it before it
-    /// had content.
+    /// Registers an open (scale-in "pop", never a fade — see this module's
+    /// doc comment) animation, replacing any in-flight Move for the same
+    /// window — a window that just got its first buffer takes priority over
+    /// wherever the tiling engine placed it before it had content.
     pub fn push_open(&mut self, window: WindowElement, duration: Duration) {
         if duration.is_zero() {
             return;
@@ -185,13 +207,10 @@ impl WindowAnimations {
         let p = anim.progress(now)?;
         Some(match anim.kind {
             AnimKind::Move { from } => (lerp_rect(from, reference, p), 1.0),
-            AnimKind::Open => (
-                scale_about_center(
-                    reference,
-                    OPEN_START_SCALE + (1.0 - OPEN_START_SCALE) * p as f64,
-                ),
-                p,
-            ),
+            AnimKind::Open => {
+                let (scale, alpha) = open_scale_and_alpha(p);
+                (scale_about_center(reference, scale), alpha)
+            }
         })
     }
 
@@ -221,10 +240,10 @@ impl WindowAnimations {
 
     /// Used by `Workspace::border_rects` so a window's `spitfire.border`
     /// tracks its animated on-screen rect instead of detaching from it
-    /// mid-tween. Note: border *alpha* isn't animated (`border_elements`
-    /// has no alpha input) — an opening window's border is instantly opaque
-    /// around its fading/scaling content for the animation's duration.
-    /// Deliberate scope cut, not an oversight.
+    /// mid-tween. `border_elements` has no alpha input at all — harmless,
+    /// since neither animation kind ever produces alpha < 1.0 now (Open is
+    /// scale-only, see this module's doc comment; Move never touched alpha
+    /// to begin with).
     pub fn on_screen_rect(
         &self,
         window: &WindowElement,
@@ -290,6 +309,22 @@ mod tests {
     fn scale_about_center_at_factor_1_is_a_no_op() {
         let r = rect(10, 20, 100, 60);
         assert_eq!(scale_about_center(r, 1.0), r);
+    }
+
+    #[test]
+    fn open_animation_never_fades_only_scales() {
+        // Regression test: an opening window used to fade alpha in
+        // alongside the scale, which meant a floating window opened on top
+        // of another was briefly see-through (and worse, its border —
+        // which never animated alpha — stayed instantly opaque around that
+        // see-through content). Open must never produce alpha < 1.0.
+        for p in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let (_, alpha) = open_scale_and_alpha(p);
+            assert_eq!(alpha, 1.0);
+        }
+        // Scale still ramps OPEN_START_SCALE -> 1.0 as before.
+        assert_eq!(open_scale_and_alpha(0.0).0, OPEN_START_SCALE);
+        assert_eq!(open_scale_and_alpha(1.0).0, 1.0);
     }
 
     #[test]
