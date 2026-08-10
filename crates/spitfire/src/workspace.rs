@@ -9,20 +9,82 @@
 //! so that moving to real multi-output later means keying a
 //! `HashMap<Output, WorkspaceSet>` instead of rewriting this.
 
+use std::time::{Duration, Instant};
+
 use smithay::{
     desktop::{space::SpaceElement, WindowSurface},
     output::Output,
-    utils::{IsAlive, Logical, Size, SERIAL_COUNTER},
+    utils::{IsAlive, Logical, Point, Rectangle, Size, SERIAL_COUNTER},
 };
 use spitfire_layout::Gaps;
 use tracing::info;
 
 use crate::{
+    anim::ease_out_cubic,
     focus::KeyboardFocusTarget,
     layout::{usable_area, ForceFloating, TilingLayout},
     shell::{center_on_output, center_on_output_with_size, WindowElement},
     state::{Backend, SpitfireState},
 };
+
+/// A workspace switch in flight (`spitfire.anim`'s slide): both `from_idx`
+/// and `to_idx`'s windows stay mapped in `Space` for the duration, offset
+/// left/right by `offsets` below — see `SpitfireState::switch_workspace`'s
+/// doc comment for the whole flow this drives, and `render.rs`'s
+/// `output_elements` for how an `AnimatedWindow` entry (built from this)
+/// actually gets drawn. Purely visual, same as the per-window open/move
+/// animations in `crate::anim` — the real active-workspace state changes
+/// immediately in `switch_workspace`, this only affects what's drawn.
+#[derive(Debug, Clone, Copy)]
+pub struct WorkspaceSlide {
+    from_idx: usize,
+    to_idx: usize,
+    start: Instant,
+    duration: Duration,
+}
+
+impl WorkspaceSlide {
+    fn new(from_idx: usize, to_idx: usize, duration: Duration) -> Self {
+        WorkspaceSlide {
+            from_idx,
+            to_idx,
+            start: Instant::now(),
+            duration,
+        }
+    }
+
+    /// `None` once finished (elapsed >= duration) or if `duration` is zero
+    /// — same shape as `anim::WindowAnim::progress`, sharing its curve.
+    fn progress(&self, now: Instant) -> Option<f32> {
+        if self.duration.is_zero() {
+            return None;
+        }
+        let elapsed = now.saturating_duration_since(self.start);
+        if elapsed >= self.duration {
+            return None;
+        }
+        let t = elapsed.as_secs_f32() / self.duration.as_secs_f32();
+        Some(ease_out_cubic(t))
+    }
+
+    /// `(outgoing_offset, incoming_offset)` at progress `p` (`0.0..=1.0`)
+    /// over an output `output_width` logical pixels wide. Switching to a
+    /// higher index slides like moving right — incoming enters from the
+    /// right (`+output_width` at `p=0`, `0` at `p=1`), outgoing exits left
+    /// (`0` at `p=0`, `-output_width` at `p=1`); a lower index is the exact
+    /// mirror.
+    fn offsets(&self, output_width: i32, p: f32) -> (Point<i32, Logical>, Point<i32, Logical>) {
+        let dir: f32 = if self.to_idx > self.from_idx {
+            1.0
+        } else {
+            -1.0
+        };
+        let width = output_width as f32;
+        let outgoing = (-dir * width * p).round() as i32;
+        let incoming = (dir * width * (1.0 - p)).round() as i32;
+        ((outgoing, 0).into(), (incoming, 0).into())
+    }
+}
 
 /// A stable identifier for a workspace, assigned once at creation and never
 /// reused — unlike its `Vec` index, which shifts when an earlier workspace
@@ -236,13 +298,37 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// `spitfire.workspace.focus(n)` — switches to workspace `idx` (0-based
     /// here; the Lua API is 1-based and subtracts 1 before calling this),
     /// creating it if it doesn't exist yet (niri-style dynamic growth).
-    /// Windows on the outgoing workspace are hidden, the incoming one's are
-    /// shown and re-tiled.
+    ///
+    /// With `spitfire.anim` disabled (or `duration <= 0`), the outgoing
+    /// workspace is hidden immediately and the incoming one shown/re-tiled
+    /// — an instant cut, exactly as before this animation existed.
+    /// Otherwise, the outgoing workspace's windows are deliberately *not*
+    /// hidden here: they stay mapped in `Space`, and a `WorkspaceSlide` is
+    /// registered so both workspaces render simultaneously, offset
+    /// left/right, until the slide finishes (`arrange_tiling`, which
+    /// unmaps the outgoing one for real at that point — see its own doc
+    /// comment). A second switch while one is still in flight hides the
+    /// *old* slide's outgoing workspace immediately (it's no longer
+    /// relevant to anything) and the workspace it was sliding *into*
+    /// becomes the new slide's outgoing one, so it slides back out instead
+    /// of just vanishing — no offsets ever compound on the same window.
     pub fn switch_workspace(&mut self, idx: usize) {
+        let from_idx = self.workspaces.active_index();
         if !self.workspaces.switch_to(idx) {
             return;
         }
-        self.hide_inactive_workspaces();
+        if let Some(old) = self.workspace_slide.take() {
+            self.hide_workspace(old.from_idx);
+        }
+        if self.config.anim.duration().is_zero() {
+            self.hide_inactive_workspaces();
+        } else {
+            self.workspace_slide = Some(WorkspaceSlide::new(
+                from_idx,
+                idx,
+                self.config.anim.duration(),
+            ));
+        }
         self.arrange_tiling();
         self.sync_ext_workspace_state();
     }
@@ -582,11 +668,15 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         true
     }
 
-    /// The active workspace's windows, current on-screen geometry plus
-    /// whether each is focused — what `render::border_elements` needs to
-    /// draw `spitfire.border`. Only windows still actually mapped in
-    /// `space` (e.g. not one that's floating and never got positioned) are
-    /// included.
+    /// The currently-visible workspace(s)' windows, current on-screen
+    /// geometry plus whether each is focused — what `render::border_elements`
+    /// needs to draw `spitfire.border`. Only windows still actually mapped
+    /// in `space` (e.g. not one that's floating and never got positioned)
+    /// are included. While a `WorkspaceSlide` is in flight, this covers
+    /// both the outgoing and incoming workspaces (see `slide_windows`),
+    /// each offset the same way `animated_windows` offsets their render
+    /// elements — otherwise, just the active workspace, as before this
+    /// feature existed.
     pub fn border_rects(&self) -> Vec<crate::render::BorderRect> {
         let focused = self
             .seat
@@ -597,14 +687,21 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                 _ => None,
             });
 
-        self.workspaces
-            .active()
-            .tiling
-            .windows()
+        let windows: Vec<WindowElement> = if self.workspace_slide.is_some() {
+            self.slide_windows()
+        } else {
+            self.workspaces.active().tiling.windows().to_vec()
+        };
+
+        windows
             .iter()
             .filter_map(|w| {
                 let geometry = self.space.element_geometry(w)?;
                 let geometry = self.window_anims.on_screen_rect(w, geometry);
+                let geometry = match self.workspace_slide_offset_for(w) {
+                    Some(offset) => Rectangle::new(geometry.loc + offset, geometry.size),
+                    None => geometry,
+                };
                 Some(crate::render::BorderRect {
                     geometry,
                     focused: focused.as_ref() == Some(w),
@@ -616,18 +713,104 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// Unmaps every window belonging to a workspace other than the active
     /// one from `space`, so it isn't rendered or clickable. The active
     /// workspace's windows get remapped by the very next `arrange_tiling`.
+    /// Used when `spitfire.anim` is disabled — with it enabled,
+    /// `switch_workspace`/`arrange_tiling` unmap the outgoing workspace
+    /// specifically (via `hide_workspace`) once its slide finishes, instead
+    /// of every inactive workspace at once.
     fn hide_inactive_workspaces(&mut self) {
         let active = self.workspaces.active_index();
-        let to_hide: Vec<WindowElement> = self
-            .workspaces
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != active)
-            .flat_map(|(_, ws)| ws.tiling.windows().iter().cloned())
+        let indices: Vec<usize> = (0..self.workspaces.len())
+            .filter(|&i| i != active)
             .collect();
-        for window in to_hide {
+        for idx in indices {
+            self.hide_workspace(idx);
+        }
+    }
+
+    /// Unmaps an in-flight `WorkspaceSlide`'s outgoing workspace for real
+    /// once it's done animating — the deferred half of what
+    /// `hide_inactive_workspaces` does immediately when `spitfire.anim` is
+    /// disabled. Call every frame (`layout::arrange_tiling`, alongside
+    /// `window_anims.prune()`); a no-op while a slide is still in flight,
+    /// or when none exists at all.
+    pub(crate) fn finalize_workspace_slide(&mut self) {
+        let Some(slide) = &self.workspace_slide else {
+            return;
+        };
+        if slide.progress(Instant::now()).is_some() {
+            return; // still animating
+        }
+        let from_idx = slide.from_idx;
+        self.workspace_slide = None;
+        self.hide_workspace(from_idx);
+    }
+
+    /// Unmaps workspace `idx`'s windows from `space` specifically — the
+    /// building block both `hide_inactive_workspaces` (blanket case,
+    /// `spitfire.anim` disabled) and the workspace-slide finalize/interrupt
+    /// paths (`switch_workspace`, `finalize_workspace_slide`) use.
+    fn hide_workspace(&mut self, idx: usize) {
+        let Some(windows) = self
+            .workspaces
+            .get(idx)
+            .map(|ws| ws.tiling.windows().to_vec())
+        else {
+            return;
+        };
+        for window in windows {
             self.space.unmap_elem(&window);
         }
+    }
+
+    /// This frame's extra offset for `window` from an in-flight
+    /// `WorkspaceSlide`, if it belongs to either the outgoing or incoming
+    /// workspace — `None` if no slide is active, the slide has finished
+    /// (about to be pruned by `arrange_tiling`), or `window` belongs to
+    /// neither (already hidden, or on some other workspace entirely).
+    pub(crate) fn workspace_slide_offset_for(
+        &self,
+        window: &WindowElement,
+    ) -> Option<Point<i32, Logical>> {
+        let slide = self.workspace_slide.as_ref()?;
+        let p = slide.progress(Instant::now())?;
+        let output = self.space.outputs().next()?;
+        let width = self.space.output_geometry(output)?.size.w;
+        let (out_off, in_off) = slide.offsets(width, p);
+        if self
+            .workspaces
+            .get(slide.from_idx)
+            .is_some_and(|ws| ws.tiling.windows().contains(window))
+        {
+            Some(out_off)
+        } else if self
+            .workspaces
+            .get(slide.to_idx)
+            .is_some_and(|ws| ws.tiling.windows().contains(window))
+        {
+            Some(in_off)
+        } else {
+            None
+        }
+    }
+
+    /// Every window belonging to the in-flight slide's outgoing or incoming
+    /// workspace — what `animated_windows`/`border_rects` iterate while a
+    /// slide is active. Empty when no slide is in flight.
+    pub(crate) fn slide_windows(&self) -> Vec<WindowElement> {
+        let Some(slide) = &self.workspace_slide else {
+            return Vec::new();
+        };
+        let from = self
+            .workspaces
+            .get(slide.from_idx)
+            .map(|ws| ws.tiling.windows())
+            .unwrap_or(&[]);
+        let to = self
+            .workspaces
+            .get(slide.to_idx)
+            .map(|ws| ws.tiling.windows())
+            .unwrap_or(&[]);
+        from.iter().chain(to).cloned().collect()
     }
 }
 
@@ -659,6 +842,50 @@ fn resize_window(window: &WindowElement, size: Size<i32, Logical>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slide_offsets_moving_forward_enters_from_the_right() {
+        let slide = WorkspaceSlide::new(0, 2, Duration::from_millis(200));
+        let (out0, in0) = slide.offsets(1000, 0.0);
+        assert_eq!(out0, (0, 0).into());
+        assert_eq!(in0, (1000, 0).into());
+
+        let (out1, in1) = slide.offsets(1000, 1.0);
+        assert_eq!(out1, (-1000, 0).into());
+        assert_eq!(in1, (0, 0).into());
+    }
+
+    #[test]
+    fn slide_offsets_moving_backward_is_the_mirror() {
+        let slide = WorkspaceSlide::new(2, 0, Duration::from_millis(200));
+        let (out0, in0) = slide.offsets(1000, 0.0);
+        assert_eq!(out0, (0, 0).into());
+        assert_eq!(in0, (-1000, 0).into());
+
+        let (out1, in1) = slide.offsets(1000, 1.0);
+        assert_eq!(out1, (1000, 0).into());
+        assert_eq!(in1, (0, 0).into());
+    }
+
+    #[test]
+    fn slide_progress_is_none_once_finished() {
+        let slide = WorkspaceSlide::new(0, 1, Duration::from_millis(10));
+        let long_after = Instant::now() + Duration::from_secs(1);
+        assert!(slide.progress(long_after).is_none());
+    }
+
+    #[test]
+    fn slide_progress_is_none_with_zero_duration() {
+        let slide = WorkspaceSlide::new(0, 1, Duration::ZERO);
+        assert!(slide.progress(Instant::now()).is_none());
+    }
+
+    #[test]
+    fn slide_progress_right_after_start_is_near_zero() {
+        let slide = WorkspaceSlide::new(0, 1, Duration::from_millis(200));
+        let p = slide.progress(slide.start).unwrap();
+        assert!(p < 0.05, "expected progress near 0 right at start, got {p}");
+    }
 
     #[test]
     fn starts_with_one_workspace_named_1() {

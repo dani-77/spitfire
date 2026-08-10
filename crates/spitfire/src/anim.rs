@@ -78,8 +78,10 @@ impl WindowAnim {
 }
 
 /// Standard ease-out cubic, shared by both the scale ramp (Open) and the
-/// rect lerp (Move) so both animations share one feel.
-fn ease_out_cubic(t: f32) -> f32 {
+/// rect lerp (Move) so both animations share one feel — also reused by
+/// `crate::workspace::WorkspaceSlide`, so the workspace-switch slide feels
+/// the same too.
+pub(crate) fn ease_out_cubic(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
 }
 
@@ -256,8 +258,30 @@ impl WindowAnimations {
 }
 
 impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
+    /// Every window `render.rs` needs to draw at a non-default rect/alpha
+    /// this frame — per-window open/move animations, folded together with
+    /// any in-flight workspace-switch slide (`crate::workspace::WorkspaceSlide`):
+    /// every window on the slide's outgoing or incoming workspace gets its
+    /// slide offset added on top of whatever this window already had (its
+    /// own open/move target, or — for a window with no per-window
+    /// animation of its own — its plain live geometry).
     pub fn animated_windows(&self) -> Vec<AnimatedWindow> {
-        self.window_anims.resolve_all(&self.space)
+        let mut result = self.window_anims.resolve_all(&self.space);
+        for window in self.slide_windows() {
+            let Some(offset) = self.workspace_slide_offset_for(&window) else {
+                continue;
+            };
+            if let Some(existing) = result.iter_mut().find(|a| a.window == window) {
+                existing.target.loc += offset;
+            } else if let Some(geo) = self.space.element_geometry(&window) {
+                result.push(AnimatedWindow {
+                    window,
+                    target: Rectangle::new(geo.loc + offset, geo.size),
+                    alpha: 1.0,
+                });
+            }
+        }
+        result
     }
 }
 

@@ -335,6 +335,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         self.raise_floating_windows();
         self.refocus_if_dangling();
         self.window_anims.prune();
+        self.finalize_workspace_slide();
     }
 
     /// Re-raises all floating windows (scratchpads, rule-matched floating
