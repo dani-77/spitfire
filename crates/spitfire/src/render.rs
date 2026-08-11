@@ -8,7 +8,7 @@ use smithay::{
                 solid::{SolidColorBuffer, SolidColorRenderElement},
                 surface::WaylandSurfaceRenderElement,
                 utils::{
-                    ConstrainAlign, ConstrainScaleBehavior, CropRenderElement,
+                    ConstrainAlign, ConstrainScaleBehavior, CropRenderElement, Relocate,
                     RelocateRenderElement, RescaleRenderElement,
                 },
                 AsRenderElements, Kind, RenderElement, Wrap,
@@ -17,8 +17,8 @@ use smithay::{
         },
     },
     desktop::space::{
-        constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements,
-        SurfaceTree,
+        constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceElement,
+        SpaceRenderElements, SurfaceTree,
     },
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -478,13 +478,20 @@ smithay::backend::renderer::element::render_elements! {
     Space=SpaceRenderElements<R, E>,
     Window=Wrap<E>,
     Custom=CustomRenderElements<R>,
-    // Also reused for a window mid open-scale ("pop") or move/resize tween
-    // (spitfire.anim, see `output_elements`) — same wrapped type, built by
-    // the same `constrain_space_element` helper, just at a different call
-    // site. `render_elements!` derives one `From<T>` impl per inner type,
-    // so a same-typed second variant would conflict with this one — no
-    // need for one anyway, the two never appear in the same code path.
+    // The alt-tab-style window preview grid (`space_preview_elements`),
+    // built by smithay's own `constrain_space_element` — safe to keep using
+    // its `CropRenderElement`-wrapping chain as-is: `ConstrainScaleBehavior
+    // ::Fit` always keeps content within bounds, which doesn't provoke the
+    // crop bug the `Anim` variant below exists to avoid (see
+    // `constrain_space_element_no_crop`'s doc comment).
     Preview=CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>>,
+    // A window mid open-scale ("pop") or move/resize tween (spitfire.anim,
+    // see `output_elements`), built by `constrain_space_element_no_crop`
+    // rather than smithay's `constrain_space_element` above — same wrapped
+    // type minus the outer `CropRenderElement`, so it needs its own variant
+    // (`render_elements!` derives one `From<T>` impl per inner type; reusing
+    // `Preview`'s type here would conflict with the arm above).
+    Anim=RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>,
 }
 
 impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug> std::fmt::Debug
@@ -496,6 +503,7 @@ impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug>
             Self::Window(arg0) => f.debug_tuple("Window").field(arg0).finish(),
             Self::Custom(arg0) => f.debug_tuple("Custom").field(arg0).finish(),
             Self::Preview(arg0) => f.debug_tuple("Preview").field(arg0).finish(),
+            Self::Anim(arg0) => f.debug_tuple("Anim").field(arg0).finish(),
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
     }
@@ -563,6 +571,117 @@ where
                 constrain_behavior,
             )
         })
+}
+
+/// A line-for-line copy of smithay's own `constrain_space_element` chain
+/// (`desktop::space::utils::constrain_space_element` →
+/// `backend::renderer::element::utils::elements::{constrain_as_render_elements,
+/// constrain_render_elements}`) — same scale/offset math throughout — except
+/// the final step never wraps the result in `CropRenderElement`.
+///
+/// That crop step is where `spitfire.anim`'s per-window path used to lose a
+/// window's content permanently: `CropRenderElement::from_element` computes
+/// the overlap between the crop rect and the *already rescaled* element's own
+/// geometry via a second, independent `to_physical_precise_round` pass, and
+/// on some scale factors (fractional `spitfire.output.scale` especially —
+/// this was first caught live on a non-1.0 scale) that can round the two
+/// rects to a pixel-off, non-overlapping pair. `from_element` then returns
+/// `None` for that frame — and since `OutputDamageTracker` still records the
+/// (empty) draw as "this window's commit is handled", no later frame ever
+/// had a reason to redraw it, so the window stayed blank forever after
+/// (`feh`, GIMP — see `output_elements`'s call site for the full bisection).
+///
+/// `RescaleRenderElement`/`RelocateRenderElement` are both infallible
+/// (`Element`, unlike `CropRenderElement`, has no `Option` in its
+/// constructor), so dropping the crop step makes "never silently render
+/// nothing" true by construction here, not just true in practice. Only used
+/// for `spitfire.anim`'s `Stretch`+`Geometry`+`CENTER` case, where the
+/// rescaled reference lands on `constrain` exactly anyway (mod float
+/// rounding) — cropping there was never adding real clipping, only the risk
+/// above. `space_preview_elements` above keeps using the real
+/// `constrain_space_element` (its `Fit` behavior needs `CropRenderElement`'s
+/// clipping semantics far less than it needs *this* function's guarantee,
+/// and doesn't hit the failure mode this exists to avoid).
+#[allow(clippy::too_many_arguments)]
+fn constrain_space_element_no_crop<R, E, C>(
+    renderer: &mut R,
+    element: &E,
+    location: impl Into<Point<i32, Logical>>,
+    alpha: f32,
+    scale: impl Into<Scale<f64>>,
+    constrain: Rectangle<i32, Logical>,
+    behavior: ConstrainBehavior,
+) -> impl Iterator<Item = C>
+where
+    R: Renderer,
+    E: SpaceElement + AsRenderElements<R>,
+    C: From<RelocateRenderElement<RescaleRenderElement<<E as AsRenderElements<R>>::RenderElement>>>,
+{
+    let location = location.into();
+    let scale = scale.into();
+
+    let scale_reference = match behavior.reference {
+        ConstrainReference::BoundingBox => element.bbox(),
+        ConstrainReference::Geometry => element.geometry(),
+    };
+
+    let render_origin: Point<i32, Physical> =
+        (location - scale_reference.loc).to_physical_precise_round(scale);
+    let constrain_phys: Rectangle<i32, Physical> = constrain.to_physical_precise_round(scale);
+    let reference_phys: Rectangle<i32, Physical> = scale_reference.to_physical_precise_round(scale);
+
+    let elements: Vec<<E as AsRenderElements<R>>::RenderElement> =
+        AsRenderElements::<R>::render_elements(element, renderer, render_origin, scale, alpha);
+
+    let element_scale = match behavior.behavior {
+        ConstrainScaleBehavior::Fit => {
+            let reference = reference_phys.to_f64();
+            let size = constrain_phys.size.to_f64();
+            let element_scale: Scale<f64> = size / reference.size;
+            Scale::from(f64::min(element_scale.x, element_scale.y))
+        }
+        ConstrainScaleBehavior::Zoom => {
+            let reference = reference_phys.to_f64();
+            let size = constrain_phys.size.to_f64();
+            let element_scale: Scale<f64> = size / reference.size;
+            Scale::from(f64::max(element_scale.x, element_scale.y))
+        }
+        ConstrainScaleBehavior::Stretch => {
+            let reference = reference_phys.to_f64();
+            let size = constrain_phys.size.to_f64();
+            size / reference.size
+        }
+        ConstrainScaleBehavior::CutOff => Scale::from(1.0),
+    };
+
+    let scaled_reference = reference_phys.to_f64().upscale(element_scale);
+
+    let align = behavior.align;
+    let top_offset: f64 = if align.contains(ConstrainAlign::TOP | ConstrainAlign::BOTTOM) {
+        (constrain_phys.size.h as f64 - scaled_reference.size.h) / 2f64
+    } else if align.contains(ConstrainAlign::BOTTOM) {
+        constrain_phys.size.h as f64 - scaled_reference.size.h
+    } else {
+        0f64
+    };
+    let left_offset: f64 = if align.contains(ConstrainAlign::LEFT | ConstrainAlign::RIGHT) {
+        (constrain_phys.size.w as f64 - scaled_reference.size.w) / 2f64
+    } else if align.contains(ConstrainAlign::RIGHT) {
+        constrain_phys.size.w as f64 - scaled_reference.size.w
+    } else {
+        0f64
+    };
+    let align_offset: Point<f64, Physical> = (left_offset, top_offset).into();
+
+    let reference_offset =
+        reference_phys.loc.to_f64() - Point::from((scaled_reference.loc.x, scaled_reference.loc.y));
+    let offset = (reference_offset + align_offset).to_i32_round();
+
+    elements
+        .into_iter()
+        .map(move |e| RescaleRenderElement::from_element(e, render_origin, element_scale))
+        .map(move |e| RelocateRenderElement::from_element(e, offset, Relocate::Relative))
+        .map(C::from)
 }
 
 #[profiling::function]
@@ -650,39 +769,80 @@ where
         )
         .expect("output without mode?");
 
-        output_render_elements.extend(space_elements.into_iter().map(OutputRenderElements::Space));
+        if anims.is_empty() {
+            // Byte-for-byte the pre-spitfire.anim path when nothing is
+            // animating — idle stays exactly zero-damage, see `RectCache`'s
+            // doc comment for why that matters.
+            output_render_elements
+                .extend(space_elements.into_iter().map(OutputRenderElements::Space));
+        } else {
+            // spitfire.anim: a window mid open-scale ("pop") or move/resize
+            // tween needs a per-window transform instead of the blanket
+            // `space_elements` above — but that blanket call is still the
+            // simplest correct source of the layer-shell elements it also
+            // produces alongside the window ones. Keep those
+            // (`SpaceRenderElements::Surface` — smithay only ever produces
+            // that variant for layer-shell surfaces; windows come through
+            // `SpaceRenderElements::Element` instead) and rebuild only the
+            // window portion ourselves below, via
+            // `constrain_space_element_no_crop` — see that function's doc
+            // comment for why not smithay's own `constrain_space_element`
+            // (its `CropRenderElement` step is what used to let a window
+            // lose its content permanently, see the removed comment this
+            // replaces in git blame for the full bisection).
+            output_render_elements.extend(
+                space_elements
+                    .into_iter()
+                    .filter(|e| matches!(e, SpaceRenderElements::Surface(_)))
+                    .map(OutputRenderElements::Space),
+            );
 
-        // `anims` (open-scale "pop" / move-resize tween) is deliberately
-        // never consulted for what actually gets drawn below — every window
-        // renders at its plain, settled geometry, exactly like idle
-        // rendering always has. This function used to switch to a
-        // per-window `constrain_space_element` transform while `anims` was
-        // non-empty; that path built on a real smithay bug:
-        // `constrain_space_element` wraps each element in a
-        // `CropRenderElement`, which silently produces *no* render element
-        // — not an error, just nothing — whenever its crop rect fails to
-        // cleanly overlap the element's own geometry that frame (smithay's
-        // own code even flags this: `// FIXME: intersection sometimes
-        // return a 0 size element`). Found by bisecting a real bug: a
-        // brand-new window's very first paint landing on exactly one of
-        // those frames left it rendering nothing *forever after* —
-        // `OutputDamageTracker` still recorded that frame's (empty!) draw
-        // as "this window's commit is handled", so nothing ever prompted a
-        // real redraw once the animation ended and rendering fell back to
-        // the normal path. A first attempt at falling back to the plain
-        // per-window render whenever `constrain_space_element` produced
-        // zero elements (rather than skipping the window that frame)
-        // *mostly* worked but didn't fully close it — the FIXME above
-        // hints why: smithay's own intersection check can apparently miss
-        // a degenerate near-zero rect and return `Some` anyway, which no
-        // "was it empty" check downstream can catch. Correctness (a window
-        // is *never* silently un-renderable) matters far more than the
-        // open/move animation's visual polish. `anims` stays a parameter
-        // (existing callers, including `crate::screencopy`, still pass it)
-        // rather than being ripped out crate-wide, in case a future fix
-        // wants to reinstate a per-window animated path without another
-        // round of signature churn.
-        let _ = anims;
+            let output_geo = space.output_geometry(output).unwrap_or_default();
+            let behavior = ConstrainBehavior {
+                reference: ConstrainReference::Geometry,
+                behavior: ConstrainScaleBehavior::Stretch,
+                align: ConstrainAlign::CENTER,
+            };
+            for window in space.elements_for_output(output).rev() {
+                if let Some(anim) = anims.iter().find(|a| &a.window == window) {
+                    let elements = constrain_space_element_no_crop(
+                        renderer,
+                        window,
+                        anim.target.loc,
+                        anim.alpha,
+                        output_scale,
+                        anim.target,
+                        behavior,
+                    );
+                    output_render_elements.extend(elements.map(OutputRenderElements::Anim));
+                } else {
+                    // Same physical-location formula `Space`'s own internal
+                    // element wrapper uses (smithay's `desktop::space::mod.rs`,
+                    // `InnerElement::render_location`), `output_geo` included
+                    // for when this crate grows multi-output — so a
+                    // non-animating window renders identically to the
+                    // blanket-call path above, even on a frame where some
+                    // *other* window is animating.
+                    let Some(loc) = space.element_location(window) else {
+                        continue;
+                    };
+                    let render_loc = (loc - SpaceElement::geometry(window).loc) - output_geo.loc;
+                    let elements: Vec<WindowRenderElement<R>> =
+                        AsRenderElements::<R>::render_elements(
+                            window,
+                            renderer,
+                            render_loc.to_physical_precise_round(output_scale),
+                            output_scale,
+                            1.0,
+                        );
+                    output_render_elements.extend(
+                        elements
+                            .into_iter()
+                            .map(|e| OutputRenderElements::Window(Wrap::from(e))),
+                    );
+                }
+            }
+        }
 
         // Borders (spitfire.border) — added at the front (top of the
         // z-order). Since each is a thin strip that never overlaps its

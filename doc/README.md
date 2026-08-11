@@ -141,13 +141,9 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `spitfire.anim = { enabled = true, duration = 150 }` (milliseconds; `enabled = false`
   or `duration <= 0` disables all three, one knob for all of it). Interactive drag/resize
   (`shell/grabs.rs`) is never animated — it's already 1:1 with the pointer.
-  > **Currently disabled at render time** (as of the wlr-screencopy/backdrop session
-  > below) — see the "third real bug" entry a few bullets down. `WindowAnimations`/
-  > `WorkspaceSlide` tracking still runs and `spitfire.anim` is still accepted in
-  > `config.lua`, but `render::output_elements` no longer consults any of it, so windows
-  > currently open/move/switch workspace instantly regardless of this setting. Left this
-  > way deliberately — see that bullet for why, and what actually reinstating the visual
-  > side needs.
+  > Re-enabled at render time 2026-08-11 (`render::constrain_space_element_no_crop`) — see
+  > the "third real bug" entry a few bullets down for the fix; this note is kept for
+  > context on why it was ever off.
   - Purely a render-time visual transform: `Space`-mapped geometry, `xdg_toplevel`
     configure size, keyboard focus, and input hit-testing are all applied immediately,
     exactly as before this existed — only what gets *drawn* is interpolated (ease-out
@@ -211,11 +207,34 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     catch. Correctness (a window is never silently un-renderable) matters more than this
     feature's visual polish, so `render::output_elements` was changed to never consult
     `anims` for what actually gets drawn at all — see this bullet's parent note.
-    Reinstating the visual side properly needs either fixing the underlying
-    `constrain_space_element`/`CropRenderElement` interaction, or replacing it with
-    something that doesn't route through smithay's `CropRenderElement` at all; either way,
-    test any attempt against a nested `spitfire --winit` session first, not the live one
-    directly (see the border/z-order limitation below for why that matters in practice).
+    - **Fixed 2026-08-11** (`render::constrain_space_element_no_crop`): a line-for-line copy
+      of smithay's own `constrain_space_element` → `constrain_as_render_elements` →
+      `constrain_render_elements` chain, same scale/offset math throughout, except the
+      final step never wraps the result in `CropRenderElement` — it stops at
+      `RelocateRenderElement<RescaleRenderElement<E>>`, both infallible constructors
+      (`Element`, unlike `CropRenderElement`, has no `Option` in its constructor). Only
+      used for `spitfire.anim`'s own `Stretch`+`Geometry`+`CENTER` case, where the
+      rescaled reference lands on the constrain rect exactly anyway (mod float rounding)
+      — the crop step there was never adding real clipping, only the risk of the bug
+      above. `space_preview_elements` (the alt-tab-style preview grid) is untouched and
+      still goes through smithay's real `constrain_space_element`/`CropRenderElement` —
+      its `Fit` behavior keeps content within bounds by construction, so it doesn't hit
+      the failure mode this exists to avoid, and doesn't need this guarantee as much as
+      it would cost giving up real cropping. New `OutputRenderElements::Anim` variant
+      (`RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>`, no
+      `CropRenderElement` wrapper) alongside the existing `Preview` one, since
+      `render_elements!` needs a distinct variant per wrapped type. Verified against a
+      nested `spitfire --winit` session (isolated `XDG_RUNTIME_DIR`/`XDG_CONFIG_HOME` so
+      it doesn't collide with a live session's control socket or autostart) with `grim`:
+      realistic open/move/workspace-slide sequences, plus a deliberately extreme stress
+      pass (10+ windows opened back-to-back, three layout cycles in under two seconds) —
+      no window ever lost content permanently in either case. That stress pass did
+      surface alacritty terminals losing their visible text after being squeezed to ~1-2
+      rows tall and back — reproduced identically with `spitfire.anim.enabled = false`,
+      so it's the terminal's own grid-reflow behavior on extreme resize, not a spitfire
+      regression (confirmed further by the window's border/background still rendering
+      correctly throughout, unlike this bug's original "nothing at all, forever"
+      signature).
   - Move animations apply to XWayland windows for free (same backend-agnostic tiling
     order); open animations are Wayland-only, since X11 clients typically already have
     a pixmap by map time.
