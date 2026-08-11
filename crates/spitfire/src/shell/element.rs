@@ -4,6 +4,7 @@ use smithay::{
     backend::renderer::{
         element::{
             solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement, AsRenderElements,
+            Kind,
         },
         ImportAll, ImportMem, Renderer, Texture,
     },
@@ -27,7 +28,9 @@ use smithay::{
         wayland_server::protocol::wl_surface::WlSurface,
     },
     render_elements,
-    utils::{user_data::UserDataMap, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial},
+    utils::{
+        user_data::UserDataMap, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial, Size,
+    },
     wayland::{
         compositor::{with_states, SurfaceData as WlSurfaceData},
         dmabuf::DmabufFeedback,
@@ -36,7 +39,7 @@ use smithay::{
     },
 };
 
-use super::ssd::HEADER_BAR_HEIGHT;
+use super::ssd::{BG_COLOR, HEADER_BAR_HEIGHT};
 use crate::{focus::PointerFocusTarget, state::Backend, SpitfireState};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -475,31 +478,53 @@ where
     ) -> Vec<C> {
         let window_bbox = SpaceElement::bbox(&self.0);
 
-        if self.decoration_state().is_ssd && !window_bbox.is_empty() {
-            let window_geo = SpaceElement::geometry(&self.0);
-
+        // Sized to exactly the content geometry, drawn *behind* the
+        // client's own content — see `WindowState::backdrop`'s doc comment
+        // (shell/ssd.rs) for the real bug this papers over (a client
+        // attaching a real-alpha buffer and relying on compositor blur
+        // spitfire doesn't have).
+        let backdrop_element = |location: Point<i32, Physical>, size: Size<i32, Logical>| {
             let mut state = self.decoration_state();
-            let width = window_geo.size.w;
-            state.header_bar.redraw(width as u32);
-            let mut vec = AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
-                &state.header_bar,
-                renderer,
+            state
+                .backdrop
+                .update((size.w.max(1), size.h.max(1)), BG_COLOR);
+            WindowRenderElement::<R>::from(SolidColorRenderElement::from_buffer(
+                &state.backdrop,
                 location,
                 scale,
                 alpha,
-            );
+                Kind::Unspecified,
+            ))
+        };
+
+        if self.decoration_state().is_ssd && !window_bbox.is_empty() {
+            let window_geo = SpaceElement::geometry(&self.0);
+
+            let mut vec = {
+                let mut state = self.decoration_state();
+                state.header_bar.redraw(window_geo.size.w as u32);
+                AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
+                    &state.header_bar,
+                    renderer,
+                    location,
+                    scale,
+                    alpha,
+                )
+            };
 
             location.y += (scale.y * HEADER_BAR_HEIGHT as f64) as i32;
 
-            let window_elements =
+            let window_elements: Vec<WindowRenderElement<R>> =
                 AsRenderElements::render_elements(&self.0, renderer, location, scale, alpha);
             vec.extend(window_elements);
+            vec.push(backdrop_element(location, window_geo.size));
             vec.into_iter().map(C::from).collect()
         } else {
-            AsRenderElements::render_elements(&self.0, renderer, location, scale, alpha)
-                .into_iter()
-                .map(C::from)
-                .collect()
+            let content_size = SpaceElement::geometry(&self.0).size;
+            let mut vec: Vec<WindowRenderElement<R>> =
+                AsRenderElements::render_elements(&self.0, renderer, location, scale, alpha);
+            vec.push(backdrop_element(location, content_size));
+            vec.into_iter().map(C::from).collect()
         }
     }
 }

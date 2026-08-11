@@ -125,6 +125,13 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `spitfire.anim = { enabled = true, duration = 150 }` (milliseconds; `enabled = false`
   or `duration <= 0` disables all three, one knob for all of it). Interactive drag/resize
   (`shell/grabs.rs`) is never animated — it's already 1:1 with the pointer.
+  > **Currently disabled at render time** (as of the wlr-screencopy/backdrop session
+  > below) — see the "third real bug" entry a few bullets down. `WindowAnimations`/
+  > `WorkspaceSlide` tracking still runs and `spitfire.anim` is still accepted in
+  > `config.lua`, but `render::output_elements` no longer consults any of it, so windows
+  > currently open/move/switch workspace instantly regardless of this setting. Left this
+  > way deliberately — see that bullet for why, and what actually reinstating the visual
+  > side needs.
   - Purely a render-time visual transform: `Space`-mapped geometry, `xdg_toplevel`
     configure size, keyboard focus, and input hit-testing are all applied immediately,
     exactly as before this existed — only what gets *drawn* is interpolated (ease-out
@@ -164,6 +171,35 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     Fixed by making Open scale-only — alpha is always `1.0` now, for every animation kind
     (`anim::open_scale_and_alpha`) — trading the fade for guaranteeing a just-opened
     window is never composited as anything less than fully opaque.
+  - A third real bug, more serious, found live rather than in a screenshot: some windows
+    (`feh`, GIMP's main window while its own welcome dialog was up) mapped —
+    `spitfirectl list-windows`/`list-workspaces` both saw them, tiling reserved their
+    slot — but rendered *no content at all*, permanently, until something unrelated
+    forced a full redraw (closing another window; killing and relaunching the stuck one).
+    Bisected precisely (three real builds tested against the live session, not guessed):
+    clean at the `v0.3.0` tag and at the commit immediately before this one, broken at
+    this commit itself. Root cause was in `constrain_space_element` (smithay), the
+    per-window transform helper the second/third animation kinds above are built on: it
+    wraps each element in a `CropRenderElement`, whose `from_element` returns `None` —
+    silently producing *no* render element, not an error — whenever its crop rect fails
+    to cleanly overlap the element's own geometry that frame (smithay's own source even
+    flags this: `// FIXME: intersection sometimes return a 0 size element`). A brand-new
+    window's very first paint landing on exactly one of those frames drew nothing that
+    frame — and `OutputDamageTracker` still recorded the (empty) draw as "this window's
+    commit is handled", so no later frame, including once the animation ended and
+    rendering fell back to the plain path, ever had a reason to redraw it. A first fix —
+    fall back to a plain render whenever `constrain_space_element` produced zero elements
+    that frame, instead of skipping the window — mostly worked but didn't fully close it:
+    per the FIXME above, smithay's own intersection check can apparently also return
+    `Some` with a degenerate near-zero rect, which no "was it empty" check downstream can
+    catch. Correctness (a window is never silently un-renderable) matters more than this
+    feature's visual polish, so `render::output_elements` was changed to never consult
+    `anims` for what actually gets drawn at all — see this bullet's parent note.
+    Reinstating the visual side properly needs either fixing the underlying
+    `constrain_space_element`/`CropRenderElement` interaction, or replacing it with
+    something that doesn't route through smithay's `CropRenderElement` at all; either way,
+    test any attempt against a nested `spitfire --winit` session first, not the live one
+    directly (see the border/z-order limitation below for why that matters in practice).
   - Move animations apply to XWayland windows for free (same backend-agnostic tiling
     order); open animations are Wayland-only, since X11 clients typically already have
     a pixmap by map time.
@@ -202,6 +238,48 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
       guard (added for point 2) already returns `None` for a window that was unmapped
       while hidden — the exact case a Move animation needs a real "before" rect to
       exist to fire at all.
+- **`wlr-screencopy-unstable-v1`** (new: `crate::screencopy`, hand-implemented — not
+  provided by Smithay, same situation as `ext-workspace-v1`, see `../NOTICE.md`) — what
+  `grim` (and, transitively, `xdg-desktop-portal-wlr`'s Screenshot/ScreenCast, though
+  the portal side hasn't been tested) speaks. Didn't exist before; added specifically to
+  be able to screenshot the compositor at all while chasing the bugs below it and the
+  z-order limitation further down. wl_shm only (no `linux-dmabuf`), manager version 2
+  (guarantees a `buffer` event with no `buffer_done` bookkeeping needed), no
+  damage-tracking queue (every `copy`/`copy_with_damage` renders and copies
+  unconditionally on the output's next frame) — enough for `grim`'s single-shot use, not
+  a real-time screencaster. No new Cargo dependency — `wayland-protocols-wlr` was
+  already pulled in transitively by smithay's own `wayland_frontend` feature. Captures via
+  a **fresh offscreen render** of the output (reuses `render::output_elements`/
+  `OutputDamageTracker` as-is against a throwaway `GlesTexture`) rather than a readback of
+  the just-presented framebuffer, so it doesn't depend on either backend's
+  swapchain/scanout buffer still being readable when the request is serviced — the
+  tradeoff is a capture never includes the cursor/dnd-icon/built-in bar (those are added
+  as `custom_elements` by `winit.rs`/`udev.rs` before calling `output_elements`, which the
+  capture path calls with an empty list instead), and `capture_output_region`'s coordinate
+  math assumes `Transform::Normal` (no output-rotation handling). Verified working
+  end-to-end against the real udev/DRM session with real `grim` captures, and is in fact
+  how the two bugs directly below were actually caught and confirmed fixed.
+- **An opaque backdrop behind every window's content** (`shell/ssd.rs`'s
+  `WindowState::backdrop`, drawn in `shell/element.rs`'s
+  `WindowElement::render_elements`) — fixes a real bug, reported live and only
+  confirmable once `wlr-screencopy` above existed to screenshot it: a floating
+  `spitfire.rule({ floating = true })` popup (`d77run`, a launcher) visibly blended with
+  whatever window was behind it. Root cause, confirmed via `WAYLAND_DEBUG=1`: the popup's
+  search-box surface attaches a real `Argb8888` buffer and only calls
+  `wl_surface.set_opaque_region` on a sub-rect smaller than the buffer — genuinely,
+  deliberately asking for translucency, presumably expecting compositor-side blur to
+  soften it. spitfire implements no blur protocol at all, so the uncovered portion of the
+  buffer just alpha-blended with real desktop content sitting behind it — confirmed
+  visually via a `grim` capture zoomed on the popup's interior (another window's text
+  faintly visible through it). Not the same bug as the open-animation alpha fade fixed
+  earlier in this section — that fix is real and unrelated; this is a different, still-live
+  client behavior spitfire never had a fallback for. Fixed by giving every window
+  (tiled/floating, SSD or not) an opaque `SolidColorBuffer` — reusing the SSD header's own
+  color, Tokyo Night `#414868`, for visual consistency — drawn immediately behind its own
+  content, sized to exactly its content geometry. Doesn't touch the client's buffer or
+  alpha at all, just guarantees something deliberate sits underneath instead of whatever
+  else happens to be in the stack. Confirmed fixed via a zoomed `grim` capture: flat,
+  uniform background, no bleed-through.
 - **Scratchpad windows** (`crate::workspace`):
   - `spitfire.window.toggle_scratchpad()`: a single anonymous slot. Stashes whichever
     window has keyboard focus (unmapped, taken out of its workspace's tiling order —
@@ -267,9 +345,11 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   the preferred backend for those interfaces instead of leaving it to the generic
   `portals.conf`'s ambiguous `default=*`, which could otherwise land on
   `xdg-desktop-portal-gnome` with no `gnome-shell`/Mutter actually backing it.
-  `ScreenCast`/`Screenshot` aren't covered by this config — spitfire doesn't implement
-  `wlr-screencopy`/`ext-image-copy-capture-v1` yet, so there's nothing for
-  `xdg-desktop-portal-wlr` to call into even if it were installed. Verified live: a fresh
+  `ScreenCast`/`Screenshot` still aren't covered by this config — spitfire now implements
+  `wlr-screencopy` (see the bullet above), but only `xdg-desktop-portal-wlr` speaks it on
+  the portal side, and that hasn't been installed/wired up or tested end-to-end yet;
+  `ext-image-copy-capture-v1` (the protocol `xdg-desktop-portal-gnome`/`-kde` would want
+  instead) still isn't implemented at all. Verified live: a fresh
   session restart on real hardware, `xdg-desktop-portal-gtk` activates cleanly and stays
   up, `FileChooser`/`Settings` (via the `gnome` backend for the latter, which doesn't
   need Mutter for plain `GSettings` reads) both answer over D-Bus.
@@ -375,6 +455,27 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
 - The bar's bitmap font only has uppercase A-Z — text is uppercased before drawing, so
   an SSID (or anything else routed through it) always displays in caps, not necessarily
   matching its real casing.
+- **`spitfire.border` can render on top of an unrelated floating window overlapping the
+  tiled window it outlines.** `render::output_elements` inserts every border strip/corner
+  mask at the absolute front of the render order unconditionally (`spitfire.border`'s own
+  bullet above) — correct as long as a border genuinely never overlaps anything but its
+  own window's square corners, which stops being true the moment some *other* window (in
+  practice, a floating popup) sits on top of that tiled window. Confirmed via a zoomed
+  `grim` capture: a floating `d77run` popup overlapping the seam between two tiled windows
+  showed a tiled window's border strip cutting straight across it. A fix was attempted —
+  draw each window's border immediately in front of its own content in a manual per-window
+  pass, instead of a global batch — and reverted the same session: the rewrite put every
+  window's content *behind* the wallpaper/background layer-shell surface instead of in
+  front of it (a filtering mistake, not related to the border logic itself), which broke
+  window visibility outright rather than just borders, and reached the live compositor
+  before a nested `spitfire --winit` session caught it on a second attempt. A correct fix
+  needs to replicate `space_render_elements`'s own upper/lower `wlr-layer-shell` split
+  (`layer_map_for_output`, `Layer::Top`/`Overlay` vs `Bottom`/`Background`) rather than
+  collapsing all layer-shell surfaces into one undifferentiated group, so a per-window pass
+  can be spliced in at the correct point between them — left for a session with more room
+  to test carefully (nested `--winit` first, every time, before the live session) rather
+  than risk a third regression. Lower priority than it sounds: no window ever loses
+  content over this, just a border occasionally drawn in the wrong place.
 
 ## Layout
 

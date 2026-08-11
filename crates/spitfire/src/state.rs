@@ -187,6 +187,10 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// Phase 5: `ext-workspace-v1` protocol state, kept in sync with
     /// `workspaces` — see `crate::ext_workspace`.
     pub ext_workspace_state: crate::ext_workspace::ExtWorkspaceState,
+    /// `wlr-screencopy-unstable-v1` (`grim` and friends) — queued
+    /// `copy`/`copy_with_damage` requests, serviced once per frame by
+    /// winit.rs/udev.rs. See `crate::screencopy`.
+    pub screencopy_state: crate::screencopy::ScreencopyState,
     /// Phase 2: Lua config loaded from `spitfire_config::Config::default_path()`.
     pub config: spitfire_config::Config,
     /// Phase 8: the optional built-in bar's own runtime state (currently
@@ -806,6 +810,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         let mut workspaces = crate::workspace::WorkspaceSet::default();
         workspaces.apply_gaps(config.gaps);
         let ext_workspace_state = crate::ext_workspace::ExtWorkspaceState::new::<Self>(&dh);
+        let screencopy_state = crate::screencopy::ScreencopyState::new::<Self>(&dh);
 
         SpitfireState {
             backend_data,
@@ -815,6 +820,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             scratchpad: None,
             named_scratchpads: std::collections::HashMap::new(),
             ext_workspace_state,
+            screencopy_state,
             display_handle: dh,
             socket_name,
             running: Arc::new(AtomicBool::new(true)),

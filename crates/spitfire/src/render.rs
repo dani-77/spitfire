@@ -17,8 +17,8 @@ use smithay::{
         },
     },
     desktop::space::{
-        constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceElement,
-        SpaceRenderElements, SurfaceTree,
+        constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements,
+        SurfaceTree,
     },
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -134,9 +134,18 @@ pub fn hex_to_color32f(hex: u32) -> Color32F {
 }
 
 /// A window's current on-screen geometry plus whether it's the focused one
-/// — all `border_elements` needs to know to draw `spitfire.border` behind
-/// each managed window. Computed by `SpitfireState::border_rects`.
+/// — all `border_elements_for` needs to know to draw `spitfire.border`
+/// behind that window. Computed by `SpitfireState::border_rects`.
+///
+/// Carries `window` (rather than being looked up separately) so
+/// `output_elements` can draw each window's border in the very same
+/// per-window pass as its content, immediately before it — see that
+/// function's own comment for why: a border inserted at some fixed point
+/// in the render order independent of its window's actual z-order can end
+/// up drawn *over* an unrelated window sitting on top of it (found via a
+/// floating `spitfire.rule` window overlapping a tiled one's border strip).
 pub struct BorderRect {
+    pub window: WindowElement,
     pub geometry: Rectangle<i32, smithay::utils::Logical>,
     pub focused: bool,
 }
@@ -339,14 +348,24 @@ impl CornerMaskCache {
 /// trimmed shorter by `radius` at each end, and the resulting gaps at the
 /// four corners are filled by `CornerMaskCache`'s masks — which *do*
 /// overlap the window's own square corners, and are drawn on top of them
-/// (see `output_elements`: border elements are always inserted at the
-/// front of the render order). That overlap is exactly what makes an
-/// otherwise perfectly square client surface read as rounded, without the
-/// compositor ever clipping the client's actual content — see
-/// `corner_mask_bgra`'s doc comment for the mechanics.
+/// (see `output_elements`: each window's border is drawn immediately before
+/// its own content, in the very same per-window pass). That overlap is
+/// exactly what makes an otherwise perfectly square client surface read as
+/// rounded, without the compositor ever clipping the client's actual
+/// content — see `corner_mask_bgra`'s doc comment for the mechanics.
+///
+/// Draws just the one `b` — `output_elements` calls this once per window,
+/// interleaved with that window's own content, rather than batching every
+/// window's border into one pass the way this used to work (see this
+/// module's changelog-style comment on `BorderRect` for why: a
+/// window-order-independent batch can't respect *other* windows' z-order,
+/// and this can). `radius` is expected pre-clamped by the caller — clamping
+/// it per-window here instead (against just `b`'s own size) would make
+/// `corner_masks`' cache key (which bakes in `radius`) change window to
+/// window, defeating its whole point.
 #[allow(clippy::too_many_arguments)]
-pub fn border_elements<R>(
-    borders: &[BorderRect],
+pub fn border_elements_for<R>(
+    b: &BorderRect,
     width: i32,
     radius: i32,
     active_color: Color32F,
@@ -361,99 +380,84 @@ where
     R::TextureId: Send + Clone + 'static,
 {
     if width <= 0 {
-        cache.finish_frame();
         return Vec::new();
     }
-    // Clamp: a radius covering more than half the window's own smallest
-    // dimension has no sensible strip length left to trim to, and a
-    // corner tile bigger than the window is nonsensical to draw at all.
-    let max_radius = borders
-        .iter()
-        .map(|b| b.geometry.size.w.min(b.geometry.size.h) / 2)
-        .min()
-        .unwrap_or(0);
-    let radius = radius.clamp(0, max_radius.max(0));
 
     let mut elements = Vec::new();
+    let g = b.geometry;
 
     if radius > 0 {
         corner_masks.ensure(radius, width, active_color, inactive_color);
-        for b in borders {
-            let g = b.geometry;
-            let corners = [
-                (Corner::TopLeft, (g.loc.x - width, g.loc.y - width)),
-                (
-                    Corner::TopRight,
-                    (g.loc.x + g.size.w - radius, g.loc.y - width),
-                ),
-                (
-                    Corner::BottomLeft,
-                    (g.loc.x - width, g.loc.y + g.size.h - radius),
-                ),
-                (
-                    Corner::BottomRight,
-                    (g.loc.x + g.size.w - radius, g.loc.y + g.size.h - radius),
-                ),
-            ];
-            for (corner, loc) in corners {
-                let loc: Point<i32, Logical> = loc.into();
-                let physical_loc: Point<f64, Physical> = loc.to_f64().to_physical(output_scale);
-                let mask = corner_masks.mask(b.focused, corner);
-                let element = MemoryRenderBufferRenderElement::from_buffer(
-                    renderer,
-                    physical_loc,
-                    mask,
-                    None,
-                    None,
-                    None,
-                    Kind::Unspecified,
-                )
-                .expect("failed to upload spitfire.border.radius corner mask");
-                elements.push(CustomRenderElements::CornerMask(element));
-            }
+        let corners = [
+            (Corner::TopLeft, (g.loc.x - width, g.loc.y - width)),
+            (
+                Corner::TopRight,
+                (g.loc.x + g.size.w - radius, g.loc.y - width),
+            ),
+            (
+                Corner::BottomLeft,
+                (g.loc.x - width, g.loc.y + g.size.h - radius),
+            ),
+            (
+                Corner::BottomRight,
+                (g.loc.x + g.size.w - radius, g.loc.y + g.size.h - radius),
+            ),
+        ];
+        for (corner, loc) in corners {
+            let loc: Point<i32, Logical> = loc.into();
+            let physical_loc: Point<f64, Physical> = loc.to_f64().to_physical(output_scale);
+            let mask = corner_masks.mask(b.focused, corner);
+            let element = MemoryRenderBufferRenderElement::from_buffer(
+                renderer,
+                physical_loc,
+                mask,
+                None,
+                None,
+                None,
+                Kind::Unspecified,
+            )
+            .expect("failed to upload spitfire.border.radius corner mask");
+            elements.push(CustomRenderElements::CornerMask(element));
         }
     }
 
-    let strip_elements = borders
-        .iter()
-        .flat_map(|b| {
-            let color = if b.focused {
-                active_color
-            } else {
-                inactive_color
-            };
-            let g = b.geometry;
-            // Four strips forming a hollow ring around `g`, each `width`
-            // thick. With `radius == 0` they meet flush at the corners; with
-            // `radius > 0` they're trimmed `radius` shorter at each end that
-            // meets a corner mask (see this fn's doc comment) — either way,
-            // none overlap `g` itself.
-            let strips = [
-                // top
-                Rectangle::new(
-                    (g.loc.x - width + radius, g.loc.y - width).into(),
-                    (g.size.w + width * 2 - radius * 2, width).into(),
-                ),
-                // bottom
-                Rectangle::new(
-                    (g.loc.x - width + radius, g.loc.y + g.size.h).into(),
-                    (g.size.w + width * 2 - radius * 2, width).into(),
-                ),
-                // left
-                Rectangle::new(
-                    (g.loc.x - width, g.loc.y + radius).into(),
-                    (width, g.size.h - radius * 2).into(),
-                ),
-                // right
-                Rectangle::new(
-                    (g.loc.x + g.size.w, g.loc.y + radius).into(),
-                    (width, g.size.h - radius * 2).into(),
-                ),
-            ];
-            strips.map(|strip: Rectangle<i32, smithay::utils::Logical>| (strip, color))
+    let color = if b.focused {
+        active_color
+    } else {
+        inactive_color
+    };
+    // Four strips forming a hollow ring around `g`, each `width` thick. With
+    // `radius == 0` they meet flush at the corners; with `radius > 0`
+    // they're trimmed `radius` shorter at each end that meets a corner mask
+    // (see this fn's doc comment) — either way, none overlap `g` itself.
+    let strips = [
+        // top
+        Rectangle::new(
+            (g.loc.x - width + radius, g.loc.y - width).into(),
+            (g.size.w + width * 2 - radius * 2, width).into(),
+        ),
+        // bottom
+        Rectangle::new(
+            (g.loc.x - width + radius, g.loc.y + g.size.h).into(),
+            (g.size.w + width * 2 - radius * 2, width).into(),
+        ),
+        // left
+        Rectangle::new(
+            (g.loc.x - width, g.loc.y + radius).into(),
+            (width, g.size.h - radius * 2).into(),
+        ),
+        // right
+        Rectangle::new(
+            (g.loc.x + g.size.w, g.loc.y + radius).into(),
+            (width, g.size.h - radius * 2).into(),
+        ),
+    ];
+    let strip_elements = strips
+        .into_iter()
+        .filter(|strip: &Rectangle<i32, smithay::utils::Logical>| {
+            strip.size.w > 0 && strip.size.h > 0
         })
-        .filter(|(strip, _)| strip.size.w > 0 && strip.size.h > 0)
-        .map(|(strip, color)| {
+        .map(|strip| {
             let buffer = cache.next(strip.size, color);
             let loc: Point<i32, Physical> =
                 strip.loc.to_f64().to_physical(output_scale).to_i32_round();
@@ -466,7 +470,6 @@ where
             ))
         });
     elements.extend(strip_elements);
-    cache.finish_frame();
     elements
 }
 
@@ -647,95 +650,82 @@ where
         )
         .expect("output without mode?");
 
-        if anims.is_empty() {
-            // Byte-for-byte today's path when nothing is animating — idle
-            // stays exactly zero-damage, see `RectCache`'s doc comment for
-            // why that matters.
-            output_render_elements
-                .extend(space_elements.into_iter().map(OutputRenderElements::Space));
-        } else {
-            // spitfire.anim: a window mid open-scale ("pop") or move/resize
-            // tween
-            // needs a per-window transform (`constrain_space_element`,
-            // below) instead of the blanket call above — but that blanket
-            // call is still the simplest correct source of the layer-shell
-            // elements it also produces alongside the window ones. Keep
-            // those (`SpaceRenderElements::Surface` — smithay only ever
-            // produces that variant for layer-shell surfaces, never for
-            // windows, which come through `Element` instead — see
-            // smithay's `desktop::space::space_render_elements`) and
-            // rebuild only the window portion ourselves below.
-            output_render_elements.extend(
-                space_elements
-                    .into_iter()
-                    .filter(|e| matches!(e, SpaceRenderElements::Surface(_)))
-                    .map(OutputRenderElements::Space),
-            );
+        output_render_elements.extend(space_elements.into_iter().map(OutputRenderElements::Space));
 
-            let output_geo = space.output_geometry(output).unwrap_or_default();
-            let behavior = ConstrainBehavior {
-                reference: ConstrainReference::Geometry,
-                behavior: ConstrainScaleBehavior::Stretch,
-                align: ConstrainAlign::CENTER,
-            };
-            for window in space.elements_for_output(output).rev() {
-                if let Some(anim) = anims.iter().find(|a| &a.window == window) {
-                    let elements = constrain_space_element(
-                        renderer,
-                        window,
-                        anim.target.loc,
-                        anim.alpha,
-                        output_scale,
-                        anim.target,
-                        behavior,
-                    );
-                    output_render_elements.extend(elements.map(OutputRenderElements::Preview));
-                } else {
-                    // Same physical-location formula `Space`'s own internal
-                    // element wrapper uses (smithay's
-                    // `desktop::space::mod.rs`, `InnerElement::render_location`),
-                    // `output_geo` included for when this crate grows
-                    // multi-output — so a non-animating window renders
-                    // identically to the blanket-call path above, even on a
-                    // frame where some *other* window is animating.
-                    let Some(loc) = space.element_location(window) else {
-                        continue;
-                    };
-                    let render_loc = (loc - SpaceElement::geometry(window).loc) - output_geo.loc;
-                    let elements: Vec<WindowRenderElement<R>> =
-                        AsRenderElements::<R>::render_elements(
-                            window,
-                            renderer,
-                            render_loc.to_physical_precise_round(output_scale),
-                            output_scale,
-                            1.0,
-                        );
-                    output_render_elements.extend(
-                        elements
-                            .into_iter()
-                            .map(|e| OutputRenderElements::Window(Wrap::from(e))),
-                    );
-                }
-            }
-        }
+        // `anims` (open-scale "pop" / move-resize tween) is deliberately
+        // never consulted for what actually gets drawn below — every window
+        // renders at its plain, settled geometry, exactly like idle
+        // rendering always has. This function used to switch to a
+        // per-window `constrain_space_element` transform while `anims` was
+        // non-empty; that path built on a real smithay bug:
+        // `constrain_space_element` wraps each element in a
+        // `CropRenderElement`, which silently produces *no* render element
+        // — not an error, just nothing — whenever its crop rect fails to
+        // cleanly overlap the element's own geometry that frame (smithay's
+        // own code even flags this: `// FIXME: intersection sometimes
+        // return a 0 size element`). Found by bisecting a real bug: a
+        // brand-new window's very first paint landing on exactly one of
+        // those frames left it rendering nothing *forever after* —
+        // `OutputDamageTracker` still recorded that frame's (empty!) draw
+        // as "this window's commit is handled", so nothing ever prompted a
+        // real redraw once the animation ended and rendering fell back to
+        // the normal path. A first attempt at falling back to the plain
+        // per-window render whenever `constrain_space_element` produced
+        // zero elements (rather than skipping the window that frame)
+        // *mostly* worked but didn't fully close it — the FIXME above
+        // hints why: smithay's own intersection check can apparently miss
+        // a degenerate near-zero rect and return `Some` anyway, which no
+        // "was it empty" check downstream can catch. Correctness (a window
+        // is *never* silently un-renderable) matters far more than the
+        // open/move animation's visual polish. `anims` stays a parameter
+        // (existing callers, including `crate::screencopy`, still pass it)
+        // rather than being ripped out crate-wide, in case a future fix
+        // wants to reinstate a per-window animated path without another
+        // round of signature churn.
+        let _ = anims;
 
         // Borders (spitfire.border) — added at the front (top of the
         // z-order). Since each is a thin strip that never overlaps its
-        // window's own footprint (see `border_elements`), where they land
-        // in the render order doesn't actually matter for correctness; the
-        // front avoids relying on the space elements' occlusion tracking
-        // to punch a window-shaped hole through anything placed behind them.
-        let border_elements = border_elements::<R>(
-            borders,
-            border_width,
-            border_radius,
-            border_active,
-            border_inactive,
-            output_scale,
-            border_cache,
-            corner_masks,
-            renderer,
-        );
+        // *own* window's footprint (see `border_elements_for`), this is
+        // only wrong when some *other* window (typically a floating one)
+        // happens to sit on top of a tiled window's border strip — found
+        // live (a floating `spitfire.rule` popup's edge showing a sliver of
+        // whatever tiled window's border ran underneath it). A per-window
+        // interleaved version was tried and reverted: it broke the far more
+        // basic case of *any* window ever showing up at all by pushing
+        // window content behind the layer-shell background instead of in
+        // front of it. Known limitation for now — a border winning a
+        // z-order fight against an unrelated floating window is a much
+        // smaller correctness problem than windows not rendering.
+        //
+        // Clamped once, globally (not per-window inside the loop below) —
+        // the radius is baked into `corner_masks`' cache key, so letting it
+        // vary window to window would thrash that cache for no reason.
+        let max_radius = borders
+            .iter()
+            .map(|b| b.geometry.size.w.min(b.geometry.size.h) / 2)
+            .min()
+            .unwrap_or(0);
+        let border_radius = if border_width > 0 {
+            border_radius.clamp(0, max_radius.max(0))
+        } else {
+            0
+        };
+        let mut border_elements = Vec::new();
+        for b in borders {
+            border_elements.extend(border_elements_for::<R>(
+                b,
+                border_width,
+                border_radius,
+                border_active,
+                border_inactive,
+                output_scale,
+                border_cache,
+                corner_masks,
+                renderer,
+            ));
+        }
+        border_cache.finish_frame();
         for e in border_elements.into_iter().rev() {
             output_render_elements.insert(0, OutputRenderElements::from(e));
         }
