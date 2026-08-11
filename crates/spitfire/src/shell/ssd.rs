@@ -20,6 +20,21 @@ use super::WindowElement;
 pub struct WindowState {
     pub is_ssd: bool,
     pub header_bar: HeaderBar,
+    /// An opaque rect drawn *behind* the window's own content, sized to
+    /// exactly its content geometry — see `WindowElement::render_elements`
+    /// (shell/element.rs) for why: some real clients (found via
+    /// `WAYLAND_DEBUG=1`, tracing a `d77run` search box that visibly
+    /// blended with whatever was behind it) attach an `Argb8888` buffer and
+    /// only mark part of it as `set_opaque_region` — real, client-requested
+    /// translucency, presumably meant to be softened by compositor-side
+    /// blur. spitfire has no blur protocol, so without this the "unblurred"
+    /// alpha just shows raw desktop content through the gap, reading as a
+    /// glitch rather than an effect. This backdrop doesn't touch the
+    /// client's buffer or alpha at all — it just paints something
+    /// deliberate (`BG_COLOR`, the same tone the SSD header already uses)
+    /// underneath, so any translucency blends with that instead of
+    /// whatever window happens to be lower in the stack.
+    pub backdrop: SolidColorBuffer,
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +51,11 @@ pub struct HeaderBar {
 // green/yellow read as too soft against a dark terminal to tell the header
 // apart from its own content. Background is Tokyo Night's `terminal_black`
 // (#414868), a blue-leaning gray; close is `red`/`red1` (#f7768e/#db4b4b).
-const BG_COLOR: [f32; 4] = [0.2549f32, 0.2824f32, 0.4078f32, 1f32]; // #414868
+// `pub(super)`: also `WindowElement::render_elements`'s window-content
+// backdrop (shell/element.rs) — see `WindowState::backdrop`'s doc comment —
+// reuses this exact color, deliberately, for visual consistency with the
+// SSD header that already sits right above it.
+pub(super) const BG_COLOR: [f32; 4] = [0.2549f32, 0.2824f32, 0.4078f32, 1f32]; // #414868
 const CLOSE_COLOR: [f32; 4] = [0.9686f32, 0.4627f32, 0.5569f32, 1f32]; // #f7768e
 const CLOSE_COLOR_HOVER: [f32; 4] = [0.8588f32, 0.2941f32, 0.2941f32, 1f32]; // #db4b4b
 
@@ -225,6 +244,7 @@ impl WindowElement {
                     background: SolidColorBuffer::default(),
                     close_button: SolidColorBuffer::default(),
                 },
+                backdrop: SolidColorBuffer::default(),
             })
         });
 
