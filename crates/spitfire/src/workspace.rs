@@ -696,14 +696,22 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         windows
             .iter()
             .filter_map(|w| {
-                // Plain `element_geometry` — no `window_anims`/workspace-slide
-                // offset applied. `output_elements` (render.rs) stopped
-                // consuming those for window *content* (see its own doc
-                // comment on why), so a border still following them here
-                // would visibly desync from the window it outlines: content
-                // snapping instantly to its new spot while the border around
-                // it kept smoothly sliding in from the old one.
                 let geometry = self.space.element_geometry(w)?;
+                // Track spitfire.anim's open/move tween exactly like the
+                // window's own content does (render.rs's per-window `Anim`
+                // path, `anim::WindowAnimations::on_screen_rect`) — plain
+                // `element_geometry` alone is the window's already-settled
+                // *target* rect (Space geometry updates as soon as a
+                // configure is sent/committed, well before the tween
+                // animating content toward it finishes), so without this the
+                // border would snap to its final rect immediately while
+                // content eases in behind it for the rest of the animation.
+                let mut geometry = self.window_anims.on_screen_rect(w, geometry);
+                // Workspace-switch slide: same offset `animated_windows`
+                // (anim.rs) folds into content, for the same reason.
+                if let Some(offset) = self.workspace_slide_offset_for(w) {
+                    geometry.loc += offset;
+                }
                 Some(crate::render::BorderRect {
                     window: w.clone(),
                     geometry,

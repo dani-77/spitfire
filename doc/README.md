@@ -235,6 +235,24 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
       regression (confirmed further by the window's border/background still rendering
       correctly throughout, unlike this bug's original "nothing at all, forever"
       signature).
+    - **Follow-up regression caught the same day**: re-enabling per-window content
+      animation exposed that `Workspace::border_rects()` had been left reading *plain*
+      `element_geometry` (a leftover from when content animation was disabled and
+      matching it made both instant, in sync) — so `spitfire.border` snapped to its
+      final rect on frame one while content eased in behind it, and during a
+      workspace-switch slide the border didn't move with its window at all. Confirmed
+      precisely (not just by eye) by adding temporary `eprintln!` tracing to
+      `push_move`/`resolve_all`/`border_rects` and diffing the two width sequences over
+      a real monocle-layout transition: content ramped smoothly (367 → 370 → 389 → 407
+      → … → 821 across ~450 frames), the border jumped straight from 367 to 821 after
+      three frames. Fixed by having `border_rects()` run each window's geometry through
+      `WindowAnimations::on_screen_rect` (open/move tween) and then
+      `workspace_slide_offset_for` (slide offset) before building its `BorderRect` —
+      exactly what `anim::animated_windows` already does for content, and what
+      `on_screen_rect`'s and `slide_windows`'s own doc comments already described as the
+      intent. Re-verified with the same nested-`--winit` + `grim` setup: a mid-transition
+      capture now shows the border only around content's current (smaller) rect instead
+      of the full target, settling cleanly once the tween finishes.
   - Move animations apply to XWayland windows for free (same backend-agnostic tiling
     order); open animations are Wayland-only, since X11 clients typically already have
     a pixmap by map time.
