@@ -342,6 +342,14 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                     {
                         error!(%err, "spitfire.keyboard: invalid XKB config, keeping the previous layout");
                     }
+                    if new_config.keyboard.repeat_delay != self.config.keyboard.repeat_delay
+                        || new_config.keyboard.repeat_rate != self.config.keyboard.repeat_rate
+                    {
+                        keyboard.change_repeat_info(
+                            new_config.keyboard.repeat_rate,
+                            new_config.keyboard.repeat_delay,
+                        );
+                    }
                 }
                 // Same live-rescale mechanism `Mod+Shift+P`/`M` already use,
                 // just re-seeded from the reloaded config instead of a step

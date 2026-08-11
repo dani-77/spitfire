@@ -796,8 +796,14 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         let mut seat = seat_state.new_wl_seat(&dh, seat_name.clone());
 
         let pointer = seat.add_pointer();
-        seat.add_keyboard(xkb_config_from(&config.keyboard), 200, 25)
-            .expect("Failed to initialize the keyboard");
+        // spitfire.keyboard.repeat_delay/repeat_rate — see KeyboardConfig's
+        // doc comment for why the default isn't 200ms.
+        seat.add_keyboard(
+            xkb_config_from(&config.keyboard),
+            config.keyboard.repeat_delay,
+            config.keyboard.repeat_rate,
+        )
+        .expect("Failed to initialize the keyboard");
 
         let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 

@@ -418,6 +418,26 @@ pub(crate) fn read_globals(
         if let Ok(v) = k.get::<String>("rules") {
             keyboard.rules = v;
         }
+        if let Ok(v) = k.get::<i32>("repeat_delay") {
+            if v > 0 {
+                keyboard.repeat_delay = v;
+            } else {
+                warn!(
+                    value = v,
+                    "spitfire.keyboard.repeat_delay: must be > 0, keeping the default"
+                );
+            }
+        }
+        if let Ok(v) = k.get::<i32>("repeat_rate") {
+            if v > 0 {
+                keyboard.repeat_rate = v;
+            } else {
+                warn!(
+                    value = v,
+                    "spitfire.keyboard.repeat_rate: must be > 0, keeping the default"
+                );
+            }
+        }
     }
 
     if let Ok(t) = spitfire.get::<Table>("output") {

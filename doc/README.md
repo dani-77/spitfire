@@ -49,6 +49,22 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   - `spitfire.keyboard = { layout, variant, model, options, rules }`: XKB config from
     Lua instead of always defaulting to `"us"`, applied at startup and hot-reloaded via
     `spitfire.reload()` (`KeyboardHandle::set_xkb_config`, no restart needed).
+  - `spitfire.keyboard.repeat_delay`/`.repeat_rate` (ms / repeats-per-second, default
+    `600`/`25`, hot-reloadable via `KeyboardHandle::change_repeat_info`) — sent to clients
+    via `wl_keyboard.repeat_info`; the compositor never synthesizes repeat key events
+    itself, each client runs its own repeat timer off these two numbers. **Fixed a
+    long-standing "keys repeat randomly" complaint** that earlier sessions audited
+    repeatedly and cleared the compositor of (every raw press/release pair in the debug
+    log was clean, focus routing was correct, nothing was stuck) — the bug wasn't a
+    missing/duplicated event, it was `repeat_delay` being hardcoded to `200`ms
+    (`seat.add_keyboard(..., 200, 25)`), never exposed to config. Measured directly
+    against a live session log (33.7k press/release pairs): median key-hold is ~120ms,
+    but ~8% of ordinary keystrokes hold for >= 200ms (long tail, p95 ~355ms). At a
+    200ms delay, every one of those legitimately started the client's own repeat timer —
+    a doubled letter with a perfectly clean compositor-side event log, every time. Raised
+    the default to 600ms (typical desktop norm; GNOME/KDE/X11 sit in the 450-660ms
+    range — p99 of the same sample is ~960ms, comfortably under it) and made both values
+    `spitfire.keyboard` fields instead of hardcoded.
 - **Control socket** (`spitfire-ipc` + the `spitfirectl` CLI, JSON lines at
   `$XDG_RUNTIME_DIR/spitfire.sock`, one request/response per connection — niri
   msg/hyprctl-style): `reload`, `quit`, `layout <mode>`, `workspace focus <n>`,

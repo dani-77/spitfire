@@ -112,7 +112,17 @@ spitfire.anim = { enabled = true, duration = 150 }
 -- default" (in practice, "us"). Same fields/meaning as setxkbmap's flags
 -- of the same names. Applied at startup and again on every
 -- spitfire.reload() (no restart needed to try a different layout).
--- spitfire.keyboard = { layout = "pt", variant = "", model = "", options = "" }
+--
+-- repeat_delay (ms, default 600) / repeat_rate (repeats per second,
+-- default 25) tune how long a key must be held before it starts
+-- auto-repeating, and how fast it repeats after that — sent to clients,
+-- which run their own repeat timer off these two numbers (the compositor
+-- itself never synthesizes repeat key events). If typing normally ever
+-- feels like it's dropping in doubled letters, raise repeat_delay rather
+-- than assuming a bug: a normal keystroke can easily hold for 150-200ms,
+-- and too tight a delay makes clients mistake that for an intentional
+-- hold.
+-- spitfire.keyboard = { layout = "pt", variant = "", model = "", options = "", repeat_delay = 600, repeat_rate = 25 }
 
 -- Optional built-in bar — on by default so there's something visibly
 -- alive on screen out of the box. Not a client, not a protocol: drawn by
