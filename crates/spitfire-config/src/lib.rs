@@ -428,18 +428,14 @@ mod tests {
 
     #[test]
     fn reads_keyboard_repeat_settings() {
-        let config = load_str(
-            r#"spitfire.keyboard = { repeat_delay = 450, repeat_rate = 30 }"#,
-        );
+        let config = load_str(r#"spitfire.keyboard = { repeat_delay = 450, repeat_rate = 30 }"#);
         assert_eq!(config.keyboard.repeat_delay, 450);
         assert_eq!(config.keyboard.repeat_rate, 30);
     }
 
     #[test]
     fn rejects_non_positive_keyboard_repeat_settings() {
-        let config = load_str(
-            r#"spitfire.keyboard = { repeat_delay = 0, repeat_rate = -1 }"#,
-        );
+        let config = load_str(r#"spitfire.keyboard = { repeat_delay = 0, repeat_rate = -1 }"#);
         assert_eq!(config.keyboard.repeat_delay, 600);
         assert_eq!(config.keyboard.repeat_rate, 25);
     }
