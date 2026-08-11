@@ -332,7 +332,8 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `grim` (and, transitively, `xdg-desktop-portal-wlr`'s Screenshot/ScreenCast, though
   the portal side hasn't been tested) speaks. Didn't exist before; added specifically to
   be able to screenshot the compositor at all while chasing the bugs below it and the
-  z-order limitation further down. wl_shm only (no `linux-dmabuf`), manager version 2
+  border z-order fix above (`spitfire.border`'s own bullet). wl_shm only (no
+  `linux-dmabuf`), manager version 2
   (guarantees a `buffer` event with no `buffer_done` bookkeeping needed), no
   damage-tracking queue (every `copy`/`copy_with_damage` renders and copies
   unconditionally on the output's next frame) — enough for `grim`'s single-shot use, not
@@ -546,8 +547,9 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   matching its real casing.
 - **Some older GTK3 apps (confirmed: AbiWord, Gnumeric) show a `spitfire.border`-colored
   gap between their rounded corner and where their own content actually starts** — not
-  the z-order bug above (single window, nothing overlapping it), and not a wrong border
-  position either: `render::border_elements_for` draws flush against whatever geometry
+  a z-order issue (single window, nothing overlapping it — see the border bullet under
+  [What's implemented](#whats-implemented) for the z-order fix itself), and not a wrong
+  border position either: `render::border_elements_for` draws flush against whatever geometry
   the client itself reports via `xdg_surface`, and for these two apps specifically that
   reported geometry includes extra invisible margin (presumably an unexcluded CSD
   shadow/resize-border) above and left of where they actually paint — so the border,
