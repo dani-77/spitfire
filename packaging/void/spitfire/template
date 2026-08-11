@@ -15,7 +15,7 @@ maintainer="Daniel Azevedo <daniazevedo77@posteo.net>"
 license="MIT"
 homepage="https://github.com/dani-77/spitfire"
 distfiles="https://github.com/dani-77/spitfire/archive/refs/tags/v${version}.tar.gz"
-checksum=eff801b948e02197a2807d0bbf5b31fb2a83c899998e715ac5059dd0b5604d27
+checksum=4c912eab58c9b4fd16ebe73027282e15490780a033017afdf35b37abf9dff403
 # Config file installed under /etc, not something xbps should ever
 # overwrite silently on upgrade.
 conf_files="/etc/xdg-desktop-portal/spitfire-portals.conf"

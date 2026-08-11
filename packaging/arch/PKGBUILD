@@ -14,7 +14,7 @@ optdepends=('xorg-xwayland: run X11-only apps under spitfire (XWayland support)'
 provides=('wayland-session')
 backup=('etc/xdg-desktop-portal/spitfire-portals.conf')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/spitfire/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('eff801b948e02197a2807d0bbf5b31fb2a83c899998e715ac5059dd0b5604d27')
+sha256sums=('4c912eab58c9b4fd16ebe73027282e15490780a033017afdf35b37abf9dff403')
 
 # Smithay (the Wayland compositor library spitfire is built on) is pinned as
 # a git dependency in Cargo.lock rather than pulled from crates.io, so
