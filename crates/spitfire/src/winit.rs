@@ -344,6 +344,7 @@ pub fn run_winit() {
             let damage_tracker = &mut state.backend_data.damage_tracker;
             let border_cache = &mut state.backend_data.border_cache;
             let corner_masks = &mut state.backend_data.corner_masks;
+            let screencopy_state = &mut state.screencopy_state;
             let show_window_preview = state.show_window_preview;
             let locked = state.locked;
             let lock_surfaces = &state.lock_surfaces;
@@ -474,6 +475,24 @@ pub fn run_winit() {
                     OutputDamageTrackerError::Rendering(err) => err.into(),
                     _ => unreachable!(),
                 });
+
+                // wlr-screencopy (`grim`) — a throwaway second render, not
+                // dependent on `res`/`fb` above (which is about to be
+                // presented via `backend.submit()` below) — see
+                // `crate::screencopy`'s doc comment for why it's a fresh
+                // offscreen composite rather than reading `fb` back.
+                crate::screencopy::service_pending_captures(
+                    screencopy_state,
+                    renderer,
+                    space,
+                    &output,
+                    locked_surface,
+                    &border_rects,
+                    border.width,
+                    border.radius,
+                    crate::render::hex_to_color32f(border.active),
+                    crate::render::hex_to_color32f(border.inactive),
+                );
 
                 res
             });

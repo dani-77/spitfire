@@ -1667,6 +1667,25 @@ impl SpitfireState<UdevData> {
             &mut self.bar,
             &anims,
         );
+
+        // wlr-screencopy (`grim`) — a throwaway second render, not
+        // dependent on `result` above (already queued for scanout via
+        // `surface.drm_output.queue_frame` inside `render_surface`) — see
+        // `crate::screencopy`'s doc comment for why it's a fresh offscreen
+        // composite rather than reading the DRM/GBM buffer back.
+        crate::screencopy::service_pending_captures(
+            &mut self.screencopy_state,
+            &mut renderer,
+            &self.space,
+            &output,
+            locked_surface.as_ref(),
+            &border_rects,
+            border.width,
+            border.radius,
+            crate::render::hex_to_color32f(border.active),
+            crate::render::hex_to_color32f(border.inactive),
+        );
+
         let reschedule = match result {
             Ok((has_rendered, states)) => {
                 let dmabuf_feedback = surface.dmabuf_feedback.clone();

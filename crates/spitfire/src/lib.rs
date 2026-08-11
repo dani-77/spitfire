@@ -15,6 +15,7 @@ pub mod input_handler;
 pub mod ipc;
 pub mod layout;
 pub mod render;
+pub mod screencopy;
 pub mod shell;
 pub mod state;
 #[cfg(feature = "udev")]
