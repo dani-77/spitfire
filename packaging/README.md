@@ -1,6 +1,6 @@
 # Distro packaging
 
-Both of these build tag [`v0.3.0`](https://github.com/dani-77/spitfire/releases/tag/v0.3.0)
+Both of these build tag [`v0.4.0`](https://github.com/dani-77/spitfire/releases/tag/v0.4.0)
 from source and simply call the project's own `make install` (see the top-level
 `Makefile`) for the actual install step, so the file list here doesn't drift from
 what `sudo make install` already does.
@@ -33,7 +33,7 @@ cd /path/to/void-packages
 
 ## Bumping the version
 
-Both files pin `version`/`pkgver` to `0.3.0` and a `checksum`/`sha256sums` for that
+Both files pin `version`/`pkgver` to `0.4.0` and a `checksum`/`sha256sums` for that
 tag's release tarball. When cutting a new release, update both and recompute the
 checksum, e.g.:
 

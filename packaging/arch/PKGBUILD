@@ -1,6 +1,6 @@
 # Maintainer: Daniel Azevedo <daniazevedo77@posteo.net>
 pkgname=spitfire
-pkgver=0.3.0
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="A tiling Wayland compositor in the spirit of dwm — one Lua config file, reloadable without restarting your session"
 arch=('x86_64' 'aarch64')
