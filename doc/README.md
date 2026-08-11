@@ -144,16 +144,31 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     border cutting straight across it despite the popup being the actually-focused,
     actually-topmost window. An earlier attempt at this same per-window interleave was
     reverted for pushing window content *behind* the layer-shell background instead of in
-    front of it (a filtering mistake, unrelated to the border logic itself) — this version
-    reuses the exact `SpaceRenderElements::Surface`-filtering already proven correct by
-    `spitfire.anim`'s own per-window path (see below) instead of re-deriving the
-    upper/lower `wlr-layer-shell` split from scratch, so it inherits that same
-    correctness. Only takes the per-window path at all when there's something to
-    interleave (`border_width > 0` and/or an animation in flight) — idle with borders
-    disabled still renders through the identical blanket `space_render_elements` call as
-    before, unaffected. Verified with a nested `spitfire --winit` session + `grim`: a
-    floating popup centered over the seam between two tiled windows now shows its own
-    border cleanly on top, no bleed-through from the tiled windows' border underneath.
+    front of it — and the first version of *this* fix repeated that exact mistake, caught
+    only hours later on real hardware: it kept every `SpaceRenderElements::Surface` from
+    smithay's blanket `space_render_elements` call regardless of which `wlr-layer-shell`
+    band it came from, and pushed all of them — upper (`Top`/`Overlay`) *and* lower
+    (`Bottom`/`Background`) alike — before any window content. That puts a
+    background/wallpaper layer-shell client (confirmed with a real `awww-daemon` solid-fill
+    background) permanently in front of every window: nothing you open ever visibly
+    appears, not because it isn't rendering, but because it's rendering *behind the
+    wallpaper*. Invisible in nested-`--winit` testing the whole time because that
+    environment never had a background layer-shell client running — the fix that
+    "worked" there had never actually been exercised against the one case that mattered.
+    Real fix: `render::layer_shell_elements`, a direct `layer_map_for_output` +
+    `Layer`-partition call (line-for-line the same iteration smithay's own
+    `space_render_elements` does internally, just callable twice instead of once) —
+    upper band pushed before the per-window loop, lower band pushed after it, so a
+    wallpaper stays behind every window the way `Layer::Background` promises, while a
+    top-layer panel/OSK still stays in front the way `Layer::Overlay` promises. Only
+    takes the per-window path at all when there's something to interleave
+    (`border_width > 0` and/or an animation in flight) — idle with borders disabled
+    still renders through the identical blanket `space_render_elements` call as before,
+    unaffected. Re-verified with a nested `spitfire --winit` session running a real
+    `awww-daemon` solid-color background: a window opened on top of it is now visible
+    immediately, and a floating popup centered over the seam between two tiled windows
+    still shows its own border cleanly on top with no bleed-through from the tiled
+    windows' border underneath.
 - **`spitfire.anim`** (`crate::anim`, `crate::workspace::WorkspaceSlide`): basic window
   animations, mangowm-style — a scale-in ("pop") when a window's content first appears, a
   smooth tween whenever `TilingLayout::arrange` moves/resizes a window (a new window

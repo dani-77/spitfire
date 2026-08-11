@@ -16,13 +16,17 @@ use smithay::{
             Color32F, ImportAll, ImportMem, Renderer,
         },
     },
-    desktop::space::{
-        constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceElement,
-        SpaceRenderElements, SurfaceTree,
+    desktop::{
+        layer_map_for_output,
+        space::{
+            constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceElement,
+            SpaceRenderElements, SurfaceTree,
+        },
     },
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Physical, Point, Rectangle, Scale, Size, Transform},
+    wayland::shell::wlr_layer::Layer,
 };
 
 #[cfg(feature = "debug")]
@@ -573,6 +577,63 @@ where
         })
 }
 
+/// Render elements for the `wlr-layer-shell-v1` surfaces on `output` whose
+/// `Layer` is in `bands` — e.g. `[Top, Overlay]` for the always-in-front
+/// band (an on-screen keyboard, a panel), or `[Bottom, Background]` for the
+/// always-behind band (a wallpaper client). A line-for-line copy of the
+/// layer-iteration half of smithay's own `space_render_elements`
+/// (`desktop::space::mod.rs`) — same `layer_map_for_output`/
+/// `layer_geometry`/`AsRenderElements::render_elements` calls — split into
+/// two independently-callable passes instead of one so `output_elements`'s
+/// per-window loop can be interleaved *between* them: upper band first
+/// (stays in front of every window), then every window's own border+content
+/// in stacking order, then this called again for the lower band (stays
+/// behind every window).
+///
+/// Getting this wrong is not cosmetic: an earlier version of the per-window
+/// interleave (and, briefly, this one before a careful re-read caught it)
+/// instead took smithay's already-flattened `space_render_elements` output
+/// and kept every `SpaceRenderElements::Surface` entry regardless of which
+/// band it came from, pushing all of them — upper *and* lower — before any
+/// window content. That puts a background/wallpaper layer-shell client in
+/// front of every window, which reads as "nothing I open ever shows up" —
+/// the window is there, rendering, just permanently hidden behind the
+/// wallpaper. Never caught in nested-`--winit` testing because that
+/// environment never had a background layer-shell client running to expose
+/// it.
+fn layer_shell_elements<R>(
+    renderer: &mut R,
+    output: &Output,
+    output_scale: Scale<f64>,
+    bands: &[Layer],
+) -> Vec<OutputRenderElements<R, WindowRenderElement<R>>>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + 'static,
+{
+    let layer_map = layer_map_for_output(output);
+    layer_map
+        .layers()
+        .rev()
+        .filter(|surface| bands.contains(&surface.layer()))
+        .filter_map(|surface| {
+            layer_map
+                .layer_geometry(surface)
+                .map(|geo| (geo.loc, surface))
+        })
+        .flat_map(|(loc, surface)| {
+            AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(
+                surface,
+                renderer,
+                loc.to_physical_precise_round(output_scale),
+                output_scale,
+                1.0,
+            )
+        })
+        .map(|e| OutputRenderElements::from(SpaceRenderElements::Surface(e)))
+        .collect()
+}
+
 /// A line-for-line copy of smithay's own `constrain_space_element` chain
 /// (`desktop::space::utils::constrain_space_element` →
 /// `backend::renderer::element::utils::elements::{constrain_as_render_elements,
@@ -792,34 +853,24 @@ where
         } else {
             // spitfire.border and/or spitfire.anim: either needs a
             // per-window pass instead of the blanket `space_render_elements`
-            // call below — border, so each window's outline can be
-            // interleaved immediately in front of its own content instead
-            // of one global batch always in front of every window (see the
-            // per-window loop below for why that was wrong); anim, for the
-            // reasons `constrain_space_element_no_crop`'s doc comment
-            // covers. That blanket call is still the simplest correct
-            // source of the layer-shell elements it also produces alongside
-            // the window ones, though — keep those
-            // (`SpaceRenderElements::Surface` — smithay only ever produces
-            // that variant for layer-shell surfaces; windows come through
-            // `SpaceRenderElements::Element` instead) and rebuild only the
-            // window portion ourselves below, via
-            // `constrain_space_element_no_crop` — see that function's doc
-            // comment for why not smithay's own `constrain_space_element`
-            // (its `CropRenderElement` step is what used to let a window
-            // lose its content permanently).
-            let space_elements = smithay::desktop::space::space_render_elements::<
-                _,
-                WindowElement,
-                _,
-            >(renderer, [space], output, 1.0)
-            .expect("output without mode?");
-            output_render_elements.extend(
-                space_elements
-                    .into_iter()
-                    .filter(|e| matches!(e, SpaceRenderElements::Surface(_)))
-                    .map(OutputRenderElements::Space),
-            );
+            // call the idle branch above uses — border, so each window's
+            // outline can be interleaved immediately in front of its own
+            // content instead of one global batch always in front of every
+            // window (see the per-window loop below for why that was
+            // wrong); anim, for the reasons `constrain_space_element_no_crop`'s
+            // doc comment covers. Layer-shell surfaces still need to be in
+            // the mix alongside the window ones, split into an upper band
+            // (pushed here, before any window — stays in front of every
+            // window) and a lower band (pushed after the loop below —
+            // stays behind every window) via `layer_shell_elements` — see
+            // its own doc comment for why that split can't just be "keep
+            // every `SpaceRenderElements::Surface` from the blanket call".
+            output_render_elements.extend(layer_shell_elements(
+                renderer,
+                output,
+                output_scale,
+                &[Layer::Top, Layer::Overlay],
+            ));
 
             let output_geo = space.output_geometry(output).unwrap_or_default();
             let behavior = ConstrainBehavior {
@@ -902,6 +953,16 @@ where
                     );
                 }
             }
+
+            // Lower band (`Layer::Bottom`/`Background`, e.g. a wallpaper
+            // client) — pushed last, so it lands behind every window's
+            // content and border above, not in front of them.
+            output_render_elements.extend(layer_shell_elements(
+                renderer,
+                output,
+                output_scale,
+                &[Layer::Bottom, Layer::Background],
+            ));
         }
         // Unconditional regardless of which branch above ran — even a frame
         // that drew zero border elements (border disabled, or the idle fast
