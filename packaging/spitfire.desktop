@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=spitfire
+Name=Spitfire
 Comment=Dynamic tiling Wayland compositor, configured in Lua
 Exec=spitfire-session
 Type=Application
