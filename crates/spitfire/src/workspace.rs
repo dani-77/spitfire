@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use smithay::{
     desktop::{space::SpaceElement, WindowSurface},
     output::Output,
-    utils::{IsAlive, Logical, Point, Rectangle, Size, SERIAL_COUNTER},
+    utils::{IsAlive, Logical, Point, Size, SERIAL_COUNTER},
 };
 use spitfire_layout::Gaps;
 use tracing::info;
@@ -696,13 +696,16 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         windows
             .iter()
             .filter_map(|w| {
+                // Plain `element_geometry` — no `window_anims`/workspace-slide
+                // offset applied. `output_elements` (render.rs) stopped
+                // consuming those for window *content* (see its own doc
+                // comment on why), so a border still following them here
+                // would visibly desync from the window it outlines: content
+                // snapping instantly to its new spot while the border around
+                // it kept smoothly sliding in from the old one.
                 let geometry = self.space.element_geometry(w)?;
-                let geometry = self.window_anims.on_screen_rect(w, geometry);
-                let geometry = match self.workspace_slide_offset_for(w) {
-                    Some(offset) => Rectangle::new(geometry.loc + offset, geometry.size),
-                    None => geometry,
-                };
                 Some(crate::render::BorderRect {
+                    window: w.clone(),
                     geometry,
                     focused: focused.as_ref() == Some(w),
                 })
