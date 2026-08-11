@@ -761,26 +761,45 @@ where
         }
 
         let output_scale: Scale<f64> = output.current_scale().fractional_scale().into();
-        let space_elements = smithay::desktop::space::space_render_elements::<_, WindowElement, _>(
-            renderer,
-            [space],
-            output,
-            1.0,
-        )
-        .expect("output without mode?");
 
-        if anims.is_empty() {
-            // Byte-for-byte the pre-spitfire.anim path when nothing is
-            // animating — idle stays exactly zero-damage, see `RectCache`'s
-            // doc comment for why that matters.
+        // Clamped once, globally (not per-window inside the loop below) —
+        // the radius is baked into `corner_masks`' cache key, so letting it
+        // vary window to window would thrash that cache for no reason.
+        let max_radius = borders
+            .iter()
+            .map(|b| b.geometry.size.w.min(b.geometry.size.h) / 2)
+            .min()
+            .unwrap_or(0);
+        let border_radius = if border_width > 0 {
+            border_radius.clamp(0, max_radius.max(0))
+        } else {
+            0
+        };
+
+        if anims.is_empty() && border_width <= 0 {
+            // Byte-for-byte the pre-spitfire.anim/pre-border-interleave
+            // path when there's nothing to animate and no border to draw —
+            // idle stays exactly zero-damage, see `RectCache`'s doc comment
+            // for why that matters.
+            let space_elements = smithay::desktop::space::space_render_elements::<
+                _,
+                WindowElement,
+                _,
+            >(renderer, [space], output, 1.0)
+            .expect("output without mode?");
             output_render_elements
                 .extend(space_elements.into_iter().map(OutputRenderElements::Space));
         } else {
-            // spitfire.anim: a window mid open-scale ("pop") or move/resize
-            // tween needs a per-window transform instead of the blanket
-            // `space_elements` above — but that blanket call is still the
-            // simplest correct source of the layer-shell elements it also
-            // produces alongside the window ones. Keep those
+            // spitfire.border and/or spitfire.anim: either needs a
+            // per-window pass instead of the blanket `space_render_elements`
+            // call below — border, so each window's outline can be
+            // interleaved immediately in front of its own content instead
+            // of one global batch always in front of every window (see the
+            // per-window loop below for why that was wrong); anim, for the
+            // reasons `constrain_space_element_no_crop`'s doc comment
+            // covers. That blanket call is still the simplest correct
+            // source of the layer-shell elements it also produces alongside
+            // the window ones, though — keep those
             // (`SpaceRenderElements::Surface` — smithay only ever produces
             // that variant for layer-shell surfaces; windows come through
             // `SpaceRenderElements::Element` instead) and rebuild only the
@@ -788,8 +807,13 @@ where
             // `constrain_space_element_no_crop` — see that function's doc
             // comment for why not smithay's own `constrain_space_element`
             // (its `CropRenderElement` step is what used to let a window
-            // lose its content permanently, see the removed comment this
-            // replaces in git blame for the full bisection).
+            // lose its content permanently).
+            let space_elements = smithay::desktop::space::space_render_elements::<
+                _,
+                WindowElement,
+                _,
+            >(renderer, [space], output, 1.0)
+            .expect("output without mode?");
             output_render_elements.extend(
                 space_elements
                     .into_iter()
@@ -804,6 +828,42 @@ where
                 align: ConstrainAlign::CENTER,
             };
             for window in space.elements_for_output(output).rev() {
+                // Border first (spitfire.border, if this window has one) —
+                // pushed in front of *this* window's own content (needed so
+                // a nonzero radius's corner mask actually covers the
+                // window's own square corners, not the other way around),
+                // but as part of *this* window's turn in the top-to-bottom
+                // loop — so once a window further down the stack takes its
+                // turn afterward, both this window's content *and* its
+                // border already sit in front of that, correctly. Fixes a
+                // real bug: the old code inserted every window's border in
+                // one batch at the very front of the whole render, always —
+                // correct only as long as a border genuinely never overlaps
+                // anything but its own window's square corners, which
+                // stopped being true the moment some *other* window (in
+                // practice, a floating popup) sat on top of a tiled
+                // window's border strip. Confirmed via a zoomed `grim`
+                // capture at the time: a floating popup overlapping the
+                // seam between two tiled windows showed a tiled window's
+                // border strip cutting straight across it, on top, despite
+                // the popup being the actually-focused, actually-topmost
+                // window.
+                if let Some(b) = borders.iter().find(|b| &b.window == window) {
+                    let border_elements = border_elements_for::<R>(
+                        b,
+                        border_width,
+                        border_radius,
+                        border_active,
+                        border_inactive,
+                        output_scale,
+                        border_cache,
+                        corner_masks,
+                        renderer,
+                    );
+                    output_render_elements
+                        .extend(border_elements.into_iter().map(OutputRenderElements::from));
+                }
+
                 if let Some(anim) = anims.iter().find(|a| &a.window == window) {
                     let elements = constrain_space_element_no_crop(
                         renderer,
@@ -843,52 +903,12 @@ where
                 }
             }
         }
-
-        // Borders (spitfire.border) — added at the front (top of the
-        // z-order). Since each is a thin strip that never overlaps its
-        // *own* window's footprint (see `border_elements_for`), this is
-        // only wrong when some *other* window (typically a floating one)
-        // happens to sit on top of a tiled window's border strip — found
-        // live (a floating `spitfire.rule` popup's edge showing a sliver of
-        // whatever tiled window's border ran underneath it). A per-window
-        // interleaved version was tried and reverted: it broke the far more
-        // basic case of *any* window ever showing up at all by pushing
-        // window content behind the layer-shell background instead of in
-        // front of it. Known limitation for now — a border winning a
-        // z-order fight against an unrelated floating window is a much
-        // smaller correctness problem than windows not rendering.
-        //
-        // Clamped once, globally (not per-window inside the loop below) —
-        // the radius is baked into `corner_masks`' cache key, so letting it
-        // vary window to window would thrash that cache for no reason.
-        let max_radius = borders
-            .iter()
-            .map(|b| b.geometry.size.w.min(b.geometry.size.h) / 2)
-            .min()
-            .unwrap_or(0);
-        let border_radius = if border_width > 0 {
-            border_radius.clamp(0, max_radius.max(0))
-        } else {
-            0
-        };
-        let mut border_elements = Vec::new();
-        for b in borders {
-            border_elements.extend(border_elements_for::<R>(
-                b,
-                border_width,
-                border_radius,
-                border_active,
-                border_inactive,
-                output_scale,
-                border_cache,
-                corner_masks,
-                renderer,
-            ));
-        }
+        // Unconditional regardless of which branch above ran — even a frame
+        // that drew zero border elements (border disabled, or the idle fast
+        // path) needs this to reclaim any buffers a *previous* frame with
+        // borders left behind (`spitfire.border.width` can change live via
+        // `spitfire.reload()`).
         border_cache.finish_frame();
-        for e in border_elements.into_iter().rev() {
-            output_render_elements.insert(0, OutputRenderElements::from(e));
-        }
 
         (output_render_elements, CLEAR_COLOR)
     }

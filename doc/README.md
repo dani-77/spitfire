@@ -133,6 +133,27 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     slivers of the window's own square corners that poke out past the rounded inner
     edge, without ever clipping the client's real content. Confirmed working on real
     DRM/KMS hardware, no flicker.
+  - **Z-order, fixed 2026-08-11**: every window's border strip/corner mask now renders in
+    the same per-window pass as its own content (`render::output_elements`), immediately
+    in front of it, instead of one global batch always inserted at the very front of the
+    whole frame. The old batch approach was correct only as long as a border genuinely
+    never overlapped anything but its own window's square corners — which stopped being
+    true the moment some *other* window (in practice, a floating popup) sat on top of a
+    tiled window's border strip; confirmed via a zoomed `grim` capture at the time: a
+    floating popup overlapping the seam between two tiled windows showed a tiled window's
+    border cutting straight across it despite the popup being the actually-focused,
+    actually-topmost window. An earlier attempt at this same per-window interleave was
+    reverted for pushing window content *behind* the layer-shell background instead of in
+    front of it (a filtering mistake, unrelated to the border logic itself) — this version
+    reuses the exact `SpaceRenderElements::Surface`-filtering already proven correct by
+    `spitfire.anim`'s own per-window path (see below) instead of re-deriving the
+    upper/lower `wlr-layer-shell` split from scratch, so it inherits that same
+    correctness. Only takes the per-window path at all when there's something to
+    interleave (`border_width > 0` and/or an animation in flight) — idle with borders
+    disabled still renders through the identical blanket `space_render_elements` call as
+    before, unaffected. Verified with a nested `spitfire --winit` session + `grim`: a
+    floating popup centered over the seam between two tiled windows now shows its own
+    border cleanly on top, no bleed-through from the tiled windows' border underneath.
 - **`spitfire.anim`** (`crate::anim`, `crate::workspace::WorkspaceSlide`): basic window
   animations, mangowm-style — a scale-in ("pop") when a window's content first appears, a
   smooth tween whenever `TilingLayout::arrange` moves/resizes a window (a new window
@@ -508,27 +529,6 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
 - The bar's bitmap font only has uppercase A-Z — text is uppercased before drawing, so
   an SSID (or anything else routed through it) always displays in caps, not necessarily
   matching its real casing.
-- **`spitfire.border` can render on top of an unrelated floating window overlapping the
-  tiled window it outlines.** `render::output_elements` inserts every border strip/corner
-  mask at the absolute front of the render order unconditionally (`spitfire.border`'s own
-  bullet above) — correct as long as a border genuinely never overlaps anything but its
-  own window's square corners, which stops being true the moment some *other* window (in
-  practice, a floating popup) sits on top of that tiled window. Confirmed via a zoomed
-  `grim` capture: a floating `d77run` popup overlapping the seam between two tiled windows
-  showed a tiled window's border strip cutting straight across it. A fix was attempted —
-  draw each window's border immediately in front of its own content in a manual per-window
-  pass, instead of a global batch — and reverted the same session: the rewrite put every
-  window's content *behind* the wallpaper/background layer-shell surface instead of in
-  front of it (a filtering mistake, not related to the border logic itself), which broke
-  window visibility outright rather than just borders, and reached the live compositor
-  before a nested `spitfire --winit` session caught it on a second attempt. A correct fix
-  needs to replicate `space_render_elements`'s own upper/lower `wlr-layer-shell` split
-  (`layer_map_for_output`, `Layer::Top`/`Overlay` vs `Bottom`/`Background`) rather than
-  collapsing all layer-shell surfaces into one undifferentiated group, so a per-window pass
-  can be spliced in at the correct point between them — left for a session with more room
-  to test carefully (nested `--winit` first, every time, before the live session) rather
-  than risk a third regression. Lower priority than it sounds: no window ever loses
-  content over this, just a border occasionally drawn in the wrong place.
 - **Some older GTK3 apps (confirmed: AbiWord, Gnumeric) show a `spitfire.border`-colored
   gap between their rounded corner and where their own content actually starts** — not
   the z-order bug above (single window, nothing overlapping it), and not a wrong border
