@@ -476,6 +476,21 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   to test carefully (nested `--winit` first, every time, before the live session) rather
   than risk a third regression. Lower priority than it sounds: no window ever loses
   content over this, just a border occasionally drawn in the wrong place.
+- **Some older GTK3 apps (confirmed: AbiWord, Gnumeric) show a `spitfire.border`-colored
+  gap between their rounded corner and where their own content actually starts** — not
+  the z-order bug above (single window, nothing overlapping it), and not a wrong border
+  position either: `render::border_elements_for` draws flush against whatever geometry
+  the client itself reports via `xdg_surface`, and for these two apps specifically that
+  reported geometry includes extra invisible margin (presumably an unexcluded CSD
+  shadow/resize-border) above and left of where they actually paint — so the border,
+  correctly drawn at the edge of that reported geometry, ends up looking detached from
+  the visible window. Confirmed via a zoomed, pixel-sampled `grim` comparison: Alacritty
+  (well-behaved) shows a border flush against its content with zero gap; AbiWord/Gnumeric
+  show a consistent ~15-20 physical-pixel gap of pure `border.inactive` color on both the
+  top and left edges alike. `pcmanfm` (also GTK3) doesn't show it — narrows this down to
+  something specific to how AbiWord/Gnumeric's older codebases report their window
+  geometry rather than a GTK3-wide issue. Nothing to fix compositor-side: spitfire has no
+  way to know a client's reported geometry doesn't match where it actually draws.
 
 ## Layout
 
