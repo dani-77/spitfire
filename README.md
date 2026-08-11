@@ -32,10 +32,15 @@ the window manager.
 - **Window borders and gaps**, colored however you like — with optional rounded
   corners.
 - **Window animations** — a quick scale-in ("pop") when a window opens, a smooth tween
-  whenever the tiling layout moves or resizes it (a new window joining, switching
-  layouts, another window closing and the rest re-flowing, ...), and a slide when you
-  switch workspaces. On by default, tunable or turned off entirely via `spitfire.anim`
-  in `config.lua`.
+  whenever the tiling layout moves or resizes it, and a slide when you switch
+  workspaces. Configurable via `spitfire.anim` in `config.lua`.
+  *Temporarily inactive as of the latest changes* — a bug in how one of the animation
+  kinds interacted with a Smithay helper could leave a window's content permanently
+  blank, so the visual side is switched off crate-wide until that's fixed properly;
+  windows currently open/move/switch instantly instead. See
+  [`doc/README.md`](doc/README.md) for the details.
+- **Take a screenshot** — `wlr-screencopy-unstable-v1` support, so tools like `grim`
+  work against a spitfire session.
 - **Output scale**, niri-style — set a starting value in `config.lua`, or rescale live
   at any time with `Mod+Shift+P`/`M`.
 - **Scratchpad windows** — a single hidden slot for whatever's focused, or a named,
@@ -164,6 +169,8 @@ spitfire.gaps = { inner = 20, outer = 10 }
 -- on workspace switch. Purely visual — layout, focus, and hit-testing are
 -- unaffected. duration is milliseconds; enabled = false (or duration = 0)
 -- turns all three off.
+-- (Currently has no visual effect regardless of this setting — see the
+-- Features list above.)
 spitfire.anim = { enabled = true, duration = 150 }
 
 -- Output scale (niri-style), >= 1.0, default 1.0 — same live rescale
