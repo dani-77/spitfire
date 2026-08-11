@@ -147,8 +147,8 @@ pub struct KeyboardConfig {
     /// 25) match typical desktop norms (GNOME/KDE/X11 sit in the 450-660ms
     /// range). A too-tight `repeat_delay` isn't cosmetic: measured against
     /// a live session log, ~8% of ordinary keystrokes hold the key for
-    /// >= 200ms (median hold ~120ms, but the tail is long) — with a 200ms
-    /// delay, every one of those spuriously starts the client's repeat
+    /// 200ms or longer (median hold ~120ms, but the tail is long) — with a
+    /// 200ms delay, every one of those spuriously starts the client's repeat
     /// timer, which reads as "keys repeating randomly" even though the
     /// compositor forwarded one clean press/release pair, every time.
     pub repeat_delay: i32,
