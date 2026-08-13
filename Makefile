@@ -27,6 +27,11 @@ install: build
 	install -Dm644 assets/logo/spitfire-wc-icon-32.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/32x32/apps/spitfire.png
 	install -Dm644 assets/logo/spitfire-wc-icon-192.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/192x192/apps/spitfire.png
 	install -Dm644 assets/logo/spitfire-wc-icon-512.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/512x512/apps/spitfire.png
+	# So a release-tarball/package install still has the example config
+	# on disk somewhere findable, without needing the source checkout's
+	# examples/ dir around -- see examples/config.lua's own comment for
+	# what it's a copy of.
+	install -Dm644 examples/config.lua $(DESTDIR)$(PREFIX)/share/spitfire/config.lua
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/spitfire
@@ -39,3 +44,4 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/32x32/apps/spitfire.png
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/192x192/apps/spitfire.png
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/512x512/apps/spitfire.png
+	rm -f $(DESTDIR)$(PREFIX)/share/spitfire/config.lua
