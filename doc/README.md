@@ -379,15 +379,34 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   > reports the whole output changed instead of a tighter region — always correct, just
   > not maximally precise. Deliberately reused this module's own per-capture
   > `OutputDamageTracker` for *nothing* here — see this bullet's own opening paragraph for
-  > why it's recreated fresh every call and so useless as an incremental signal. Not
-  > independently verified live: no client available in this environment actually calls
-  > `copy_with_damage` (`grim` only ever uses plain `copy`; no `wf-recorder`/`pywayland`
-  > installed to drive it directly) — checked by the compiler (the types force
-  > `frame_damage` to thread through correctly end to end) and by code review, not by a
-  > real capture. Worth a real check once `xdg-desktop-portal-wlr`'s `ScreenCast` is
-  > actually exercised end to end — already flagged as "Not yet re-verified end-to-end"
-  > under the "A D-Bus session bus + `xdg-desktop-portal` backend selection" bullet
-  > further down.
+  > why it's recreated fresh every call and so useless as an incremental signal.
+  > **Verified live later the same day**, once `wf-recorder` got installed specifically to
+  > check this (it requests `copy_with_damage` by default — `grim` never does): recording a
+  > nested session with a mostly-idle terminal (only its own text updating roughly once a
+  > second) produced just 11 encoded frames over 6 seconds of wall-clock time, instead of
+  > one every real frame — direct confirmation the deferred-until-actual-damage gating
+  > works, not just that the types compile.
+- **A `dmabuf` zero-copy capture path was attempted and reverted the same day.**
+  Bumping the manager to protocol version 3 (`linux_dmabuf`/`buffer_done` events,
+  `capture_output`-only) let a client request a dmabuf-backed capture instead of `wl_shm`,
+  binding the renderer directly to the client's own buffer (genuinely zero-copy — no
+  offscreen texture, no `copy_framebuffer`/`map_texture`/`memcpy`). Compiled clean,
+  `Bind<Dmabuf>` held for both `GlesRenderer` and `UdevRenderer`'s `MultiRenderer` — but
+  tested live with `wf-recorder -c h264_vaapi` (a real GPU-encoder client that negotiates
+  dmabuf), it corrupted the shared EGL context: the capture's own dmabuf bind apparently
+  used a modifier the driver didn't like, and instead of failing cleanly it broke the
+  *real* render loop too (`EGL BAD_ALLOC` / `"context has been lost"`, every frame,
+  requiring a hard kill). Root cause is structural, not a bug in this file:
+  `linux_dmabuf`'s v3 event only carries a bare fourcc, no modifier list at all — the
+  client picks a modifier with no way to know which ones the compositor can actually
+  import. Reverted uncommitted rather than shipped. The fix is a different protocol
+  entirely, `ext-image-copy-capture-v1` (wire types already available — same
+  already-vendored `wayland-protocols` crate, `staging`+`server` features already on via
+  smithay), whose `dmabuf_format` event carries a real `modifiers` array — closing exactly
+  the hole that crashed the context. The user's own installed `xdg-desktop-portal-wlr`
+  (0.8.2) already prefers `ext-image-copy-capture-v1` over `wlr-screencopy` automatically
+  when both are advertised, so this isn't speculative — worth doing, just not on this
+  protocol.
 - **An opaque backdrop behind every window's content** (`shell/ssd.rs`'s
   `WindowState::backdrop`, drawn in `shell/element.rs`'s
   `WindowElement::render_elements`) — fixes a real bug, reported live and only
