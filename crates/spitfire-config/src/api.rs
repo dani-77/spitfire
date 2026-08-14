@@ -318,6 +318,7 @@ pub(crate) fn read_globals(
     KeyboardConfig,
     OutputConfig,
     AnimConfig,
+    bool,
 )> {
     let mut gaps = spitfire_layout::Gaps::default();
     let mut border = BorderConfig::default();
@@ -325,6 +326,7 @@ pub(crate) fn read_globals(
     let mut keyboard = KeyboardConfig::default();
     let mut output = OutputConfig::default();
     let mut anim = AnimConfig::default();
+    let mut focus_follows_mouse = false;
 
     let spitfire: Table = lua.globals().get("spitfire")?;
 
@@ -462,7 +464,21 @@ pub(crate) fn read_globals(
         }
     }
 
-    Ok((gaps, border, bar, keyboard, output, anim))
+    // A bare boolean global, not a sub-table like the ones above — no
+    // nested `spitfire.focus_follows_mouse.something` to speak of.
+    if let Ok(v) = spitfire.get::<bool>("focus_follows_mouse") {
+        focus_follows_mouse = v;
+    }
+
+    Ok((
+        gaps,
+        border,
+        bar,
+        keyboard,
+        output,
+        anim,
+        focus_follows_mouse,
+    ))
 }
 
 fn parse_hex_color(s: &str) -> Option<u32> {

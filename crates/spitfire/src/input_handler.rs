@@ -2,7 +2,11 @@ use std::{convert::TryInto, sync::atomic::Ordering};
 
 use spitfire_config::Command as ConfigCommand;
 
-use crate::{focus::PointerFocusTarget, shell::FullscreenSurface, SpitfireState};
+use crate::{
+    focus::{KeyboardFocusTarget, PointerFocusTarget},
+    shell::FullscreenSurface,
+    SpitfireState,
+};
 
 #[cfg(feature = "udev")]
 use crate::udev::UdevData;
@@ -647,6 +651,60 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         }
     }
 
+    /// Focus-follows-mouse: called on every pointer-motion event when
+    /// `spitfire.focus_follows_mouse` is on. Unlike `update_keyboard_focus`
+    /// (click/touch/tablet-tip), this never raises/restacks — sloppy focus
+    /// only changes which window has keyboard focus; reordering stays
+    /// click-only. Hovering empty space (gaps, wallpaper, a layer-surface
+    /// like a bar) is a deliberate no-op — it leaves whatever was focused
+    /// before untouched rather than focusing nothing.
+    fn update_keyboard_focus_hover(&mut self, location: Point<f64, Logical>, serial: Serial) {
+        if !self.config.focus_follows_mouse || self.locked {
+            return;
+        }
+
+        let keyboard = self.seat.get_keyboard().unwrap();
+        let touch = self.seat.get_touch();
+        let input_method = self.seat.input_method();
+        // Same grab guard as update_keyboard_focus above (inverted, since
+        // this early-returns instead of gating one big block).
+        if self.pointer.is_grabbed()
+            || (keyboard.is_grabbed() && !input_method.keyboard_grabbed())
+            || touch.map(|t| t.is_grabbed()).unwrap_or(false)
+        {
+            return;
+        }
+
+        let target = self
+            .space
+            .output_under(location)
+            .next()
+            .and_then(|output| {
+                let output_geo = self.space.output_geometry(output)?;
+                output
+                    .user_data()
+                    .get::<FullscreenSurface>()
+                    .and_then(|f| f.get())
+                    .filter(|window| {
+                        window
+                            .surface_under(
+                                location - output_geo.loc.to_f64(),
+                                WindowSurfaceType::ALL,
+                            )
+                            .is_some()
+                    })
+            })
+            .or_else(|| self.space.element_under(location).map(|(w, _)| w.clone()))
+            .map(KeyboardFocusTarget::from);
+
+        let Some(target) = target else {
+            return;
+        };
+        if keyboard.current_focus().as_ref() != Some(&target) {
+            keyboard.set_focus(self, Some(target), serial);
+        }
+    }
+
     pub fn surface_under(
         &self,
         pos: Point<f64, Logical>,
@@ -912,6 +970,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let pos = evt.position_transformed(output_geo.size) + output_geo.loc.to_f64();
         let serial = SCOUNTER.next_serial();
 
+        self.update_keyboard_focus_hover(pos, serial);
         let pointer = self.pointer.clone();
         let under = self.surface_under(pos);
         pointer.motion(
@@ -1273,6 +1332,7 @@ impl SpitfireState<UdevData> {
             }
         }
 
+        self.update_keyboard_focus_hover(pointer_location, serial);
         pointer.motion(
             self,
             under,
@@ -1328,6 +1388,7 @@ impl SpitfireState<UdevData> {
         // clamp to screen limits
         pointer_location = self.clamp_coords(pointer_location);
 
+        self.update_keyboard_focus_hover(pointer_location, serial);
         let pointer = self.pointer.clone();
         let under = self.surface_under(pointer_location);
 

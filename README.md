@@ -34,6 +34,10 @@ the window manager.
 - **Window animations** — a quick scale-in ("pop") when a window opens, a smooth tween
   whenever the tiling layout moves or resizes it, and a slide when you switch
   workspaces. Configurable via `spitfire.anim` in `config.lua`.
+- **Focus-follows-mouse**, opt-in — hover a window to focus it, no click needed.
+  Doesn't raise/reorder on hover (that stays click-only), and hovering empty space
+  leaves focus where it was. Off by default; turn it on with
+  `spitfire.focus_follows_mouse = true`.
 - **Take a screenshot** — `wlr-screencopy-unstable-v1` support, so tools like `grim`
   work against a spitfire session.
 - **Output scale**, niri-style — set a starting value in `config.lua`, or rescale live
@@ -165,6 +169,11 @@ spitfire.gaps = { inner = 20, outer = 10 }
 -- unaffected. duration is milliseconds; enabled = false (or duration = 0)
 -- turns all three off.
 spitfire.anim = { enabled = true, duration = 150 }
+
+-- Focus-follows-mouse (sloppy focus), off by default — hovering a window
+-- focuses it (no raise/reorder, no click needed); hovering empty space
+-- keeps the last focus.
+-- spitfire.focus_follows_mouse = true
 
 -- Output scale (niri-style), >= 1.0, default 1.0 — same live rescale
 -- Mod+Shift+P/M already does at runtime, just as a starting value

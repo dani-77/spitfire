@@ -184,6 +184,14 @@ pub struct Config {
     pub keyboard: KeyboardConfig,
     pub output: OutputConfig,
     pub anim: AnimConfig,
+    /// `spitfire.focus_follows_mouse = true` — sloppy focus: hovering a
+    /// window gives it keyboard focus without raising/reordering it
+    /// (raising stays click-only). Hovering empty space (gaps, wallpaper,
+    /// a layer-surface like a bar) leaves focus wherever it was. Off by
+    /// default — click-to-focus keeps working exactly as before unless
+    /// this is turned on. See `SpitfireState::update_keyboard_focus_hover`
+    /// in the `spitfire` crate.
+    pub focus_follows_mouse: bool,
 }
 
 impl Config {
@@ -233,7 +241,8 @@ impl Config {
             }
         }
 
-        let (gaps, border, bar, keyboard, output, anim) = api::read_globals(&lua)?;
+        let (gaps, border, bar, keyboard, output, anim, focus_follows_mouse) =
+            api::read_globals(&lua)?;
         // Can't `Rc::try_unwrap` here: the `spitfire.autostart` closure kept
         // inside `lua` holds a live reference to this Rc for as long as
         // `lua` exists. `autostart` only ever gets filled in the script's
@@ -253,6 +262,7 @@ impl Config {
             keyboard,
             output,
             anim,
+            focus_follows_mouse,
         })
     }
 
