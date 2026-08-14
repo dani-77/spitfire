@@ -38,7 +38,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   (`$XDG_CONFIG_HOME/spitfire/config.lua`, falling back to
   `~/.config/spitfire/config.lua`), reloadable at runtime with `spitfire.reload()` — no
   recompile. `spitfire.bind`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`window`/
-  `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`/`anim`. Mod4/Super and Mod1/Alt are both
+  `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`/`anim`/`focus_follows_mouse`. Mod4/Super and Mod1/Alt are both
   first-class modifiers, freely mixable per bind. See `../examples/config.lua` for the
   default bindings.
   - `spitfire.window.close()`/`.focus_next()`/`.focus_prev()`/`.swap_next()`/`.swap_prev()`: close
@@ -327,6 +327,31 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
       guard (added for point 2) already returns `None` for a window that was unmapped
       while hidden — the exact case a Move animation needs a real "before" rect to
       exist to fire at all.
+- **`spitfire.focus_follows_mouse`** (`SpitfireState::update_keyboard_focus_hover` in
+  `input_handler.rs`): sloppy focus, off by default —
+  `spitfire.focus_follows_mouse = true` to turn it on. Two behavioral choices, both made
+  explicitly rather than defaulted into:
+  - **No raise on hover.** Only `update_keyboard_focus` (click/touch-down/tablet-tip)
+    raises/restacks; the hover path calls `keyboard.set_focus` alone, so a window never
+    jumps to the front just because the pointer swept over it. Reordering stays a
+    deliberate, click-only action, matching dwm/i3/sway's own sloppy-focus behavior.
+  - **Hovering empty space keeps the last focus.** Gaps, wallpaper, and layer-surfaces
+    (the built-in bar, or any client one) are all deliberately excluded from hover-focus
+    resolution — the pointer leaving every window never focuses "nothing", and moving it
+    across the bar to reach another window doesn't steal focus into the bar along the way.
+  - Reuses `update_keyboard_focus`'s own target resolution (`FullscreenSurface` first,
+    then `Space::element_under`) rather than a new hit-testing path, and the same
+    pointer/keyboard/touch grab guard (inverted, since this early-returns instead of
+    gating one big block) — a drag-resize/move grab in progress is never focus-stolen
+    mid-grab. Short-circuits against `keyboard.current_focus()` before calling
+    `set_focus`, so holding the pointer still over one window doesn't re-send focus
+    enter/leave every motion event.
+  - Called from all three pointer-motion entry points — `on_pointer_move_absolute_windowed`
+    (winit/x11), `on_pointer_move` (udev relative), `on_pointer_move_absolute` (udev
+    absolute) — right before each one's existing `pointer.motion(...)` call, reusing the
+    `Serial` each already computes. Touch-down and tablet-tip are untouched: they already
+    go through the raising `update_keyboard_focus` on direct contact, which is orthogonal
+    to pointer hover.
 - **`wlr-screencopy-unstable-v1`** (new: `crate::screencopy`, hand-implemented — not
   provided by Smithay, same situation as `ext-workspace-v1`, see `../NOTICE.md`) — what
   `grim` (and, transitively, `xdg-desktop-portal-wlr`'s Screenshot/ScreenCast, though

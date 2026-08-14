@@ -101,6 +101,15 @@ spitfire.gaps = { inner = 20, outer = 10 }
 -- disables all three.
 spitfire.anim = { enabled = true, duration = 150 }
 
+-- Focus-follows-mouse (sloppy focus) — off by default, so the current
+-- click-to-focus behavior is untouched unless you turn this on. Hovering a
+-- window gives it keyboard focus without raising/reordering it (raising
+-- stays click-only, so windows don't jump to the front just because the
+-- pointer swept over them). Hovering empty space — gaps, wallpaper, or a
+-- layer-surface like a bar — leaves focus exactly where it was, it never
+-- focuses nothing.
+-- spitfire.focus_follows_mouse = true
+
 -- Output scale (niri-style): a fractional multiplier applied to every
 -- output at startup, `1.0` (the default) being the classic 1:1 behavior.
 -- Just a starting value — Mod+Shift+P/M already rescale up/down live at
