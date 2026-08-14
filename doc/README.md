@@ -334,10 +334,10 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   be able to screenshot the compositor at all while chasing the bugs below it and the
   border z-order fix above (`spitfire.border`'s own bullet). wl_shm only (no
   `linux-dmabuf`), manager version 2
-  (guarantees a `buffer` event with no `buffer_done` bookkeeping needed), no
-  damage-tracking queue (every `copy`/`copy_with_damage` renders and copies
-  unconditionally on the output's next frame) — enough for `grim`'s single-shot use, not
-  a real-time screencaster. No new Cargo dependency — `wayland-protocols-wlr` was
+  (guarantees a `buffer` event with no `buffer_done` bookkeeping needed) — enough for
+  `grim`'s single-shot use, not a real-time screencaster on its own (see the
+  damage-tracking sub-bullet just below for the piece of that since fixed). No new Cargo
+  dependency — `wayland-protocols-wlr` was
   already pulled in transitively by smithay's own `wayland_frontend` feature. Captures via
   a **fresh offscreen render** of the output (reuses `render::output_elements`/
   `OutputDamageTracker` as-is against a throwaway `GlesTexture`) rather than a readback of
@@ -365,6 +365,29 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   > towards being a real streaming source — real damage-tracking for `copy_with_damage`
   > and a `dmabuf` zero-copy path are still open, see the wl_shm/damage-tracking notes
   > earlier in this same bullet.
+  > **Damage-tracking fixed 2026-08-14** (second of the three) — `copy_with_damage`
+  > previously behaved exactly like `copy`: every pending capture rendered and copied
+  > unconditionally on the very next frame, no `frame.damage()` events ever sent. Correct,
+  > but exactly the cost a streaming client (`xdg-desktop-portal-wlr` → PipeWire) wants
+  > `copy_with_damage` to avoid paying on a static screen. Fixed by threading the real
+  > render loop's own per-frame damage into `service_pending_captures` (`None` when
+  > nothing changed that tick) — a `copy_with_damage` capture now only renders/copies on a
+  > frame that actually has damage, staying queued at zero cost otherwise, and reports the
+  > real rects back via `frame.damage()` before `ready`. winit.rs's plain
+  > `OutputDamageTracker` gives exact rects for free; udev.rs's `DrmCompositor` doesn't
+  > expose them at that level (only whether *anything* changed), so it conservatively
+  > reports the whole output changed instead of a tighter region — always correct, just
+  > not maximally precise. Deliberately reused this module's own per-capture
+  > `OutputDamageTracker` for *nothing* here — see this bullet's own opening paragraph for
+  > why it's recreated fresh every call and so useless as an incremental signal. Not
+  > independently verified live: no client available in this environment actually calls
+  > `copy_with_damage` (`grim` only ever uses plain `copy`; no `wf-recorder`/`pywayland`
+  > installed to drive it directly) — checked by the compiler (the types force
+  > `frame_damage` to thread through correctly end to end) and by code review, not by a
+  > real capture. Worth a real check once `xdg-desktop-portal-wlr`'s `ScreenCast` is
+  > actually exercised end to end — already flagged as "Not yet re-verified end-to-end"
+  > under the "A D-Bus session bus + `xdg-desktop-portal` backend selection" bullet
+  > further down.
 - **An opaque backdrop behind every window's content** (`shell/ssd.rs`'s
   `WindowState::backdrop`, drawn in `shell/element.rs`'s
   `WindowElement::render_elements`) — fixes a real bug, reported live and only
