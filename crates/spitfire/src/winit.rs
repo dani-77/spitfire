@@ -1,9 +1,6 @@
 #[cfg(feature = "xwayland")]
 use std::time::Instant;
-use std::{
-    sync::{atomic::Ordering, Mutex},
-    time::Duration,
-};
+use std::{sync::atomic::Ordering, time::Duration};
 
 #[cfg(feature = "egl")]
 use smithay::backend::renderer::ImportEgl;
@@ -19,7 +16,6 @@ use smithay::{
         egl::EGLDevice,
         renderer::{
             damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
-            element::AsRenderElements,
             gles::GlesRenderer,
             ImportDma, ImportMemWl,
         },
@@ -27,10 +23,7 @@ use smithay::{
         SwapBuffersError,
     },
     delegate_dmabuf,
-    input::{
-        keyboard::LedState,
-        pointer::{CursorImageAttributes, CursorImageStatus},
-    },
+    input::{keyboard::LedState, pointer::CursorImageStatus},
     output::{Mode, Output, PhysicalProperties, Scale as OutputScale, Subpixel},
     reexports::{
         calloop::EventLoop,
@@ -40,7 +33,6 @@ use smithay::{
     },
     utils::{IsAlive, Scale, Transform},
     wayland::{
-        compositor,
         dmabuf::{
             DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState,
             ImportNotifier,
@@ -350,23 +342,11 @@ pub fn run_winit() {
             let lock_surfaces = &state.lock_surfaces;
 
             let dnd_icon = state.dnd_icon.as_ref();
+            let cursor_status = &mut state.cursor_status;
 
             let scale = Scale::from(output.current_scale().fractional_scale());
-            let cursor_hotspot =
-                if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
-                    compositor::with_states(surface, |states| {
-                        states
-                            .data_map
-                            .get::<Mutex<CursorImageAttributes>>()
-                            .unwrap()
-                            .lock()
-                            .unwrap()
-                            .hotspot
-                    })
-                } else {
-                    (0, 0).into()
-                };
             let cursor_pos = state.pointer.current_location();
+            let output_geometry = space.output_geometry(&output).unwrap();
 
             #[cfg(feature = "debug")]
             let mut renderdoc = state.renderdoc.as_mut();
@@ -399,32 +379,16 @@ pub fn run_winit() {
 
                 let mut elements = Vec::<CustomRenderElements<GlesRenderer>>::new();
 
-                elements.extend(
-                    pointer_element.render_elements(
-                        renderer,
-                        (cursor_pos - cursor_hotspot.to_f64())
-                            .to_physical(scale)
-                            .to_i32_round(),
-                        scale,
-                        1.0,
-                    ),
-                );
-
-                // draw the dnd icon if any
-                if let Some(icon) = dnd_icon {
-                    let dnd_icon_pos = (cursor_pos + icon.offset.to_f64())
-                        .to_physical(scale)
-                        .to_i32_round();
-                    if icon.surface.alive() {
-                        elements.extend(AsRenderElements::<GlesRenderer>::render_elements(
-                            &smithay::desktop::space::SurfaceTree::from_surface(&icon.surface),
-                            renderer,
-                            dnd_icon_pos,
-                            scale,
-                            1.0,
-                        ));
-                    }
-                }
+                elements.extend(cursor_and_dnd_elements(
+                    renderer,
+                    output_geometry,
+                    cursor_pos,
+                    None,
+                    &mut pointer_element,
+                    dnd_icon,
+                    &mut *cursor_status,
+                    scale,
+                ));
 
                 #[cfg(feature = "debug")]
                 elements.push(CustomRenderElements::Fps(fps_element.clone()));
@@ -480,13 +444,24 @@ pub fn run_winit() {
                 // dependent on `res`/`fb` above (which is about to be
                 // presented via `backend.submit()` below) — see
                 // `crate::screencopy`'s doc comment for why it's a fresh
-                // offscreen composite rather than reading `fb` back.
+                // offscreen composite rather than reading `fb` back. Given
+                // the raw cursor/dnd ingredients rather than a pre-built
+                // element list — `render_and_copy` calls
+                // `cursor_and_dnd_elements` itself, once per pending
+                // capture, since `CustomRenderElements` isn't `Clone` (see
+                // that fn's doc comment).
                 crate::screencopy::service_pending_captures(
                     screencopy_state,
                     renderer,
                     space,
                     &output,
                     locked_surface,
+                    cursor_pos,
+                    None,
+                    &mut pointer_element,
+                    dnd_icon,
+                    &mut *cursor_status,
+                    scale,
                     &border_rects,
                     border.width,
                     border.radius,

@@ -23,19 +23,25 @@ use smithay::{
             SpaceRenderElements, SurfaceTree,
         },
     },
+    input::pointer::{CursorImageAttributes, CursorImageStatus},
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Logical, Physical, Point, Rectangle, Scale, Size, Transform},
-    wayland::shell::wlr_layer::Layer,
+    utils::{IsAlive, Logical, Physical, Point, Rectangle, Scale, Size, Transform},
+    wayland::{compositor, shell::wlr_layer::Layer},
 };
 
 #[cfg(feature = "debug")]
 use crate::drawing::FpsElement;
 use crate::{
     anim::AnimatedWindow,
-    drawing::{PointerRenderElement, CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN, CLEAR_COLOR_LOCKED},
+    drawing::{
+        PointerElement, PointerRenderElement, CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN,
+        CLEAR_COLOR_LOCKED,
+    },
     shell::{FullscreenSurface, WindowElement, WindowRenderElement},
+    state::DndIcon,
 };
+use std::sync::Mutex;
 
 smithay::backend::renderer::element::render_elements! {
     pub CustomRenderElements<R> where
@@ -78,6 +84,111 @@ impl<R: Renderer> std::fmt::Debug for CustomRenderElements<R> {
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
     }
+}
+
+/// Cursor + dnd-icon render elements for `output_geometry` at
+/// `pointer_location` — the subset of what a real frame's own
+/// `custom_elements` carries that both the real render path *and* a
+/// `wlr-screencopy` capture want (see `screencopy.rs`'s doc comment: a
+/// capture used to omit these entirely, until 2026-08-14).
+///
+/// `pointer_image` is `None` in winit.rs (a nested window shows the host
+/// compositor's own cursor for `CursorImageStatus::Named`, so
+/// `PointerElement`'s buffer is never set there — only `Surface` status
+/// ever draws anything) and `Some` in udev.rs (a real DRM/KMS session has
+/// no host cursor to fall back on, so a decoded xcursor frame is always
+/// supplied).
+///
+/// Used by winit.rs for its own real frame, and by `screencopy::render_and_copy`
+/// (once per pending capture serviced) to fold the pointer into that
+/// throwaway render too — udev.rs's real frame keeps its own inline
+/// equivalent (predates this helper; not worth the churn of switching it
+/// over). Not built once and shared/cloned across those call sites:
+/// `CustomRenderElements` isn't `Clone` (some variants wrap smithay render
+/// elements that aren't either), so each call re-imports the same
+/// already-decoded buffer into a fresh element — cheap, and in keeping with
+/// screencopy's own "second throwaway render" design.
+///
+/// Empty if the pointer isn't currently over `output_geometry`, matching
+/// what both backends' real-frame cursor logic already did before this
+/// existed as a shared helper.
+#[allow(clippy::too_many_arguments)]
+pub fn cursor_and_dnd_elements<R>(
+    renderer: &mut R,
+    output_geometry: Rectangle<i32, Logical>,
+    pointer_location: Point<f64, Logical>,
+    pointer_image: Option<&MemoryRenderBuffer>,
+    pointer_element: &mut PointerElement,
+    dnd_icon: Option<&DndIcon>,
+    cursor_status: &mut CursorImageStatus,
+    scale: Scale<f64>,
+) -> Vec<CustomRenderElements<R>>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + Send + 'static,
+{
+    let mut elements = Vec::new();
+    if !output_geometry.to_f64().contains(pointer_location) {
+        return elements;
+    }
+
+    let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = cursor_status {
+        compositor::with_states(surface, |states| {
+            states
+                .data_map
+                .get::<Mutex<CursorImageAttributes>>()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .hotspot
+        })
+    } else {
+        (0, 0).into()
+    };
+    let cursor_pos = pointer_location - output_geometry.loc.to_f64();
+
+    if let Some(image) = pointer_image {
+        pointer_element.set_buffer(image.clone());
+    }
+
+    // Reset if the client-set cursor surface died since the last call —
+    // same recovery both backends already did inline before this helper.
+    let mut reset = false;
+    if let CursorImageStatus::Surface(ref surface) = *cursor_status {
+        reset = !surface.alive();
+    }
+    if reset {
+        *cursor_status = CursorImageStatus::default_named();
+    }
+    pointer_element.set_status(cursor_status.clone());
+
+    elements.extend(
+        pointer_element.render_elements(
+            renderer,
+            (cursor_pos - cursor_hotspot.to_f64())
+                .to_physical(scale)
+                .to_i32_round(),
+            scale,
+            1.0,
+        ),
+    );
+
+    if let Some(icon) = dnd_icon {
+        let dnd_icon_pos = (cursor_pos + icon.offset.to_f64())
+            .to_physical(scale)
+            .to_i32_round();
+        if icon.surface.alive() {
+            elements.extend(AsRenderElements::<R>::render_elements(
+                &SurfaceTree::from_surface(&icon.surface),
+                renderer,
+                dnd_icon_pos,
+                scale,
+                1.0,
+            ));
+        }
+    }
+
+    elements
 }
 
 /// A persistent pool of `SolidColorBuffer`s, indexed positionally and

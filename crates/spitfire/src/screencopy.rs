@@ -32,12 +32,19 @@
 //!   backend's swapchain/scanout buffer is still readable by the time a
 //!   request gets serviced, and reuses `render::output_elements`/
 //!   `OutputDamageTracker` completely as-is instead of new backend-specific
-//!   plumbing. Tradeoff: `output_elements` alone doesn't draw the
-//!   cursor/dnd-icon/bar — winit.rs/udev.rs add those as `custom_elements`
-//!   before calling it (see `output_elements`'s own call sites) — so a
-//!   screencopy capture shows windows/borders but no cursor. Fine for
-//!   debugging window compositing; revisit if a missing cursor ever
-//!   actually matters.
+//!   plumbing. `output_elements` alone doesn't draw the cursor/dnd-icon/bar
+//!   — winit.rs/udev.rs add those as `custom_elements` before calling it
+//!   (see `output_elements`'s own call sites). Since 2026-08-14,
+//!   `service_pending_captures` is handed the same raw cursor/dnd
+//!   ingredients (pointer location/image/element, dnd icon, cursor status,
+//!   scale) winit.rs/udev.rs already have in scope for their own real
+//!   frame, and `render_and_copy` calls `render::cursor_and_dnd_elements`
+//!   itself to fold the pointer into this throwaway render too — see that
+//!   fn's doc comment for why a fresh call per capture rather than a
+//!   pre-built, shared element list (`CustomRenderElements` isn't `Clone`).
+//!   Deliberately still not the fps counter (dev-only, would leak into a
+//!   capture meant to double as a screen-share/recording source) or the
+//!   built-in bar (not asked for yet).
 //! - Assumes `Transform::Normal` for `capture_output_region`'s coordinate
 //!   math (unlike niri, which handles arbitrary output transforms) — the
 //!   region is scaled from logical to physical and clamped to the output's
@@ -50,11 +57,12 @@ use smithay::{
     backend::{
         allocator::Fourcc,
         renderer::{
-            damage::OutputDamageTracker, gles::GlesTexture, Bind, Color32F, ExportMem, ImportAll,
-            ImportMem, Offscreen, Renderer,
+            damage::OutputDamageTracker, element::memory::MemoryRenderBuffer, gles::GlesTexture,
+            Bind, Color32F, ExportMem, ImportAll, ImportMem, Offscreen, Renderer,
         },
     },
     desktop::Space,
+    input::pointer::CursorImageStatus,
     output::Output,
     reexports::{
         wayland_protocols_wlr::screencopy::v1::server::{
@@ -67,15 +75,16 @@ use smithay::{
             Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
         },
     },
-    utils::{Buffer as BufferCoord, Logical, Physical, Point, Rectangle, Size},
+    utils::{Buffer as BufferCoord, Logical, Physical, Point, Rectangle, Scale, Size},
     wayland::shm,
 };
 use tracing::trace;
 
 use crate::{
-    render::{output_elements, BorderRect, CornerMaskCache, RectCache},
+    drawing::PointerElement,
+    render::{cursor_and_dnd_elements, output_elements, BorderRect, CornerMaskCache, RectCache},
     shell::WindowElement,
-    state::{Backend, SpitfireState},
+    state::{Backend, DndIcon, SpitfireState},
 };
 
 /// wl_shm-guaranteed version — see this module's doc comment for why
@@ -352,6 +361,17 @@ smithay::reexports::wayland_server::delegate_dispatch!(@<BackendData: Backend + 
 /// Deliberately *not* given the real `anims` — see `render_and_copy`'s doc
 /// comment for why a capture always uses the plain (non-animated) window
 /// path even mid-animation.
+///
+/// `pointer_location`/`pointer_image`/`pointer_element`/`dnd_icon`/
+/// `cursor_status`/`scale` are the same raw ingredients winit.rs/udev.rs
+/// feed their own real frame's cursor into (see `render::
+/// cursor_and_dnd_elements`) — passed through *raw*, not as an
+/// already-built element list, since `render_and_copy` calls that fn itself
+/// once per pending capture (`CustomRenderElements` isn't `Clone`, so a
+/// single pre-built list couldn't be reused across more than one capture
+/// due the same output this tick — see `cursor_and_dnd_elements`'s own doc
+/// comment). Gives a capture the pointer visible instead of a bare desktop;
+/// previously omitted entirely.
 #[allow(clippy::too_many_arguments)]
 pub fn service_pending_captures<R>(
     state: &mut ScreencopyState,
@@ -359,6 +379,12 @@ pub fn service_pending_captures<R>(
     space: &Space<WindowElement>,
     output: &Output,
     locked_surface: Option<&WlSurface>,
+    pointer_location: Point<f64, Logical>,
+    pointer_image: Option<&MemoryRenderBuffer>,
+    pointer_element: &mut PointerElement,
+    dnd_icon: Option<&DndIcon>,
+    cursor_status: &mut CursorImageStatus,
+    scale: Scale<f64>,
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -393,6 +419,12 @@ pub fn service_pending_captures<R>(
             space,
             output,
             locked_surface,
+            pointer_location,
+            pointer_image,
+            pointer_element,
+            dnd_icon,
+            cursor_status,
+            scale,
             borders,
             border_width,
             border_radius,
@@ -409,6 +441,12 @@ fn capture_one<R>(
     space: &Space<WindowElement>,
     output: &Output,
     locked_surface: Option<&WlSurface>,
+    pointer_location: Point<f64, Logical>,
+    pointer_image: Option<&MemoryRenderBuffer>,
+    pointer_element: &mut PointerElement,
+    dnd_icon: Option<&DndIcon>,
+    cursor_status: &mut CursorImageStatus,
+    scale: Scale<f64>,
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -438,6 +476,12 @@ fn capture_one<R>(
         space,
         output,
         locked_surface,
+        pointer_location,
+        pointer_image,
+        pointer_element,
+        dnd_icon,
+        cursor_status,
+        scale,
         borders,
         border_width,
         border_radius,
@@ -473,6 +517,12 @@ fn render_and_copy<R>(
     space: &Space<WindowElement>,
     output: &Output,
     locked_surface: Option<&WlSurface>,
+    pointer_location: Point<f64, Logical>,
+    pointer_image: Option<&MemoryRenderBuffer>,
+    pointer_element: &mut PointerElement,
+    dnd_icon: Option<&DndIcon>,
+    cursor_status: &mut CursorImageStatus,
+    scale: Scale<f64>,
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -506,10 +556,28 @@ where
     // not worth chasing deeper: a capture showing every window at its
     // plain, settled geometry instead of mid-slide is a perfectly
     // reasonable thing for a screenshot tool to do anyway.
+    // See `cursor_and_dnd_elements`'s own doc comment for why this is a
+    // fresh call rather than a passed-in, pre-built element list — this
+    // capture wants the pointer visible, same as the real frame did this
+    // tick, but `CustomRenderElements` isn't `Clone`.
+    let output_geometry = space
+        .output_geometry(output)
+        .ok_or("output not mapped in space")?;
+    let cursor_elements = cursor_and_dnd_elements(
+        renderer,
+        output_geometry,
+        pointer_location,
+        pointer_image,
+        pointer_element,
+        dnd_icon,
+        cursor_status,
+        scale,
+    );
+
     let (elements, clear_color) = output_elements(
         output,
         space,
-        std::iter::empty(),
+        cursor_elements,
         renderer,
         false,
         locked_surface,

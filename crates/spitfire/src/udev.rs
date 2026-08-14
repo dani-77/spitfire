@@ -1672,13 +1672,23 @@ impl SpitfireState<UdevData> {
         // dependent on `result` above (already queued for scanout via
         // `surface.drm_output.queue_frame` inside `render_surface`) — see
         // `crate::screencopy`'s doc comment for why it's a fresh offscreen
-        // composite rather than reading the DRM/GBM buffer back.
+        // composite rather than reading the DRM/GBM buffer back. Given the
+        // same raw cursor/dnd ingredients `render_surface` above was, so a
+        // capture shows the pointer too — see `render::cursor_and_dnd_elements`'s
+        // doc comment for why this is a fresh call rather than reusing
+        // something built inside `render_surface`.
         crate::screencopy::service_pending_captures(
             &mut self.screencopy_state,
             &mut renderer,
             &self.space,
             &output,
             locked_surface.as_ref(),
+            self.pointer.current_location(),
+            Some(&pointer_image),
+            &mut self.backend_data.pointer_element,
+            self.dnd_icon.as_ref(),
+            &mut self.cursor_status,
+            Scale::from(output.current_scale().fractional_scale()),
             &border_rects,
             border.width,
             border.radius,
