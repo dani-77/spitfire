@@ -343,12 +343,28 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `OutputDamageTracker` as-is against a throwaway `GlesTexture`) rather than a readback of
   the just-presented framebuffer, so it doesn't depend on either backend's
   swapchain/scanout buffer still being readable when the request is serviced — the
-  tradeoff is a capture never includes the cursor/dnd-icon/built-in bar (those are added
-  as `custom_elements` by `winit.rs`/`udev.rs` before calling `output_elements`, which the
-  capture path calls with an empty list instead), and `capture_output_region`'s coordinate
-  math assumes `Transform::Normal` (no output-rotation handling). Verified working
-  end-to-end against the real udev/DRM session with real `grim` captures, and is in fact
-  how the two bugs directly below were actually caught and confirmed fixed.
+  tradeoff is a capture never includes the built-in bar (added as `custom_elements` by
+  `winit.rs`/`udev.rs` before calling `output_elements`, which the capture path leaves
+  out), and `capture_output_region`'s coordinate math assumes `Transform::Normal` (no
+  output-rotation handling). Verified working end-to-end against the real udev/DRM
+  session with real `grim` captures, and is in fact how the two bugs directly below were
+  actually caught and confirmed fixed.
+  > **Cursor/dnd-icon fixed 2026-08-14** — the capture path called `output_elements` with
+  > an empty `custom_elements` list, so a capture always showed a bare desktop with no
+  > pointer, regardless of what was actually on screen: fine for an occasional debug
+  > screenshot, a real problem for anything meant to double as a screen-share/streaming
+  > source (see the "is wlr-screencopy good enough to stream?" assessment that prompted
+  > this). Fixed by extracting the cursor+dnd-icon construction winit.rs/udev.rs already
+  > did for their own real frame into a shared `render::cursor_and_dnd_elements`, and
+  > having `render_and_copy` call it too — once per pending capture serviced, not built
+  > once and shared, since `CustomRenderElements` isn't `Clone`. Verified live on `--udev`:
+  > a `grim` capture now shows the actual system cursor at its on-screen position (nested
+  > `--winit` testing can't show this one — see that fn's own doc comment: a nested window
+  > relies on the host compositor's cursor overlay for the default arrow, which never
+  > reaches an inner capture regardless of this fix). First of three planned improvements
+  > towards being a real streaming source — real damage-tracking for `copy_with_damage`
+  > and a `dmabuf` zero-copy path are still open, see the wl_shm/damage-tracking notes
+  > earlier in this same bullet.
 - **An opaque backdrop behind every window's content** (`shell/ssd.rs`'s
   `WindowState::backdrop`, drawn in `shell/element.rs`'s
   `WindowElement::render_elements`) — fixes a real bug, reported live and only
