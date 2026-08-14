@@ -435,11 +435,15 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   the preferred backend for those interfaces instead of leaving it to the generic
   `portals.conf`'s ambiguous `default=*`, which could otherwise land on
   `xdg-desktop-portal-gnome` with no `gnome-shell`/Mutter actually backing it.
-  `ScreenCast`/`Screenshot` still aren't covered by this config — spitfire now implements
-  `wlr-screencopy` (see the bullet above), but only `xdg-desktop-portal-wlr` speaks it on
-  the portal side, and that hasn't been installed/wired up or tested end-to-end yet;
+  `ScreenCast`/`Screenshot` now route to `xdg-desktop-portal-wlr` too (2026-08-14) —
+  spitfire implements `wlr-screencopy` (see the bullet above) and that was the only
+  reason they weren't covered before; the config just hadn't caught up.
   `ext-image-copy-capture-v1` (the protocol `xdg-desktop-portal-gnome`/`-kde` would want
-  instead) still isn't implemented at all. Verified live: a fresh
+  instead) still isn't implemented at all, so those backends remain out of reach on
+  purpose. Not yet re-verified end-to-end against a live `Screenshot`/`ScreenCast` call
+  (previously confirmed only that `xdg-desktop-portal-wlr` stayed uninvoked while
+  unrouted) — worth a real capture through the portal, not just `grim` directly, before
+  relying on it. Verified live: a fresh
   session restart on real hardware, `xdg-desktop-portal-gtk` activates cleanly and stays
   up, `FileChooser`/`Settings` (via the `gnome` backend for the latter, which doesn't
   need Mutter for plain `GSettings` reads) both answer over D-Bus.
