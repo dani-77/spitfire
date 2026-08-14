@@ -19,12 +19,32 @@
 //!   no `linux-dmabuf`/`buffer_done` bookkeeping to do at all. No zero-copy
 //!   GPU path; fine for occasional manual captures, not for a real-time
 //!   screencaster.
-//! - No screencast/damage-tracking queue — every `copy`/`copy_with_damage`
-//!   request renders and copies on the very next frame for its output,
-//!   unconditionally. `copy_with_damage` therefore behaves exactly like
-//!   `copy` (always "damaged", the whole buffer): correct but wasteful for
-//!   a real-time capture client polling every frame, harmless for `grim`'s
-//!   single-shot use.
+//! - `copy` still renders and copies on the very next frame for its output,
+//!   unconditionally — correct for `grim`'s single-shot use, and there's no
+//!   sane way to define "damage" for a request that never promised to wait.
+//!   `copy_with_damage` (2026-08-14) actually waits, though: a pending
+//!   `copy_with_damage` capture is only serviced on a frame where the real
+//!   render loop's own `OutputDamageTracker` reports non-empty damage for
+//!   that output (see `service_pending_captures`'s `frame_damage` param,
+//!   threaded in from winit.rs/udev.rs's `RenderOutputResult` — *not* this
+//!   module's own throwaway per-capture tracker below, which is recreated
+//!   fresh every call and so would report "everything changed" every time,
+//!   useless as an incremental signal). While waiting, the compositor does
+//!   no extra render/copy work for that request at all — the whole point,
+//!   since a static screen (a video call sharing a slide, say) now costs
+//!   nothing per frame instead of a full offscreen re-render + GPU→CPU
+//!   readback every single tick. Once serviced, the real damage rects are
+//!   reported back via `frame.damage()` events before `ready`, clamped to
+//!   the capture's own region — matches what `xdg-desktop-portal-wlr`/
+//!   PipeWire actually want from a streaming source (see the "is
+//!   wlr-screencopy good enough to stream?" assessment that prompted this).
+//!   Approximates "damage since the last `copy_with_damage` for this
+//!   stream" as "damage on the next real frame after this request", which
+//!   holds for the pattern real clients use (immediately re-request on
+//!   `ready`, so there's normally at most one such request in flight); it
+//!   would undercount if a client left a `copy_with_damage` unrequested for
+//!   several real frames and expected the union of all of them back —
+//!   not a pattern PipeWire/portal streaming actually uses.
 //! - Captures a *fresh offscreen render* of the output (the same element
 //!   list `render::output_elements` builds for the real frame, rendered
 //!   again into a throwaway GPU texture) rather than reading back the
@@ -134,14 +154,18 @@ pub enum FrameData {
 }
 
 /// One `copy`/`copy_with_damage` request, waiting for its output's next
-/// frame to actually be serviced — see `service_pending_captures`, called
-/// from winit.rs's render loop and udev.rs's `render_surface`.
+/// *eligible* frame to actually be serviced — see `service_pending_captures`,
+/// called from winit.rs's render loop and udev.rs's `render_surface`. A
+/// plain `copy` (`wants_damage: false`) is eligible on the very next frame,
+/// unconditionally; `copy_with_damage` only once that frame actually
+/// reports damage for this output — see this module's doc comment.
 struct PendingCapture {
     frame: ZwlrScreencopyFrameV1,
     output: Output,
     buffer: WlBuffer,
     buffer_size: Size<i32, Physical>,
     region_loc: Point<i32, Physical>,
+    wants_damage: bool,
 }
 
 #[derive(Default)]
@@ -296,9 +320,9 @@ impl<BackendData: Backend + 'static>
         _dh: &DisplayHandle,
         _data_init: &mut DataInit<'_, SpitfireState<BackendData>>,
     ) {
-        let buffer = match request {
-            zwlr_screencopy_frame_v1::Request::Copy { buffer } => buffer,
-            zwlr_screencopy_frame_v1::Request::CopyWithDamage { buffer } => buffer,
+        let (buffer, wants_damage) = match request {
+            zwlr_screencopy_frame_v1::Request::Copy { buffer } => (buffer, false),
+            zwlr_screencopy_frame_v1::Request::CopyWithDamage { buffer } => (buffer, true),
             zwlr_screencopy_frame_v1::Request::Destroy => return,
             _ => unreachable!(),
         };
@@ -324,6 +348,7 @@ impl<BackendData: Backend + 'static>
             buffer,
             buffer_size: info.buffer_size,
             region_loc: info.region_loc,
+            wants_damage,
         });
     }
 
@@ -372,6 +397,13 @@ smithay::reexports::wayland_server::delegate_dispatch!(@<BackendData: Backend + 
 /// due the same output this tick — see `cursor_and_dnd_elements`'s own doc
 /// comment). Gives a capture the pointer visible instead of a bare desktop;
 /// previously omitted entirely.
+///
+/// `frame_damage` is the real render loop's own damage for `output` this
+/// tick — `None`/empty means nothing changed. Only gates `copy_with_damage`
+/// captures (see `PendingCapture`'s doc comment and this module's own doc
+/// comment); a plain `copy` is serviced regardless, as before. Also what
+/// gets reported back via `frame.damage()` events for whichever
+/// `copy_with_damage` captures this call does end up servicing.
 #[allow(clippy::too_many_arguments)]
 pub fn service_pending_captures<R>(
     state: &mut ScreencopyState,
@@ -379,6 +411,7 @@ pub fn service_pending_captures<R>(
     space: &Space<WindowElement>,
     output: &Output,
     locked_surface: Option<&WlSurface>,
+    frame_damage: Option<&[Rectangle<i32, Physical>]>,
     pointer_location: Point<f64, Logical>,
     pointer_image: Option<&MemoryRenderBuffer>,
     pointer_element: &mut PointerElement,
@@ -407,10 +440,13 @@ pub fn service_pending_captures<R>(
     if state.pending.is_empty() {
         return;
     }
-    let (due, rest): (Vec<_>, Vec<_>) = state
-        .pending
-        .drain(..)
-        .partition(|capture| &capture.output == output);
+    // A capture is "due" for this output either because it's a plain `copy`
+    // (always due, next frame) or because it's a `copy_with_damage` and this
+    // frame actually has damage to report — otherwise it stays queued for a
+    // later call. See this module's doc comment.
+    let (due, rest): (Vec<_>, Vec<_>) = state.pending.drain(..).partition(|capture| {
+        &capture.output == output && (!capture.wants_damage || frame_damage.is_some())
+    });
     state.pending = rest;
 
     for capture in due {
@@ -419,6 +455,7 @@ pub fn service_pending_captures<R>(
             space,
             output,
             locked_surface,
+            frame_damage,
             pointer_location,
             pointer_image,
             pointer_element,
@@ -441,6 +478,7 @@ fn capture_one<R>(
     space: &Space<WindowElement>,
     output: &Output,
     locked_surface: Option<&WlSurface>,
+    frame_damage: Option<&[Rectangle<i32, Physical>]>,
     pointer_location: Point<f64, Logical>,
     pointer_image: Option<&MemoryRenderBuffer>,
     pointer_element: &mut PointerElement,
@@ -464,6 +502,7 @@ fn capture_one<R>(
         buffer,
         buffer_size,
         region_loc,
+        wants_damage,
         ..
     } = capture;
 
@@ -495,6 +534,28 @@ fn capture_one<R>(
     match result {
         Ok(()) => {
             frame.flags(Flags::empty());
+            // Per-protocol, `damage` events only mean anything for
+            // `copy_with_damage`, and must be sent before `ready` — see
+            // this module's own doc comment for what `frame_damage` is and
+            // why it's a reasonable approximation of "since this capture
+            // was last serviced". A capture region smaller than the whole
+            // output (`capture_output_region`) clips each rect down to
+            // just its own slice, in its own buffer-local coordinates.
+            if wants_damage {
+                let capture_rect = Rectangle::new(region_loc, buffer_size);
+                for rect in frame_damage.into_iter().flatten() {
+                    let Some(clamped) = rect.intersection(capture_rect) else {
+                        continue;
+                    };
+                    let local = clamped.loc - region_loc;
+                    frame.damage(
+                        local.x as u32,
+                        local.y as u32,
+                        clamped.size.w as u32,
+                        clamped.size.h as u32,
+                    );
+                }
+            }
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default();

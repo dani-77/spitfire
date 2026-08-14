@@ -31,7 +31,7 @@ use smithay::{
         wayland_server::{protocol::wl_surface, Display},
         winit::platform::pump_events::PumpStatus,
     },
-    utils::{IsAlive, Scale, Transform},
+    utils::{IsAlive, Physical, Rectangle, Scale, Transform},
     wayland::{
         dmabuf::{
             DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState,
@@ -440,6 +440,12 @@ pub fn run_winit() {
                     _ => unreachable!(),
                 });
 
+                // The real damage this tick, cloned out of `res` before it
+                // moves on below — see `service_pending_captures`'s
+                // `frame_damage` doc comment for what this gates/reports.
+                let frame_damage: Option<Vec<Rectangle<i32, Physical>>> =
+                    res.as_ref().ok().and_then(|r| r.damage).cloned();
+
                 // wlr-screencopy (`grim`) — a throwaway second render, not
                 // dependent on `res`/`fb` above (which is about to be
                 // presented via `backend.submit()` below) — see
@@ -456,6 +462,7 @@ pub fn run_winit() {
                     space,
                     &output,
                     locked_surface,
+                    frame_damage.as_deref(),
                     cursor_pos,
                     None,
                     &mut pointer_element,

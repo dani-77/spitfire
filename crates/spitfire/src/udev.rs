@@ -82,7 +82,9 @@ use smithay::{
         },
         wayland_server::{backend::GlobalId, protocol::wl_surface, Display, DisplayHandle},
     },
-    utils::{DeviceFd, IsAlive, Logical, Monotonic, Point, Scale, Time, Transform},
+    utils::{
+        DeviceFd, IsAlive, Logical, Monotonic, Physical, Point, Rectangle, Scale, Time, Transform,
+    },
     wayland::{
         compositor,
         dmabuf::{DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
@@ -1668,6 +1670,23 @@ impl SpitfireState<UdevData> {
             &anims,
         );
 
+        // Real damage this tick, for service_pending_captures's
+        // copy_with_damage gating/reporting (see its own `frame_damage` doc
+        // comment). Unlike winit.rs's plain `OutputDamageTracker`,
+        // udev.rs's `DrmCompositor` doesn't expose granular damage rects at
+        // this level — `RenderFrameResult` only says whether *anything*
+        // changed (`!is_empty`, already extracted as `rendered` below), not
+        // which regions — so this conservatively reports "the whole output
+        // changed" whenever `render_surface` says it did, rather than a
+        // tighter region. Always protocol-correct (a capture client can
+        // safely be told more changed than strictly true), just not
+        // maximally precise.
+        let rendered_ok = matches!(&result, Ok((true, _)));
+        let full_output_rect =
+            Rectangle::from_size(output.current_mode().map(|m| m.size).unwrap_or_default());
+        let frame_damage: Option<&[Rectangle<i32, Physical>]> =
+            rendered_ok.then(|| std::slice::from_ref(&full_output_rect));
+
         // wlr-screencopy (`grim`) — a throwaway second render, not
         // dependent on `result` above (already queued for scanout via
         // `surface.drm_output.queue_frame` inside `render_surface`) — see
@@ -1683,6 +1702,7 @@ impl SpitfireState<UdevData> {
             &self.space,
             &output,
             locked_surface.as_ref(),
+            frame_damage,
             self.pointer.current_location(),
             Some(&pointer_image),
             &mut self.backend_data.pointer_element,
