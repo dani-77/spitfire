@@ -1534,7 +1534,25 @@ impl SpitfireState<UdevData> {
         }
     }
 
+    /// Decides, once and for all for this whole swipe, whether it's a
+    /// `spitfire.gesture` (never forwarded to the focused client) or an
+    /// ordinary touchpad swipe (forwarded via `zwp_pointer_gestures`
+    /// exactly as before `spitfire.gesture` existed) — see
+    /// `PendingGesture`'s own doc comment for why that decision has to be
+    /// made here, at `fingers`-only granularity, rather than waiting until
+    /// a direction is known.
     fn on_gesture_swipe_begin<B: InputBackend>(&mut self, evt: B::GestureSwipeBeginEvent) {
+        let fingers = evt.fingers();
+        let intercepted = self.config.has_gesture_for_fingers(fingers);
+        self.pending_gesture = Some(crate::state::PendingGesture {
+            fingers,
+            dx: 0.0,
+            dy: 0.0,
+            intercepted,
+        });
+        if intercepted {
+            return;
+        }
         let serial = SCOUNTER.next_serial();
         let pointer = self.pointer.clone();
         pointer.gesture_swipe_begin(
@@ -1542,12 +1560,23 @@ impl SpitfireState<UdevData> {
             &GestureSwipeBeginEvent {
                 serial,
                 time: evt.time_msec(),
-                fingers: evt.fingers(),
+                fingers,
             },
         );
     }
 
     fn on_gesture_swipe_update<B: InputBackend>(&mut self, evt: B::GestureSwipeUpdateEvent) {
+        if let Some(pending) = self.pending_gesture.as_mut() {
+            if pending.intercepted {
+                // Accumulated silently — this sequence was never forwarded
+                // to begin with, so there's no client-facing update to send
+                // either. See `GestureDirection::classify`, used once this
+                // total is known at `on_gesture_swipe_end`.
+                pending.dx += evt.delta_x();
+                pending.dy += evt.delta_y();
+                return;
+            }
+        }
         let pointer = self.pointer.clone();
         pointer.gesture_swipe_update(
             self,
@@ -1559,6 +1588,29 @@ impl SpitfireState<UdevData> {
     }
 
     fn on_gesture_swipe_end<B: InputBackend>(&mut self, evt: B::GestureSwipeEndEvent) {
+        if let Some(pending) = self.pending_gesture.take() {
+            if pending.intercepted {
+                // A cancelled swipe (e.g. a finger lifted mid-gesture)
+                // fires nothing — same as a swipe whose finger count
+                // matched some `spitfire.gesture` but whose eventual
+                // direction matched none: a shrug, not an error.
+                if !evt.cancelled() {
+                    let direction =
+                        spitfire_config::GestureDirection::classify(pending.dx, pending.dy);
+                    if let Some(idx) = self.config.find_gesture(pending.fingers, direction) {
+                        match self.config.invoke_gesture(idx) {
+                            Ok(commands) => {
+                                for cmd in commands {
+                                    self.apply_config_command(cmd);
+                                }
+                            }
+                            Err(err) => error!(%err, "Lua gesture callback raised an error"),
+                        }
+                    }
+                }
+                return;
+            }
+        }
         let serial = SCOUNTER.next_serial();
         let pointer = self.pointer.clone();
         pointer.gesture_swipe_end(

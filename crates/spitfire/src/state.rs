@@ -236,6 +236,11 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     // input-related fields
     pub suppressed_keys: Vec<Keysym>,
     pub cursor_status: CursorImageStatus,
+    /// A touchpad swipe currently in progress, from `GestureSwipeBegin` to
+    /// `GestureSwipeEnd`/cancel — `None` whenever no swipe is live. See
+    /// `PendingGesture`'s own doc comment and `input_handler.rs`'s
+    /// `on_gesture_swipe_*` handlers.
+    pub pending_gesture: Option<PendingGesture>,
     pub seat_name: String,
     pub seat: Seat<SpitfireState<BackendData>>,
     pub clock: Clock<Monotonic>,
@@ -256,6 +261,33 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
 pub struct DndIcon {
     pub surface: WlSurface,
     pub offset: Point<i32, Logical>,
+}
+
+/// State for a touchpad swipe currently between `GestureSwipeBegin` and
+/// `GestureSwipeEnd`/cancel — see `SpitfireState::pending_gesture`.
+///
+/// `intercepted`, decided once at `GestureSwipeBegin` (before a direction is
+/// knowable — only `fingers` is available yet), is why this exists at all:
+/// `spitfire.gesture` needs the *whole* sequence either kept from the
+/// focused client or handed to it, never a partial one (a client that saw
+/// `begin`+`update` but never an `end` would be left with a gesture stuck
+/// mid-flight forever). `Config::has_gesture_for_fingers` answers "would
+/// *any* registered `spitfire.gesture` ever fire for this many fingers,
+/// regardless of which way it ends up going" — if yes, the whole sequence
+/// is swallowed (never forwarded to `self.pointer` at all) and `dx`/`dy`
+/// accumulate silently until `GestureSwipeEnd`, where `GestureDirection::
+/// classify` picks a direction and `Config::find_gesture` looks up the
+/// actual match (if the finger count matched but no entry wants *this*
+/// direction, nothing fires — a shrug, not an error). If no, every event in
+/// the sequence is forwarded to `self.pointer` exactly as before
+/// `spitfire.gesture` existed — zero behavior change for anyone not using
+/// it, including any client speaking `zwp_pointer_gestures` itself.
+#[derive(Debug)]
+pub struct PendingGesture {
+    pub fingers: u32,
+    pub dx: f64,
+    pub dy: f64,
+    pub intercepted: bool,
 }
 
 delegate_compositor!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
@@ -862,6 +894,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             dnd_icon: None,
             suppressed_keys: Vec::new(),
             cursor_status: CursorImageStatus::default_named(),
+            pending_gesture: None,
             seat_name,
             seat,
             pointer,

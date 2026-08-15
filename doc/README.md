@@ -37,7 +37,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
 - **Config** (`spitfire-config`, via `mlua`): a single `config.lua`
   (`$XDG_CONFIG_HOME/spitfire/config.lua`, falling back to
   `~/.config/spitfire/config.lua`), reloadable at runtime with `spitfire.reload()` — no
-  recompile. `spitfire.bind`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`window`/
+  recompile. `spitfire.bind`/`gesture`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`window`/
   `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`/`anim`/`focus_follows_mouse`. Mod4/Super and Mod1/Alt are both
   first-class modifiers, freely mixable per bind. See `../examples/config.lua` for the
   default bindings.
@@ -352,6 +352,31 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     `Serial` each already computes. Touch-down and tablet-tip are untouched: they already
     go through the raising `update_keyboard_focus` on direct contact, which is orthogonal
     to pointer hover.
+- **`spitfire.gesture(fingers, direction, function)`** (2026-08-15, `udev`-only —
+  touchpad gesture events are a real-libinput-hardware thing, there's nothing to forward
+  in a nested `--winit` session; `spitfire_config::Gesture`/`GestureDirection` +
+  `SpitfireState::on_gesture_swipe_*` in `input_handler.rs`). Inspired by the user's other
+  compositor's own `wasp.gestures` (`~/Projectos/wasp`) — the underlying libinput swipe
+  events (`GestureSwipeBegin`/`Update`/`End`) were already fully wired before this, but
+  only ever forwarded to the focused client via `zwp_pointer_gestures`; this is the first
+  time the compositor itself ever consumes one. `fingers = 0` matches any finger count,
+  same "0/omitted = any" convention `wasp.gestures` documents. Interception has to be
+  decided at `GestureSwipeBegin`, before a direction is knowable — only the finger count
+  is available yet — so `Config::has_gesture_for_fingers` alone decides whether the whole
+  sequence is swallowed (never forwarded, `dx`/`dy` accumulated silently in the new
+  `SpitfireState::pending_gesture`) or passed through exactly as before
+  `spitfire.gesture` existed; a half-forwarded sequence (client sees `begin`+`update` but
+  never an `end`) was the failure mode to avoid. `GestureDirection::classify` picks
+  left/right/up/down from the swipe's dominant axis once total `dx`/`dy` is known at
+  `GestureSwipeEnd` — same approach wasp's own classifier and niri/GNOME use, so a
+  gesture that wobbles diagonally mid-swipe doesn't flip its eventual direction back and
+  forth. A cancelled swipe, or one whose finger count matched some `spitfire.gesture` but
+  whose eventual direction matched none, fires nothing — a shrug, not an error. Reuses
+  `spitfire.bind`'s exact mechanics end to end: a gesture's callback is an
+  `mlua::RegistryKey` invoked through `Config::invoke_gesture` (mirrors `invoke_bind`
+  precisely), and whatever `Command`s it pushes go through the same
+  `apply_config_command` every keybind already does — so `spitfire.workspace.focus(n)`,
+  `spitfire.spawn(...)`, or anything else a bind can do works identically from a gesture.
 - **`wlr-screencopy-unstable-v1`** (new: `crate::screencopy`, hand-implemented — not
   provided by Smithay, same situation as `ext-workspace-v1`, see `../NOTICE.md`) — what
   `grim` (and, transitively, `xdg-desktop-portal-wlr`'s Screenshot/ScreenCast, though

@@ -15,10 +15,12 @@
 mod api;
 mod bind;
 mod command;
+mod gesture;
 mod rule;
 
 pub use bind::{Bind, Modifiers};
 pub use command::Command;
+pub use gesture::{Gesture, GestureDirection};
 pub use rule::WindowRule;
 pub use xkbcommon::xkb::Keysym;
 
@@ -176,6 +178,7 @@ pub struct Config {
     lua: Lua,
     binds: Rc<RefCell<Vec<Bind>>>,
     rules: Rc<RefCell<Vec<WindowRule>>>,
+    gestures: Rc<RefCell<Vec<Gesture>>>,
     commands: Rc<RefCell<Vec<Command>>>,
     pub autostart: Vec<String>,
     pub gaps: spitfire_layout::Gaps,
@@ -219,6 +222,7 @@ impl Config {
         let binds = Rc::new(RefCell::new(Vec::new()));
         let autostart = Rc::new(RefCell::new(Vec::new()));
         let rules = Rc::new(RefCell::new(Vec::new()));
+        let gestures = Rc::new(RefCell::new(Vec::new()));
 
         api::install(
             &lua,
@@ -226,6 +230,7 @@ impl Config {
             binds.clone(),
             autostart.clone(),
             rules.clone(),
+            gestures.clone(),
         )?;
 
         match std::fs::read_to_string(path) {
@@ -254,6 +259,7 @@ impl Config {
             lua,
             binds,
             rules,
+            gestures,
             commands,
             autostart,
             gaps,
@@ -300,6 +306,41 @@ impl Config {
     /// The registered `spitfire.rule({...})` rules.
     pub fn rules(&self) -> std::cell::Ref<'_, Vec<WindowRule>> {
         self.rules.borrow()
+    }
+
+    /// Whether any `spitfire.gesture` is registered for this many fingers
+    /// (or for "any", `fingers == 0`) — checked at `GestureSwipeBegin`,
+    /// before a direction is knowable, to decide whether this whole swipe
+    /// sequence should be intercepted (never forwarded to the focused
+    /// client) or passed through untouched. See
+    /// `SpitfireState::on_gesture_swipe_begin` in the `spitfire` crate.
+    pub fn has_gesture_for_fingers(&self, fingers: u32) -> bool {
+        self.gestures
+            .borrow()
+            .iter()
+            .any(|g| g.matches_fingers(fingers))
+    }
+
+    /// Finds the first `spitfire.gesture` matching `fingers`/`direction` —
+    /// same "index, not the value" shape as `find_bind`.
+    pub fn find_gesture(&self, fingers: u32, direction: GestureDirection) -> Option<usize> {
+        self.gestures
+            .borrow()
+            .iter()
+            .position(|g| g.matches(fingers, direction))
+    }
+
+    /// Invokes gesture `idx` — same mechanics as `invoke_bind`.
+    pub fn invoke_gesture(&self, idx: usize) -> mlua::Result<Vec<Command>> {
+        {
+            let gestures = self.gestures.borrow();
+            let gesture = gestures
+                .get(idx)
+                .ok_or_else(|| mlua::Error::RuntimeError(format!("invalid gesture: {idx}")))?;
+            let func: mlua::Function = self.lua.registry_value(&gesture.callback)?;
+            func.call::<()>(())?;
+        }
+        Ok(self.drain_commands())
     }
 }
 
@@ -511,6 +552,48 @@ mod tests {
                 Command::Spawn("echo hi".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn gesture_fires_and_produces_commands() {
+        let config = load_str(
+            r#"
+            spitfire.gesture(3, "left", function()
+                spitfire.workspace.focus(2)
+            end)
+            "#,
+        );
+        assert!(config.has_gesture_for_fingers(3));
+        // "any fingers" (0) is a separate concept from a specific count —
+        // an entry registered for exactly 3 fingers shouldn't answer yes
+        // for 4.
+        assert!(!config.has_gesture_for_fingers(4));
+        let idx = config
+            .find_gesture(3, GestureDirection::Left)
+            .expect("gesture not found");
+        let commands = config.invoke_gesture(idx).unwrap();
+        assert_eq!(commands, vec![Command::WorkspaceFocus(2)]);
+    }
+
+    #[test]
+    fn gesture_does_not_match_wrong_direction() {
+        let config = load_str(r#"spitfire.gesture(3, "left", function() end)"#);
+        assert!(config.find_gesture(3, GestureDirection::Right).is_none());
+    }
+
+    #[test]
+    fn gesture_zero_fingers_matches_any_finger_count() {
+        let config = load_str(r#"spitfire.gesture(0, "up", function() end)"#);
+        assert!(config.has_gesture_for_fingers(2));
+        assert!(config.has_gesture_for_fingers(3));
+        assert!(config.has_gesture_for_fingers(4));
+        assert!(config.find_gesture(3, GestureDirection::Up).is_some());
+    }
+
+    #[test]
+    fn gesture_unknown_direction_is_never_registered() {
+        let config = load_str(r#"spitfire.gesture(3, "sideways", function() end)"#);
+        assert!(!config.has_gesture_for_fingers(3));
     }
 
     #[test]

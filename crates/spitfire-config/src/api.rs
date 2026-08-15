@@ -14,6 +14,7 @@ use xkbcommon::xkb;
 use crate::{
     bind::{Bind, Modifiers},
     command::Command,
+    gesture::{Gesture, GestureDirection},
     rule::WindowRule,
     AnimConfig, BarConfig, BorderConfig, KeyboardConfig, OutputConfig,
 };
@@ -24,6 +25,7 @@ pub(crate) fn install(
     binds: Rc<RefCell<Vec<Bind>>>,
     autostart: Rc<RefCell<Vec<String>>>,
     rules: Rc<RefCell<Vec<WindowRule>>>,
+    gestures: Rc<RefCell<Vec<Gesture>>>,
 ) -> mlua::Result<()> {
     let spitfire = lua.create_table()?;
 
@@ -44,6 +46,29 @@ pub(crate) fn install(
             },
         )?;
         spitfire.set("bind", bind_fn)?;
+    }
+
+    // spitfire.gesture(fingers, direction, function) — fingers = 0 matches
+    // any finger count. An unknown `direction` string is dropped with a
+    // warning (see `GestureDirection::parse`), same "harmless, never fires"
+    // treatment `bind`'s own unknown-modifier case gets.
+    {
+        let gestures = gestures.clone();
+        let gesture_fn = lua.create_function(
+            move |lua, (fingers, direction, callback): (u32, String, mlua::Function)| {
+                let Some(direction) = GestureDirection::parse(&direction) else {
+                    return Ok(());
+                };
+                let callback = lua.create_registry_value(callback)?;
+                gestures.borrow_mut().push(Gesture {
+                    fingers,
+                    direction,
+                    callback,
+                });
+                Ok(())
+            },
+        )?;
+        spitfire.set("gesture", gesture_fn)?;
     }
 
     // spitfire.spawn(cmd)

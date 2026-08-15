@@ -34,6 +34,14 @@ for i = 1, 9 do
   spitfire.bind("Mod1", tostring(i), function() spitfire.workspace.move_window(i) end)
 end
 
+-- Touchpad gestures — udev/real-hardware only, a no-op in a nested
+-- --winit session (there's no libinput device to swipe on). `fingers = 0`
+-- would match any finger count; 3 here keeps this off of whatever a
+-- 2-finger swipe already means to you (scroll). A gesture's callback runs
+-- exactly like a bind's — any spitfire.* call works inside it.
+spitfire.gesture(3, "left", function() spitfire.workspace.focus(2) end)
+spitfire.gesture(3, "right", function() spitfire.workspace.focus(1) end)
+
 -- Launching things — this is you configuring which terminal to use,
 -- spitfire itself has no built-in/hardcoded default (see spitfire.spawn
 -- below); swap "Mod4" for "Mod1" here, or anywhere else, freely.
