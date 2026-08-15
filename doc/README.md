@@ -432,6 +432,21 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   (0.8.2) already prefers `ext-image-copy-capture-v1` over `wlr-screencopy` automatically
   when both are advertised, so this isn't speculative — worth doing, just not on this
   protocol.
+- **`spitfire.rule({ hide_from_capture = true })`** (2026-08-15,
+  `spitfire_config::WindowRule` + `render::output_elements`'s new `hidden_windows` param):
+  a privacy flag, inspired by the same feature in the user's other compositor
+  ([wasp](https://github.com/dani-77/wasp)'s `shield_when_capture`) — a matching window is
+  skipped entirely from a `wlr-screencopy` capture (no content, no border, just whatever's
+  behind it left showing through, same as if the window weren't there) while staying fully
+  visible on the real screen. Reused for both offscreen-capture paths `output_elements` can
+  take (the per-window border/anim loop, and the fullscreen-surface branch); the idle
+  "blanket `space_render_elements` call" fast path now also requires an empty
+  `hidden_windows` list to take, since that call has no way to skip one window out of the
+  batch. Looked up fresh per capture (`render_and_copy` re-derives the matching window list
+  from `state.config.rules()` every time), not cached on the window at map time — a
+  `spitfire.reload()` that adds/removes the rule takes effect on the very next capture, no
+  restart. `grim`/`wf-recorder` unaffected by the flag itself; only whichever window(s)
+  actually match it are ever hidden.
 - **An opaque backdrop behind every window's content** (`shell/ssd.rs`'s
   `WindowState::backdrop`, drawn in `shell/element.rs`'s
   `WindowElement::render_elements`) — fixes a real bug, reported live and only

@@ -856,6 +856,12 @@ where
         .map(C::from)
 }
 
+/// `hidden_windows`: windows skipped entirely from this render — no
+/// content, no border, nothing left in their place but whatever's behind
+/// them. Always `&[]` for the real on-screen frame (winit.rs/udev.rs); only
+/// `crate::screencopy`'s throwaway capture render populates it, from
+/// `spitfire.rule({ hide_from_capture = true })` matches — see
+/// `spitfire_config::WindowRule`'s doc comment.
 #[profiling::function]
 #[allow(clippy::too_many_arguments)]
 pub fn output_elements<R>(
@@ -873,6 +879,7 @@ pub fn output_elements<R>(
     border_cache: &mut RectCache,
     corner_masks: &mut CornerMaskCache,
     anims: &[AnimatedWindow],
+    hidden_windows: &[WindowElement],
 ) -> (
     Vec<OutputRenderElements<R, WindowRenderElement<R>>>,
     Color32F,
@@ -910,7 +917,11 @@ where
     {
         let scale = output.current_scale().fractional_scale().into();
         let window_render_elements: Vec<WindowRenderElement<R>> =
-            AsRenderElements::<R>::render_elements(&window, renderer, (0, 0).into(), scale, 1.0);
+            if hidden_windows.contains(&window) {
+                Vec::new()
+            } else {
+                AsRenderElements::<R>::render_elements(&window, renderer, (0, 0).into(), scale, 1.0)
+            };
 
         let elements = custom_elements
             .into_iter()
@@ -948,11 +959,15 @@ where
             0
         };
 
-        if anims.is_empty() && border_width <= 0 {
+        if anims.is_empty() && border_width <= 0 && hidden_windows.is_empty() {
             // Byte-for-byte the pre-spitfire.anim/pre-border-interleave
             // path when there's nothing to animate and no border to draw —
             // idle stays exactly zero-damage, see `RectCache`'s doc comment
-            // for why that matters.
+            // for why that matters. A non-empty `hidden_windows` also routes
+            // through the per-window loop below instead — `space_render_
+            // elements` has no way to skip one window out of the blanket
+            // call, but the loop already visits (and can now skip) windows
+            // one at a time.
             let space_elements = smithay::desktop::space::space_render_elements::<
                 _,
                 WindowElement,
@@ -990,6 +1005,15 @@ where
                 align: ConstrainAlign::CENTER,
             };
             for window in space.elements_for_output(output).rev() {
+                // spitfire.rule({ hide_from_capture = true }) — skip this
+                // window entirely (no content, no border, nothing left in
+                // its place) for a capture render. Always empty for the
+                // real on-screen frame — see `hidden_windows`'s own doc
+                // comment above.
+                if hidden_windows.contains(window) {
+                    continue;
+                }
+
                 // Border first (spitfire.border, if this window has one) —
                 // pushed in front of *this* window's own content (needed so
                 // a nonzero radius's corner mask actually covers the
@@ -1125,6 +1149,10 @@ where
         border_cache,
         corner_masks,
         anims,
+        // The real on-screen frame never hides a window — only
+        // `crate::screencopy`'s own direct `output_elements` call populates
+        // this, from `hide_from_capture` rule matches.
+        &[],
     );
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

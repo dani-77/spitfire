@@ -1579,6 +1579,11 @@ impl SpitfireState<UdevData> {
         let border_rects = self.border_rects();
         let border = self.config.border;
         let anims = self.animated_windows();
+        // Cloned out, not held as a `Ref` — see winit.rs's identical
+        // comment on its own `rules` local for why (a later
+        // `self.post_repaint(...)` needs `self` borrowed mutably as a
+        // whole).
+        let rules: Vec<spitfire_config::WindowRule> = self.config.rules().clone();
         let bar_config = self.config.bar;
         let bar_margin = self.config.gaps.outer;
         let bar_data = self.bar_data();
@@ -1709,6 +1714,7 @@ impl SpitfireState<UdevData> {
             self.dnd_icon.as_ref(),
             &mut self.cursor_status,
             Scale::from(output.current_scale().fractional_scale()),
+            &rules,
             &border_rects,
             border.width,
             border.radius,
@@ -1920,6 +1926,10 @@ fn render_surface<'a>(
         &mut surface.border_cache,
         &mut surface.corner_masks,
         anims,
+        // The real on-screen frame never hides a window — only
+        // `crate::screencopy`'s own direct `output_elements` call populates
+        // this, from `hide_from_capture` rule matches.
+        &[],
     );
 
     let frame_mode = if surface.disable_direct_scanout {

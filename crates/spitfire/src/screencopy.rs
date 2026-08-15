@@ -100,6 +100,8 @@ use smithay::{
 };
 use tracing::trace;
 
+use spitfire_config::WindowRule;
+
 use crate::{
     drawing::PointerElement,
     render::{cursor_and_dnd_elements, output_elements, BorderRect, CornerMaskCache, RectCache},
@@ -404,6 +406,13 @@ smithay::reexports::wayland_server::delegate_dispatch!(@<BackendData: Backend + 
 /// comment); a plain `copy` is serviced regardless, as before. Also what
 /// gets reported back via `frame.damage()` events for whichever
 /// `copy_with_damage` captures this call does end up servicing.
+///
+/// `rules` is `state.config.rules()` — checked here (not baked onto a
+/// window at map time) purely for `hide_from_capture`: `render_and_copy`
+/// re-derives which of `output`'s windows currently match such a rule and
+/// hands that list to `output_elements` as `hidden_windows`, so a match is
+/// skipped from this render entirely while staying fully visible on the
+/// real screen.
 #[allow(clippy::too_many_arguments)]
 pub fn service_pending_captures<R>(
     state: &mut ScreencopyState,
@@ -418,6 +427,7 @@ pub fn service_pending_captures<R>(
     dnd_icon: Option<&DndIcon>,
     cursor_status: &mut CursorImageStatus,
     scale: Scale<f64>,
+    rules: &[WindowRule],
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -462,6 +472,7 @@ pub fn service_pending_captures<R>(
             dnd_icon,
             cursor_status,
             scale,
+            rules,
             borders,
             border_width,
             border_radius,
@@ -485,6 +496,7 @@ fn capture_one<R>(
     dnd_icon: Option<&DndIcon>,
     cursor_status: &mut CursorImageStatus,
     scale: Scale<f64>,
+    rules: &[WindowRule],
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -521,6 +533,7 @@ fn capture_one<R>(
         dnd_icon,
         cursor_status,
         scale,
+        rules,
         borders,
         border_width,
         border_radius,
@@ -584,6 +597,7 @@ fn render_and_copy<R>(
     dnd_icon: Option<&DndIcon>,
     cursor_status: &mut CursorImageStatus,
     scale: Scale<f64>,
+    rules: &[WindowRule],
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -635,6 +649,21 @@ where
         scale,
     );
 
+    // `spitfire.rule({ hide_from_capture = true })` — collect this output's
+    // windows matching such a rule so `output_elements` skips them below.
+    // Looked up fresh per capture rather than cached on the window itself:
+    // rules are re-evaluated live (`spitfire.reload()` can change them),
+    // and this list is tiny/occasional, not a per-real-frame cost.
+    let hidden_windows: Vec<WindowElement> = space
+        .elements_for_output(output)
+        .filter(|window| {
+            rules
+                .iter()
+                .any(|rule| rule.hide_from_capture && rule.matches(window.app_id().as_deref()))
+        })
+        .cloned()
+        .collect();
+
     let (elements, clear_color) = output_elements(
         output,
         space,
@@ -650,6 +679,7 @@ where
         &mut border_cache,
         &mut corner_masks,
         &[],
+        &hidden_windows,
     );
 
     let mode = output.current_mode().ok_or("output has no mode")?;

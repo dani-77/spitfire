@@ -297,6 +297,12 @@ pub fn run_winit() {
             let border_rects = state.border_rects();
             let border = state.config.border;
             let anims = state.animated_windows();
+            // Cloned out, not held as a `Ref`, so this doesn't keep
+            // `state.config` borrowed across the rest of the frame (which
+            // includes a later `state.post_repaint(...)` mutable borrow of
+            // `state` as a whole) — same reasoning as `border_rects`/`anims`
+            // just above, both already per-frame `Vec` allocations.
+            let rules: Vec<spitfire_config::WindowRule> = state.config.rules().clone();
 
             let bar_config = state.config.bar;
             let bar_margin = state.config.gaps.outer;
@@ -469,6 +475,7 @@ pub fn run_winit() {
                     dnd_icon,
                     &mut *cursor_status,
                     scale,
+                    &rules,
                     &border_rects,
                     border.width,
                     border.radius,

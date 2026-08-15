@@ -478,6 +478,16 @@ mod tests {
     }
 
     #[test]
+    fn collects_hide_from_capture_rule() {
+        let config = load_str(r#"spitfire.rule({ app_id = "signal", hide_from_capture = true })"#);
+        let rules = config.rules();
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].hide_from_capture);
+        // Defaults to false when unset, same as `floating`/`centered`.
+        assert!(!rules[0].floating);
+    }
+
+    #[test]
     fn bind_fires_and_produces_commands() {
         let config = load_str(
             r#"

@@ -86,6 +86,13 @@ end)
 -- cascade to.
 spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 
+-- `hide_from_capture = true` skips this window entirely from any
+-- wlr-screencopy capture (grim, screen-share/recording) — a privacy flag,
+-- not a real-screen effect: the window stays fully visible to you, just
+-- never shows up in a screenshot or stream. Uncomment and adjust the
+-- app_id for whatever you'd rather keep off-screen in a recording.
+-- spitfire.rule({ app_id = "signal", hide_from_capture = true })
+
 -- `radius` (logical pixels, default 0) rounds the border's corners — and,
 -- since it's drawn on top of the window, masks the window's own square
 -- corners along with it. 0 keeps the classic square-cornered look. Keep
