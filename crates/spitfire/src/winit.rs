@@ -343,6 +343,7 @@ pub fn run_winit() {
             let border_cache = &mut state.backend_data.border_cache;
             let corner_masks = &mut state.backend_data.corner_masks;
             let screencopy_state = &mut state.screencopy_state;
+            let ext_screencopy_state = &mut state.ext_screencopy_state;
             let show_window_preview = state.show_window_preview;
             let locked = state.locked;
             let lock_surfaces = &state.lock_surfaces;
@@ -464,6 +465,30 @@ pub fn run_winit() {
                 // that fn's doc comment).
                 crate::screencopy::service_pending_captures(
                     screencopy_state,
+                    renderer,
+                    space,
+                    &output,
+                    locked_surface,
+                    frame_damage.as_deref(),
+                    cursor_pos,
+                    None,
+                    &mut pointer_element,
+                    dnd_icon,
+                    &mut *cursor_status,
+                    scale,
+                    &rules,
+                    &border_rects,
+                    border.width,
+                    border.radius,
+                    crate::render::hex_to_color32f(border.active),
+                    crate::render::hex_to_color32f(border.inactive),
+                );
+
+                // ext-image-copy-capture-v1 — same throwaway render
+                // approach, same inputs, see `crate::ext_screencopy`'s doc
+                // comment for how it differs from wlr-screencopy above.
+                crate::ext_screencopy::service_pending_captures(
+                    ext_screencopy_state,
                     renderer,
                     space,
                     &output,

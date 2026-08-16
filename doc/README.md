@@ -472,6 +472,38 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `spitfire.reload()` that adds/removes the rule takes effect on the very next capture, no
   restart. `grim`/`wf-recorder` unaffected by the flag itself; only whichever window(s)
   actually match it are ever hidden.
+- **`ext-image-copy-capture-v1` + `ext-image-capture-source-v1`** (2026-08-16,
+  `crate::ext_screencopy`) — the protocol pair that supersedes `wlr-screencopy-unstable-v1`
+  above; `xdg-desktop-portal-wlr` (0.8.2+) prefers it automatically the moment both globals
+  are advertised. Whole-output capture only so far (`ext_foreign_toplevel_image_capture_source_manager_v1`,
+  per-window capture, is Phase 4 of [[spitfire-wasp-parity-roadmap]], not yet built) —
+  **deliberately SHM-only**: no `dmabuf_device`/`dmabuf_format` advertised at all, closing off
+  the exact modifier-negotiation hole that crashed the earlier reverted `wlr-screencopy`
+  dmabuf attempt (see the entry above) by making that failure mode structurally unreachable,
+  rather than merely avoided. Shares `render_and_copy` with `wlr-screencopy` unchanged (only
+  gained a `paint_cursor: bool` param, honoring this protocol's `paint_cursors` session
+  option) — only the session/frame protocol bookkeeping in `ext_screencopy.rs` is new. The
+  `ext_image_copy_capture_cursor_session_v1` object exists (protocol-mandated) but is an inert
+  stub — never emits events; a client asking for a separate cursor stream just never sees one
+  become active (cursor visibility is still available via a normal session's `paint_cursors`
+  option, composited into the frame the same way `wlr-screencopy` always does). Verified live
+  with a throwaway `wayland-client` test program (no installed client speaks this protocol
+  yet — `wf-recorder` 0.6.0 only ever tries `wlr-screencopy` v3, which spitfire deliberately
+  caps at v2, so it never reaches these globals): full session negotiation
+  (`buffer_size`/`shm_format`/`done`), a real `capture()` round trip
+  (`transform`/`damage`/`presentation_time`/`ready`), and genuine captured pixel data landing
+  in the client's buffer — 5/5 clean across repeated fresh nested sessions for the
+  single-shot-capture case (matches `grim`'s usage pattern and the
+  `xdg-desktop-portal-wlr` Screenshot interface).
+
+  While stress-testing the *second*-capture-on-one-session case (the `copy_with_damage`-style
+  gated pattern continuous screen-share/recording needs), found and root-caused
+  [[egl-context-loss-second-offscreen-capture]] — a real EGL context-loss warning on the
+  *actual on-screen render path*, reproducing identically through the already-shipped, unrelated
+  `wlr-screencopy` `copy`→(idle gap)→`copy_with_damage` sequence with zero
+  `ext_screencopy.rs` code involved. Confirmed **pre-existing, not introduced by this
+  protocol** — tracked as its own open issue, not blocking this one; see that memory entry
+  for reproduction steps if picking it back up.
 - **`spitfire.rule({ workspace = n })`** (2026-08-16, `WindowRule::workspace` +
   `SpitfireState::move_window_to_workspace`): sends a freshly-mapped window straight to
   workspace `n` (1-based, same convention as `spitfire.workspace.focus`/`move_window`) the

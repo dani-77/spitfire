@@ -1722,6 +1722,30 @@ impl SpitfireState<UdevData> {
             crate::render::hex_to_color32f(border.inactive),
         );
 
+        // ext-image-copy-capture-v1 — same throwaway render approach, same
+        // inputs, see `crate::ext_screencopy`'s doc comment for how it
+        // differs from wlr-screencopy above.
+        crate::ext_screencopy::service_pending_captures(
+            &mut self.ext_screencopy_state,
+            &mut renderer,
+            &self.space,
+            &output,
+            locked_surface.as_ref(),
+            frame_damage,
+            self.pointer.current_location(),
+            Some(&pointer_image),
+            &mut self.backend_data.pointer_element,
+            self.dnd_icon.as_ref(),
+            &mut self.cursor_status,
+            Scale::from(output.current_scale().fractional_scale()),
+            &rules,
+            &border_rects,
+            border.width,
+            border.radius,
+            crate::render::hex_to_color32f(border.active),
+            crate::render::hex_to_color32f(border.inactive),
+        );
+
         let reschedule = match result {
             Ok((has_rendered, states)) => {
                 let dmabuf_feedback = surface.dmabuf_feedback.clone();

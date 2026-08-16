@@ -42,8 +42,9 @@ the window manager.
 - **Touchpad gestures** — bind 3-/4-finger swipes (left/right/up/down) to any action via
   `spitfire.gesture` in `config.lua`: switch workspace, cycle layout, toggle a
   scratchpad, whatever a keybinding could do.
-- **Take a screenshot** — `wlr-screencopy-unstable-v1` support, so tools like `grim`
-  work against a spitfire session. Mark a window to stay off any capture entirely
+- **Screenshots and screen-sharing** — both `wlr-screencopy-unstable-v1` (`grim` and
+  friends) and the newer `ext-image-copy-capture-v1` are supported, so screen-sharing tools
+  pick spitfire up automatically. Mark a window to stay off any capture entirely
   (screenshots, screen-share, recording) while remaining fully visible to you, with
   `spitfire.rule({ hide_from_capture = true })`.
 - **Output scale**, niri-style — set a starting value in `config.lua`, or rescale live

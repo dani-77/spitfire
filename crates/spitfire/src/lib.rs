@@ -9,6 +9,7 @@ pub mod bar;
 #[cfg(any(feature = "xwayland", feature = "udev"))]
 pub mod cursor;
 pub mod drawing;
+pub mod ext_screencopy;
 pub mod ext_workspace;
 pub mod focus;
 pub mod input_handler;

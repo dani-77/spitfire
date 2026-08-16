@@ -533,6 +533,9 @@ fn capture_one<R>(
         dnd_icon,
         cursor_status,
         scale,
+        // wlr-screencopy has no `paint_cursors` option of its own — always
+        // paints the cursor, same as before this param existed.
+        true,
         rules,
         borders,
         border_width,
@@ -586,7 +589,7 @@ fn capture_one<R>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_and_copy<R>(
+pub(crate) fn render_and_copy<R>(
     renderer: &mut R,
     space: &Space<WindowElement>,
     output: &Output,
@@ -597,6 +600,15 @@ fn render_and_copy<R>(
     dnd_icon: Option<&DndIcon>,
     cursor_status: &mut CursorImageStatus,
     scale: Scale<f64>,
+    // `ext_image_copy_capture_manager_v1`'s `paint_cursors` session option
+    // — `crate::screencopy`'s own `wlr-screencopy` callers always pass
+    // `true` (that protocol has no such option, cursor is always painted).
+    // `false` skips the `cursor_and_dnd_elements` call entirely rather than
+    // trying to keep the cursor out while still drawing a drag-and-drop
+    // icon — a capture that explicitly asked for no cursor chrome is a
+    // reasonable place to also skip the (rare, usually simultaneous) dnd
+    // icon, and it keeps this simple.
+    paint_cursor: bool,
     rules: &[WindowRule],
     borders: &[BorderRect],
     border_width: i32,
@@ -638,16 +650,20 @@ where
     let output_geometry = space
         .output_geometry(output)
         .ok_or("output not mapped in space")?;
-    let cursor_elements = cursor_and_dnd_elements(
-        renderer,
-        output_geometry,
-        pointer_location,
-        pointer_image,
-        pointer_element,
-        dnd_icon,
-        cursor_status,
-        scale,
-    );
+    let cursor_elements = if paint_cursor {
+        cursor_and_dnd_elements(
+            renderer,
+            output_geometry,
+            pointer_location,
+            pointer_image,
+            pointer_element,
+            dnd_icon,
+            cursor_status,
+            scale,
+        )
+    } else {
+        Vec::new()
+    };
 
     // `spitfire.rule({ hide_from_capture = true })` — collect this output's
     // windows matching such a rule so `output_elements` skips them below.
