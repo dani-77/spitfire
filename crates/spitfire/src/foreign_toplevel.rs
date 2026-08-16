@@ -1,9 +1,9 @@
 //! Server-side `ext-foreign-toplevel-list-v1` — advertises every open
 //! window (across every workspace, tiled/floating/scratchpad alike) to
-//! clients like a pager, a taskbar, or — per
-//! [[spitfire-wasp-parity-roadmap]] item 4 — a future per-window
-//! `ext-image-copy-capture-v1` capture source, which needs exactly this
-//! protocol's `ext_foreign_toplevel_handle_v1` as its capture target.
+//! clients like a pager, a taskbar, or — the reason this landed now — a
+//! per-window `ext-image-copy-capture-v1` capture source (`crate::ext_screencopy`),
+//! which needs exactly this protocol's `ext_foreign_toplevel_handle_v1` as
+//! its capture target.
 //!
 //! Unlike `ext_workspace.rs`/`screencopy.rs`/`ext_screencopy.rs`, this file
 //! doesn't hand-roll `GlobalDispatch`/`Dispatch` impls at all — Smithay

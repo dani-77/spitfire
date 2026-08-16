@@ -475,9 +475,10 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
 - **`ext-image-copy-capture-v1` + `ext-image-capture-source-v1`** (2026-08-16,
   `crate::ext_screencopy`) — the protocol pair that supersedes `wlr-screencopy-unstable-v1`
   above; `xdg-desktop-portal-wlr` (0.8.2+) prefers it automatically the moment both globals
-  are advertised. Whole-output capture only so far (`ext_foreign_toplevel_image_capture_source_manager_v1`,
-  per-window capture, is a planned follow-up — see `crate::foreign_toplevel`'s entry below) —
-  **deliberately SHM-only**: no `dmabuf_device`/`dmabuf_format` advertised at all, closing off
+  are advertised. Captures both whole outputs (`ext_output_image_capture_source_manager_v1`)
+  and single windows (`ext_foreign_toplevel_image_capture_source_manager_v1`, sourced from an
+  `ext-foreign-toplevel-list-v1` handle — see that entry below) — **deliberately SHM-only**:
+  no `dmabuf_device`/`dmabuf_format` advertised at all, closing off
   the exact modifier-negotiation hole that crashed the earlier reverted `wlr-screencopy`
   dmabuf attempt (see the entry above) by making that failure mode structurally unreachable,
   rather than merely avoided. Shares `render_and_copy` with `wlr-screencopy` unchanged (only
@@ -503,6 +504,29 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   with zero `ext_screencopy.rs` code involved. Confirmed **pre-existing, not introduced by this
   protocol** — tracked as its own open issue (not documented further here, see the project's
   own working notes if picking it back up), not blocking this one.
+
+  **Per-window capture** (`CaptureSource::Toplevel` in `ext_screencopy.rs`) came right after,
+  same day: a session sourced from a toplevel handle gets `buffer_size` from the *window's*
+  own geometry rather than the output mode, and its render path
+  (`render_window_and_copy`) is genuinely different from the whole-output one — not a call
+  into `render_and_copy` at all, since that fn is `Space`/output-shaped start to finish.
+  Instead it renders just that window's own elements (`WindowElement::render_elements`, the
+  same per-window element set the real on-screen per-window loop in `render.rs` already uses)
+  into a transparent-backed offscreen texture sized to it — deliberately no compositor
+  border/gaps chrome and no cursor compositing, just the window's actual content, matching
+  what a "share this window" picker wants. Resolving a client's `ext_foreign_toplevel_handle_v1`
+  down to the actual `WindowElement` goes through the protocol's own stable `identifier`
+  string, matched against `crate::foreign_toplevel`'s tracking table (no other equality is
+  exposed on Smithay's `ForeignToplevelHandle`). A toplevel session's damage gating
+  approximates "this window changed" as "the output had damage this tick" — a correct but
+  occasionally-over-eager superset, since there's no cheap way to attribute output-level
+  damage rects back to one specific window's own (0,0)-based capture buffer. Verified live
+  end-to-end with another throwaway test client: found a window by title via
+  `ext-foreign-toplevel-list-v1`, created a toplevel-sourced session, and captured it —
+  `buffer_size` correctly came back as the *window's* size (not the output's), and the
+  captured pixels were fully opaque real content, not the output-capture path's whole-desktop
+  composite. The existing whole-output path re-verified alongside it in the same session,
+  confirming no regression.
 - **`ext-foreign-toplevel-list-v1`** (2026-08-16, `crate::foreign_toplevel`) — advertises
   every open window (title, app_id, a stable per-toplevel identifier) to any client that
   wants a live window list: a pager, a taskbar, or — the reason this landed now — the
