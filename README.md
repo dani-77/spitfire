@@ -25,7 +25,8 @@ the window manager.
 - **One config file** (`~/.config/spitfire/config.lua`) — keybindings, colors, gaps,
   keyboard layout, autostart apps, all in one place, reloaded live with a keypress.
 - **Dynamic workspaces** — there's no fixed number to set up in advance; asking to jump
-  to workspace 7 just creates it.
+  to workspace 7 just creates it. Pin an app to always open on a given one with
+  `spitfire.rule({ app_id = "...", workspace = n })`.
 - **Built-in status bar**, on by default: workspace list, active layout, CPU/RAM/
   battery/network, clock and date. No extra program to install or configure — turn
   it off with one line if you'd rather run your own (waybar, eww, ...).

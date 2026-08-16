@@ -108,6 +108,12 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 -- app_id for whatever you'd rather keep off-screen in a recording.
 -- spitfire.rule({ app_id = "signal", hide_from_capture = true })
 
+-- `workspace = n` (1-based) sends this app straight to workspace n the
+-- moment it opens, wherever you're currently looking — same convention as
+-- Mod4+n above. Handy for apps you always want parked in the same spot
+-- (a chat client on workspace 9, a mail client on 2, ...).
+-- spitfire.rule({ app_id = "discord", workspace = 9 })
+
 -- `radius` (logical pixels, default 0) rounds the border's corners — and,
 -- since it's drawn on top of the window, masks the window's own square
 -- corners along with it. 0 keeps the classic square-cornered look. Keep

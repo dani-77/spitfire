@@ -529,6 +529,24 @@ mod tests {
     }
 
     #[test]
+    fn collects_workspace_rule() {
+        let config = load_str(r#"spitfire.rule({ app_id = "discord", workspace = 3 })"#);
+        let rules = config.rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].workspace, Some(3));
+    }
+
+    #[test]
+    fn workspace_rule_zero_is_rejected_not_registered() {
+        // 1-based, same convention as spitfire.workspace.move_window(n) —
+        // 0 is invalid and gets dropped rather than stored as a bogus index.
+        let config = load_str(r#"spitfire.rule({ app_id = "discord", workspace = 0 })"#);
+        let rules = config.rules();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].workspace, None);
+    }
+
+    #[test]
     fn bind_fires_and_produces_commands() {
         let config = load_str(
             r#"

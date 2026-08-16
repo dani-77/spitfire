@@ -472,6 +472,21 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `spitfire.reload()` that adds/removes the rule takes effect on the very next capture, no
   restart. `grim`/`wf-recorder` unaffected by the flag itself; only whichever window(s)
   actually match it are ever hidden.
+- **`spitfire.rule({ workspace = n })`** (2026-08-16, `WindowRule::workspace` +
+  `SpitfireState::move_window_to_workspace`): sends a freshly-mapped window straight to
+  workspace `n` (1-based, same convention as `spitfire.workspace.focus`/`move_window`) the
+  moment it first maps, without switching the view there — dwm-style "it leaves, you stay
+  put", the exact same code path `spitfire.workspace.move_window(n)` already used for the
+  focused window; that function is now a thin wrapper around the new, window-generic
+  `move_window_to_workspace`. Applied right where `center_if_ruled` already runs (first
+  real buffer commit, after the named-scratchpad claim check — a claimed scratchpad window
+  skips this, it manages its own workspace membership). If the rule sends the window
+  somewhere other than the currently active workspace, the open "pop" animation and the
+  first-map keyboard-focus grab are both skipped too (`moved_away` flag) — nothing to
+  animate or focus into on a workspace you're not looking at; confirmed via nested
+  `--winit` + `spitfirectl`: a ruled window immediately vanished from `list-windows` on the
+  active workspace, `list-workspaces` showed it landed on the target workspace instead
+  while the active one stayed unchanged, and switching there surfaced it.
 - **An opaque backdrop behind every window's content** (`shell/ssd.rs`'s
   `WindowState::backdrop`, drawn in `shell/element.rs`'s
   `WindowElement::render_elements`) — fixes a real bug, reported live and only

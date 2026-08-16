@@ -243,6 +243,16 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                             // `claim_pending_named_scratchpad`'s doc
                             // comment for why it lives here instead of
                             // going through a `spitfire.rule` match too.
+                            // Tracks a `spitfire.rule({ workspace = n })`
+                            // sending this window off to a workspace that
+                            // isn't the active one — if so, it's not on
+                            // screen right now, so the "pop" anim and the
+                            // focus grab below both need skipping (same
+                            // logic as opening a window on a workspace you
+                            // then immediately switch away from: nothing to
+                            // animate or focus into).
+                            let mut moved_away = false;
+
                             let output = self.space.outputs().next().cloned();
                             if let Some(output) = output {
                                 let bar_height = if self.config.bar.enabled {
@@ -264,23 +274,44 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                                         bar_height,
                                         bar_margin,
                                     );
+
+                                    // spitfire.rule({ workspace = n }): send
+                                    // a freshly-mapped window straight to
+                                    // workspace n (1-based in Lua, 0-based
+                                    // here) without switching the view
+                                    // there — same convention as
+                                    // spitfire.workspace.move_window(n), see
+                                    // `move_window_to_workspace`'s doc
+                                    // comment.
+                                    let app_id = window.app_id();
+                                    if let Some(n) = rules
+                                        .iter()
+                                        .find(|rule| rule.matches(app_id.as_deref()))
+                                        .and_then(|rule| rule.workspace)
+                                    {
+                                        let idx = n.saturating_sub(1);
+                                        moved_away = idx != self.workspaces.active_index();
+                                        self.move_window_to_workspace(&window, idx);
+                                    }
                                 }
                             }
 
-                            // spitfire.anim: scale the window in ("pop")
-                            // over its first frame — purely visual, doesn't
-                            // affect the focus grab right below. See
-                            // `crate::anim`.
-                            self.window_anims
-                                .push_open(window.clone(), self.config.anim.duration());
+                            if !moved_away {
+                                // spitfire.anim: scale the window in ("pop")
+                                // over its first frame — purely visual,
+                                // doesn't affect the focus grab right below.
+                                // See `crate::anim`.
+                                self.window_anims
+                                    .push_open(window.clone(), self.config.anim.duration());
 
-                            if !self.locked {
-                                if let Some(keyboard) = self.seat.get_keyboard() {
-                                    keyboard.set_focus(
-                                        self,
-                                        Some(KeyboardFocusTarget::from(window)),
-                                        SERIAL_COUNTER.next_serial(),
-                                    );
+                                if !self.locked {
+                                    if let Some(keyboard) = self.seat.get_keyboard() {
+                                        keyboard.set_focus(
+                                            self,
+                                            Some(KeyboardFocusTarget::from(window)),
+                                            SERIAL_COUNTER.next_serial(),
+                                        );
+                                    }
                                 }
                             }
                         }

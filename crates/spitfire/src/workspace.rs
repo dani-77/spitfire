@@ -333,30 +333,38 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         self.sync_ext_workspace_state();
     }
 
-    /// `spitfire.workspace.move_window(n)` — moves the currently
-    /// keyboard-focused window to workspace `idx` (0-based) without
-    /// switching the view there (dwm convention: the window leaves, you
-    /// stay put). No-op if nothing is focused or it's already on `idx`.
-    pub fn move_focused_window_to_workspace(&mut self, idx: usize) {
+    /// Moves `window` to workspace `idx` (0-based) without switching the
+    /// view there (dwm convention: the window leaves, you stay put).
+    /// Assumes `window` is currently on the active workspace — true for
+    /// both callers: `move_focused_window_to_workspace` (the focused
+    /// window always is) and `spitfire.rule({ workspace = n })` (applied
+    /// the moment a window first maps, before it could have been moved
+    /// anywhere else). No-op if `window` is already on `idx`.
+    pub fn move_window_to_workspace(&mut self, window: &WindowElement, idx: usize) {
         let current = self.workspaces.active_index();
         if current == idx {
             return;
         }
+        self.workspaces.active_mut().tiling.remove(window);
+        self.workspaces.ensure(idx);
+        if let Some(ws) = self.workspaces.get_mut(idx) {
+            ws.tiling.push(window.clone());
+        }
+        self.space.unmap_elem(window);
+        self.arrange_tiling();
+        self.sync_ext_workspace_state();
+    }
+
+    /// `spitfire.workspace.move_window(n)` — moves the currently
+    /// keyboard-focused window to workspace `idx` (0-based). No-op if
+    /// nothing is focused. See `move_window_to_workspace` for the rest.
+    pub fn move_focused_window_to_workspace(&mut self, idx: usize) {
         let Some(KeyboardFocusTarget::Window(window)) =
             self.seat.get_keyboard().and_then(|kb| kb.current_focus())
         else {
             return;
         };
-        let window = WindowElement(window);
-
-        self.workspaces.active_mut().tiling.remove(&window);
-        self.workspaces.ensure(idx);
-        if let Some(ws) = self.workspaces.get_mut(idx) {
-            ws.tiling.push(window.clone());
-        }
-        self.space.unmap_elem(&window);
-        self.arrange_tiling();
-        self.sync_ext_workspace_state();
+        self.move_window_to_workspace(&WindowElement(window), idx);
     }
 
     /// `spitfire.window.close()` — closes whichever window currently has

@@ -1,5 +1,5 @@
 /// A `spitfire.rule({ app_id = "...", floating = true, centered = true,
-/// hide_from_capture = true })` rule.
+/// hide_from_capture = true, workspace = n })` rule.
 ///
 /// `floating`: windows whose `app_id` matches the rule are left out of the
 /// tiling order entirely (the layout engine never touches their geometry).
@@ -13,14 +13,20 @@
 /// output_elements`'s `hidden_windows` param. A privacy flag for a window
 /// with sensitive on-screen content (a password manager, a DM) that you
 /// still want visible to you but never in a screenshot/recording/share.
-/// `workspace = n` is left for Phase 5, once more than one workspace
-/// exists.
+/// `workspace = n` (1-based, matching `spitfire.workspace.focus`/
+/// `move_window`): the window is moved to workspace `n` the moment it
+/// first maps (same point `center_if_ruled` runs at), without switching
+/// the view there — same dwm-style "it leaves, you stay put" convention as
+/// `spitfire.workspace.move_window(n)`, which this reuses via
+/// `SpitfireState::move_window_to_workspace`. `None`/absent leaves the
+/// window on whichever workspace was active when it opened.
 #[derive(Debug, Clone, Default)]
 pub struct WindowRule {
     pub app_id: Option<String>,
     pub floating: bool,
     pub centered: bool,
     pub hide_from_capture: bool,
+    pub workspace: Option<usize>,
 }
 
 impl WindowRule {
@@ -47,6 +53,7 @@ mod tests {
             floating: true,
             centered: false,
             hide_from_capture: false,
+            workspace: None,
         };
         assert!(rule.matches(Some("pavucontrol")));
         assert!(!rule.matches(Some("foot")));
@@ -60,6 +67,7 @@ mod tests {
             floating: true,
             centered: false,
             hide_from_capture: false,
+            workspace: None,
         };
         assert!(rule.matches(Some("anything")));
         assert!(rule.matches(None));
@@ -68,5 +76,10 @@ mod tests {
     #[test]
     fn hide_from_capture_defaults_off() {
         assert!(!WindowRule::default().hide_from_capture);
+    }
+
+    #[test]
+    fn workspace_defaults_unset() {
+        assert_eq!(WindowRule::default().workspace, None);
     }
 }

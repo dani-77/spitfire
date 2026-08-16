@@ -278,7 +278,7 @@ pub(crate) fn install(
     }
 
     // spitfire.rule({ app_id = "...", floating = true, centered = true,
-    // hide_from_capture = true })
+    // hide_from_capture = true, workspace = n })
     {
         let rules = rules.clone();
         let rule_fn = lua.create_function(move |_, tbl: Table| {
@@ -286,11 +286,17 @@ pub(crate) fn install(
             let floating: bool = tbl.get("floating").unwrap_or(false);
             let centered: bool = tbl.get("centered").unwrap_or(false);
             let hide_from_capture: bool = tbl.get("hide_from_capture").unwrap_or(false);
+            let workspace: Option<usize> = tbl.get("workspace").unwrap_or(None);
+            if workspace == Some(0) {
+                warn!("spitfire.rule: workspace is 1-based, 0 is not valid — ignoring");
+            }
+            let workspace = workspace.filter(|&n| n != 0);
             rules.borrow_mut().push(WindowRule {
                 app_id,
                 floating,
                 centered,
                 hide_from_capture,
+                workspace,
             });
             Ok(())
         })?;
