@@ -476,7 +476,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `crate::ext_screencopy`) — the protocol pair that supersedes `wlr-screencopy-unstable-v1`
   above; `xdg-desktop-portal-wlr` (0.8.2+) prefers it automatically the moment both globals
   are advertised. Whole-output capture only so far (`ext_foreign_toplevel_image_capture_source_manager_v1`,
-  per-window capture, is Phase 4 of [[spitfire-wasp-parity-roadmap]], not yet built) —
+  per-window capture, is a planned follow-up — see `crate::foreign_toplevel`'s entry below) —
   **deliberately SHM-only**: no `dmabuf_device`/`dmabuf_format` advertised at all, closing off
   the exact modifier-negotiation hole that crashed the earlier reverted `wlr-screencopy`
   dmabuf attempt (see the entry above) by making that failure mode structurally unreachable,
@@ -497,13 +497,44 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `xdg-desktop-portal-wlr` Screenshot interface).
 
   While stress-testing the *second*-capture-on-one-session case (the `copy_with_damage`-style
-  gated pattern continuous screen-share/recording needs), found and root-caused
-  [[egl-context-loss-second-offscreen-capture]] — a real EGL context-loss warning on the
-  *actual on-screen render path*, reproducing identically through the already-shipped, unrelated
-  `wlr-screencopy` `copy`→(idle gap)→`copy_with_damage` sequence with zero
-  `ext_screencopy.rs` code involved. Confirmed **pre-existing, not introduced by this
-  protocol** — tracked as its own open issue, not blocking this one; see that memory entry
-  for reproduction steps if picking it back up.
+  gated pattern continuous screen-share/recording needs), found and root-caused a real EGL
+  context-loss warning on the *actual on-screen render path*, reproducing identically through
+  the already-shipped, unrelated `wlr-screencopy` `copy`→(idle gap)→`copy_with_damage` sequence
+  with zero `ext_screencopy.rs` code involved. Confirmed **pre-existing, not introduced by this
+  protocol** — tracked as its own open issue (not documented further here, see the project's
+  own working notes if picking it back up), not blocking this one.
+- **`ext-foreign-toplevel-list-v1`** (2026-08-16, `crate::foreign_toplevel`) — advertises
+  every open window (title, app_id, a stable per-toplevel identifier) to any client that
+  wants a live window list: a pager, a taskbar, or — the reason this landed now — the
+  prerequisite for a future per-window `ext-image-copy-capture-v1` source
+  (`ext_foreign_toplevel_image_capture_source_manager_v1.create_source` takes exactly this
+  protocol's `ext_foreign_toplevel_handle_v1` as its capture target). Unlike every other
+  protocol in this file, no hand-rolled `GlobalDispatch`/`Dispatch` code at all — Smithay
+  ships a complete, ready-to-use implementation
+  (`smithay::wayland::foreign_toplevel_list::ForeignToplevelListState`); `foreign_toplevel.rs`
+  is only the glue (`ForeignToplevelListHandler` impl, `delegate_foreign_toplevel_list!`) plus
+  `SpitfireState::sync_foreign_toplevels`, a per-frame full resync (same "small enough to be
+  free" reasoning `ext_workspace.rs` already uses for its own full resync) that tells it about
+  spitfire's own windows.
+
+  The one real design decision: **the source of truth is deliberately not `Space::elements()`**
+  — switching workspaces unmaps every window that isn't on the newly active one, so
+  `Space::elements()` only ever holds the *active* workspace's windows. Sourcing from it would
+  have `send_closed()`ed every other workspace's windows on each switch, then handed out a
+  *new* identifier for the same window switching back — a real protocol violation (identifiers
+  must stay unique and never be reused for as long as a toplevel is mapped). The real source
+  is every workspace's own tiling list (tiled and floating windows both live there) plus the
+  two scratchpad slots, which pull a window out of every workspace's tiling list while stashed
+  but keep the client itself alive.
+
+  Verified live in nested `--winit` with a throwaway `wayland-client` test program: a window
+  already open when the client bound was replayed correctly (identifier/title/app_id, then
+  `done`); a *new* window opened after the client had already bound sent a fresh `toplevel`
+  event with its own identifier; closing that window sent `closed`. (First attempt at the test
+  client itself hit two client-side-only bugs, not spitfire bugs — a missing
+  `wayland_client::event_created_child!` specialization, and a polling loop built on
+  `dispatch_pending` alone, which only replays already-buffered events and never actually reads
+  new ones off the socket; both fixed in the test harness, not here.)
 - **`spitfire.rule({ workspace = n })`** (2026-08-16, `WindowRule::workspace` +
   `SpitfireState::move_window_to_workspace`): sends a freshly-mapped window straight to
   workspace `n` (1-based, same convention as `spitfire.workspace.focus`/`move_window`) the

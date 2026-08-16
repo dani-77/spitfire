@@ -12,6 +12,7 @@ pub mod drawing;
 pub mod ext_screencopy;
 pub mod ext_workspace;
 pub mod focus;
+pub mod foreign_toplevel;
 pub mod input_handler;
 pub mod ipc;
 pub mod layout;

@@ -606,6 +606,7 @@ pub fn run_udev() {
             state.running.store(false, Ordering::SeqCst);
         } else {
             state.space.refresh();
+            state.sync_foreign_toplevels();
             state.popups.cleanup();
             display_handle.flush_clients().unwrap();
         }

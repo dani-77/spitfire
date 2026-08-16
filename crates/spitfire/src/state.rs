@@ -197,6 +197,22 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// `capture()` requests, serviced once per frame alongside
     /// `screencopy_state` above. See `crate::ext_screencopy`.
     pub ext_screencopy_state: crate::ext_screencopy::ExtScreencopyState,
+    /// `ext-foreign-toplevel-list-v1` — Smithay's own ready-made
+    /// implementation (`smithay::wayland::foreign_toplevel_list`); this
+    /// only holds the global's state, kept in sync with every window
+    /// across every workspace by `SpitfireState::sync_foreign_toplevels`,
+    /// called once per frame by winit.rs/udev.rs. See `crate::foreign_toplevel`.
+    pub foreign_toplevel_list_state:
+        smithay::wayland::foreign_toplevel_list::ForeignToplevelListState,
+    /// One entry per window `sync_foreign_toplevels` currently has a live
+    /// `ext_foreign_toplevel_handle_v1` for — a plain `Vec`, not a
+    /// `HashMap`, since `WindowElement` isn't `Hash` (same reasoning
+    /// `ext_workspace::ClientState::workspaces` already gives for its own
+    /// small linear-scan `Vec`).
+    pub foreign_toplevel_handles: Vec<(
+        WindowElement,
+        smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle,
+    )>,
     /// Phase 2: Lua config loaded from `spitfire_config::Config::default_path()`.
     pub config: spitfire_config::Config,
     /// Phase 8: the optional built-in bar's own runtime state (currently
@@ -856,6 +872,8 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         let ext_workspace_state = crate::ext_workspace::ExtWorkspaceState::new::<Self>(&dh);
         let screencopy_state = crate::screencopy::ScreencopyState::new::<Self>(&dh);
         let ext_screencopy_state = crate::ext_screencopy::ExtScreencopyState::new::<Self>(&dh);
+        let foreign_toplevel_list_state =
+            smithay::wayland::foreign_toplevel_list::ForeignToplevelListState::new::<Self>(&dh);
 
         SpitfireState {
             backend_data,
@@ -867,6 +885,8 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             ext_workspace_state,
             screencopy_state,
             ext_screencopy_state,
+            foreign_toplevel_list_state,
+            foreign_toplevel_handles: Vec::new(),
             display_handle: dh,
             socket_name,
             running: Arc::new(AtomicBool::new(true)),

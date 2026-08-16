@@ -605,6 +605,7 @@ pub fn run_winit() {
             // "window destroyed" hook, see TilingLayout::arrange).
             state.arrange_tiling();
             state.space.refresh();
+            state.sync_foreign_toplevels();
             state.popups.cleanup();
             display_handle.flush_clients().unwrap();
         }
