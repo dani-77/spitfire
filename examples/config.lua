@@ -111,8 +111,8 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 -- `workspace = n` (1-based) sends this app straight to workspace n the
 -- moment it opens, wherever you're currently looking — same convention as
 -- Mod4+n above. Handy for apps you always want parked in the same spot
--- (a chat client on workspace 9, a mail client on 2, ...).
--- spitfire.rule({ app_id = "discord", workspace = 9 })
+-- (a word processor on workspace 2, a chat client on 9, ...).
+-- spitfire.rule({ app_id = "abiword", workspace = 2 })
 
 -- `radius` (logical pixels, default 0) rounds the border's corners — and,
 -- since it's drawn on top of the window, masks the window's own square
