@@ -38,8 +38,13 @@ the window manager.
   Doesn't raise/reorder on hover (that stays click-only), and hovering empty space
   leaves focus where it was. Off by default; turn it on with
   `spitfire.focus_follows_mouse = true`.
+- **Touchpad gestures** — bind 3-/4-finger swipes (left/right/up/down) to any action via
+  `spitfire.gesture` in `config.lua`: switch workspace, cycle layout, toggle a
+  scratchpad, whatever a keybinding could do.
 - **Take a screenshot** — `wlr-screencopy-unstable-v1` support, so tools like `grim`
-  work against a spitfire session.
+  work against a spitfire session. Mark a window to stay off any capture entirely
+  (screenshots, screen-share, recording) while remaining fully visible to you, with
+  `spitfire.rule({ hide_from_capture = true })`.
 - **Output scale**, niri-style — set a starting value in `config.lua`, or rescale live
   at any time with `Mod+Shift+P`/`M`.
 - **Scratchpad windows** — a single hidden slot for whatever's focused, or a named,
