@@ -42,7 +42,11 @@ end
 -- next()/prev() move relative to whichever workspace is currently active
 -- — unlike focus(n), a fixed target — so swiping the same direction
 -- repeatedly keeps advancing (1 -> 2 -> 3 -> ...) instead of bouncing
--- back and forth between two fixed numbers.
+-- back and forth between two fixed numbers. next() won't grow the list
+-- past spitfire.workspace.max (default 9, uncomment to change) — a
+-- repeated swipe has no natural "stop" the way typing a number does, so
+-- unlike focus(n)/spitfire.rule({ workspace = n }) it needs a ceiling.
+-- spitfire.workspace.max = 9
 spitfire.gesture(3, "left", function() spitfire.workspace.next() end)
 spitfire.gesture(3, "right", function() spitfire.workspace.prev() end)
 spitfire.gesture(3, "up", function() spitfire.window.toggle_scratchpad() end)

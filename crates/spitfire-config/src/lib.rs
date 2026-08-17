@@ -126,6 +126,29 @@ impl Default for BarConfig {
     }
 }
 
+/// `spitfire.workspace.max = 9` — caps how far `spitfire.workspace.next()`
+/// dynamically grows the workspace list (see `Command::WorkspaceCycle`'s
+/// own doc comment for why `next()`/`prev()` exist at all). `0` means
+/// unbounded, matching `spitfire.workspace.focus(n)`'s own niri-style
+/// "just creates it" behavior, which this never touches — `.focus(n)`/
+/// `spitfire.rule({ workspace = n })` are explicit, deliberate targets,
+/// only `.next()`'s *repeated, boundless* growth (a touchpad swipe has no
+/// natural "you've gone far enough" signal the way typing a number does)
+/// needed a cap. Defaults to `9` — not arbitrary: both `examples/
+/// config.lua` and this project's own docs already bind `Mod+1`-`9` to
+/// `spitfire.workspace.focus(1)`-`focus(9)`, so 9 is the number every
+/// example config's own keybindings already assume exists.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WorkspaceConfig {
+    pub max: usize,
+}
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        WorkspaceConfig { max: 9 }
+    }
+}
+
 /// `spitfire.output = { scale = 1.0 }`.
 ///
 /// Niri-style output scale: a fractional multiplier applied to every output
@@ -206,6 +229,7 @@ pub struct Config {
     pub output: OutputConfig,
     pub anim: AnimConfig,
     pub blur: BlurConfig,
+    pub workspace: WorkspaceConfig,
     /// `spitfire.focus_follows_mouse = true` — sloppy focus: hovering a
     /// window gives it keyboard focus without raising/reordering it
     /// (raising stays click-only). Hovering empty space (gaps, wallpaper,
@@ -265,7 +289,7 @@ impl Config {
             }
         }
 
-        let (gaps, border, bar, keyboard, output, anim, blur, focus_follows_mouse) =
+        let (gaps, border, bar, keyboard, output, anim, blur, workspace, focus_follows_mouse) =
             api::read_globals(&lua)?;
         // Can't `Rc::try_unwrap` here: the `spitfire.autostart` closure kept
         // inside `lua` holds a live reference to this Rc for as long as
@@ -288,6 +312,7 @@ impl Config {
             output,
             anim,
             blur,
+            workspace,
             focus_follows_mouse,
         })
     }
@@ -377,6 +402,7 @@ impl std::fmt::Debug for Config {
             .field("output", &self.output)
             .field("anim", &self.anim)
             .field("blur", &self.blur)
+            .field("workspace", &self.workspace)
             .finish_non_exhaustive()
     }
 }
@@ -458,6 +484,39 @@ mod tests {
         assert_eq!(load_str("").blur.radius, 20);
         let config = load_str(r#"spitfire.blur = { radius = 8 }"#);
         assert_eq!(config.blur.radius, 8);
+    }
+
+    #[test]
+    fn workspace_max_defaults_and_reads() {
+        assert_eq!(load_str("").workspace.max, 9);
+        // A plain field set on the *existing* `spitfire.workspace` table —
+        // not `spitfire.workspace = { max = n }`, which would replace the
+        // whole table and lose `.focus`/`.move_window`/`.next`/`.prev`.
+        let config = load_str("spitfire.workspace.max = 4");
+        assert_eq!(config.workspace.max, 4);
+    }
+
+    #[test]
+    fn workspace_functions_still_work_after_setting_max() {
+        // Guards against exactly the footgun `workspace_max_defaults_and_reads`
+        // calls out: setting `.max` on the table must not disturb the
+        // functions already living on it.
+        let config = load_str(
+            r#"
+            spitfire.workspace.max = 4
+            spitfire.bind("Mod4", "n", function() spitfire.workspace.next() end)
+            "#,
+        );
+        let mods = Modifiers {
+            logo: true,
+            ..Default::default()
+        };
+        let keysym = xkbcommon::xkb::keysym_from_name("n", xkbcommon::xkb::KEYSYM_NO_FLAGS);
+        let idx = config.find_bind(mods, keysym).expect("bind not found");
+        assert_eq!(
+            config.invoke_bind(idx).unwrap(),
+            vec![Command::WorkspaceCycle(1)]
+        );
     }
 
     #[test]

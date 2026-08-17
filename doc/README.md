@@ -834,9 +834,16 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   can't read "which workspace is active right now" to compute `focus(current + 1)`
   itself, so that computation has to happen compositor-side, in a dedicated `Command`
   handled where `WorkspaceFocus` already is (`input_handler.rs`). Clamps at workspace 1
-  going backward (`(current + delta).max(0)`); grows the list dynamically going forward,
-  same niri-style behavior `.focus(n)` already has past the end (`Workspaces::switch_to`
-  -> `ensure_len`).
+  going backward (`(current + delta).max(0)`); capped going forward by
+  `spitfire.workspace.max` (`WorkspaceConfig`, default `9`, `0` means unbounded) — a
+  plain field set directly on the same `spitfire.workspace` table `.focus`/
+  `.move_window`/`.next`/`.prev` already live on (`spitfire.workspace.max = 9`, *not*
+  `spitfire.workspace = { max = 9 }`, which would replace the whole table and lose those
+  four functions — a real footgun distinct enough from every other `spitfire.<name> =
+  {...}` config table in this file that it gets its own test,
+  `workspace_functions_still_work_after_setting_max`). `.focus(n)`/`spitfire.rule({
+  workspace = n })` stay uncapped either way — explicit, one-shot targets, not something
+  a repeated swipe can run away with the way `.next()` can.
 
   Found via a real config bug: `spitfire.gesture(3, "left", function()
   spitfire.workspace.focus(2) end)` paired with `.focus(1)` on the opposite swipe reads,
@@ -845,7 +852,14 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   back on 2, never advancing further; "right" always went straight to 1. Not a
   compositor bug — the config just wasn't expressing what it looked like it expressed.
   `examples/config.lua` and the user's own config.lua both had this exact pattern for
-  their 3-finger gestures; both now use `.next()`/`.prev()` instead.
+  their 3-finger gestures; both now use `.next()`/`.prev()` instead. The `max` cap itself
+  was a second, related fix, added right after: testing `.next()` with no ceiling grew
+  the user's real workspace list well past 9, which is also what the "Utumno's bar
+  isn't showing all 9 workspaces at startup" report the same session turned out to be —
+  not a regression (`ext_workspace.rs`, the actual `ext-workspace-v1` exposure, hasn't
+  changed at all recently — confirmed via `git log`/`git diff`), just a fresh session
+  correctly starting back at exactly 1 workspace after a long prior session had
+  organically grown well past 9 through testing.
 
 ## Known limitations / pending work
 

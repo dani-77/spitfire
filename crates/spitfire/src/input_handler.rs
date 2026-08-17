@@ -215,11 +215,19 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 // Clamp at workspace 1 (index 0) going backward — no
                 // negative/zero index to clamp *to* the way `focus(n)`'s
                 // own `saturating_sub(1)` clamps an out-of-range `n`.
-                // Growing the list forward is `switch_workspace` ->
-                // `switch_to` -> `ensure_len`'s job, same as `focus(n)`
-                // past the end.
-                let next = (current + delta).max(0) as usize;
-                self.switch_workspace(next);
+                // Forward, `spitfire.workspace.max` (default 9) caps how
+                // far repeated `next()` calls grow the list — unlike
+                // `focus(n)`, which stays uncapped (an explicit, one-shot
+                // target, not something a touchpad swipe can overshoot by
+                // just not stopping). `max == 0` means unbounded, same
+                // niri-style growth `focus(n)` always had.
+                let next = if self.config.workspace.max == 0 {
+                    (current + delta).max(0)
+                } else {
+                    let max_idx = self.config.workspace.max as i32 - 1;
+                    (current + delta).clamp(0, max_idx)
+                };
+                self.switch_workspace(next as usize);
             }
 
             ConfigCommand::WorkspaceMoveWindow(n) => {

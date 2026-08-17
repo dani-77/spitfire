@@ -16,7 +16,7 @@ use crate::{
     command::Command,
     gesture::{Gesture, GestureDirection},
     rule::WindowRule,
-    AnimConfig, BarConfig, BlurConfig, BorderConfig, KeyboardConfig, OutputConfig,
+    AnimConfig, BarConfig, BlurConfig, BorderConfig, KeyboardConfig, OutputConfig, WorkspaceConfig,
 };
 
 pub(crate) fn install(
@@ -376,6 +376,7 @@ pub(crate) fn read_globals(
     OutputConfig,
     AnimConfig,
     BlurConfig,
+    WorkspaceConfig,
     bool,
 )> {
     let mut gaps = spitfire_layout::Gaps::default();
@@ -385,6 +386,7 @@ pub(crate) fn read_globals(
     let mut output = OutputConfig::default();
     let mut anim = AnimConfig::default();
     let mut blur = BlurConfig::default();
+    let mut workspace = WorkspaceConfig::default();
     let mut focus_follows_mouse = false;
 
     let spitfire: Table = lua.globals().get("spitfire")?;
@@ -536,6 +538,24 @@ pub(crate) fn read_globals(
         }
     }
 
+    // `spitfire.workspace.max` — a plain field set directly on the same
+    // table `spitfire.workspace.focus`/`.next`/etc already live on (see
+    // `install`'s own `workspace_table`); mlua tables happily mix
+    // function and data fields, same as every other `spitfire.*`
+    // namespace in this file already does implicitly.
+    if let Ok(t) = spitfire.get::<Table>("workspace") {
+        if let Ok(v) = t.get::<i32>("max") {
+            if v >= 0 {
+                workspace.max = v as usize;
+            } else {
+                warn!(
+                    value = v,
+                    "spitfire.workspace.max: must be >= 0, keeping the default"
+                );
+            }
+        }
+    }
+
     // A bare boolean global, not a sub-table like the ones above — no
     // nested `spitfire.focus_follows_mouse.something` to speak of.
     if let Ok(v) = spitfire.get::<bool>("focus_follows_mouse") {
@@ -550,6 +570,7 @@ pub(crate) fn read_globals(
         output,
         anim,
         blur,
+        workspace,
         focus_follows_mouse,
     ))
 }
