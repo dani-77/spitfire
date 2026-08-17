@@ -618,6 +618,37 @@ mod tests {
     }
 
     #[test]
+    fn workspace_next_and_prev_produce_cycle_commands() {
+        let config = load_str(
+            r#"
+            spitfire.bind("Mod4", "n", function() spitfire.workspace.next() end)
+            spitfire.bind("Mod4", "p", function() spitfire.workspace.prev() end)
+            "#,
+        );
+        let mods = Modifiers {
+            logo: true,
+            ..Default::default()
+        };
+        let next_keysym = xkbcommon::xkb::keysym_from_name("n", xkbcommon::xkb::KEYSYM_NO_FLAGS);
+        let next_idx = config
+            .find_bind(mods, next_keysym)
+            .expect("next bind not found");
+        assert_eq!(
+            config.invoke_bind(next_idx).unwrap(),
+            vec![Command::WorkspaceCycle(1)]
+        );
+
+        let prev_keysym = xkbcommon::xkb::keysym_from_name("p", xkbcommon::xkb::KEYSYM_NO_FLAGS);
+        let prev_idx = config
+            .find_bind(mods, prev_keysym)
+            .expect("prev bind not found");
+        assert_eq!(
+            config.invoke_bind(prev_idx).unwrap(),
+            vec![Command::WorkspaceCycle(-1)]
+        );
+    }
+
+    #[test]
     fn gesture_fires_and_produces_commands() {
         let config = load_str(
             r#"

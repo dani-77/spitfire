@@ -811,9 +811,15 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
 
   Every reproduction and the live visual confirmation (a striped/textured background
   clearly visible as a soft Gaussian wash through the translucent window, sharp right up
-  to its edge, unchanged outside it) happened in nested `spitfire --winit`; `--udev`
-  behavior — including whether the buffer-age bug above reproduces there at all —
-  remains unverified.
+  to its edge, unchanged outside it) happened in nested `spitfire --winit`.
+  **`--udev` update, same day**: confirmed live on the user's own real hardware session
+  too — genuine blur, not just opaque — so whatever `DrmCompositor`'s own buffer-age
+  bookkeeping does differently from `OutputDamageTracker`'s explicit `age` parameter,
+  the stale-framebuffer bug fix 1 above describes doesn't reproduce there in practice, at
+  least not in that session. The fix itself (`reset_buffer_ages`) still isn't wired up on
+  `--udev` — this is an empirical "hasn't been observed to matter" from one real session,
+  not a structural guarantee the way the `--winit` fix is, so the gap stays documented
+  rather than declared closed.
 
   **A third thing worth knowing, not a bug**: `spitfire.rule` matches `app_id` exactly,
   so `spitfire.scratchpad.toggle("term", "alacritty --class scratchterm", ...)`-style
@@ -821,6 +827,25 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   than a plain launch of the same program — a `blur = true` rule aimed at one doesn't
   cover the other; needs its own separate rule line (see `examples/config.lua`'s
   updated comment).
+- **`spitfire.workspace.next()` / `.prev()`** (2026-08-17, `Command::WorkspaceCycle`) —
+  relative workspace navigation, switching to whichever workspace is currently active
+  `+1`/`-1`, unlike `.focus(n)`'s fixed target. Needed because Lua config code has no
+  access to compositor state at all (see this crate's own top-of-file doc comment) — it
+  can't read "which workspace is active right now" to compute `focus(current + 1)`
+  itself, so that computation has to happen compositor-side, in a dedicated `Command`
+  handled where `WorkspaceFocus` already is (`input_handler.rs`). Clamps at workspace 1
+  going backward (`(current + delta).max(0)`); grows the list dynamically going forward,
+  same niri-style behavior `.focus(n)` already has past the end (`Workspaces::switch_to`
+  -> `ensure_len`).
+
+  Found via a real config bug: `spitfire.gesture(3, "left", function()
+  spitfire.workspace.focus(2) end)` paired with `.focus(1)` on the opposite swipe reads,
+  at a glance, like "next/previous workspace" — but it's two fixed targets, so it only
+  ever bounces between workspace 1 and 2. From workspace 3 onward, "left" kept landing
+  back on 2, never advancing further; "right" always went straight to 1. Not a
+  compositor bug — the config just wasn't expressing what it looked like it expressed.
+  `examples/config.lua` and the user's own config.lua both had this exact pattern for
+  their 3-finger gestures; both now use `.next()`/`.prev()` instead.
 
 ## Known limitations / pending work
 
@@ -854,17 +879,20 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   something specific to how AbiWord/Gnumeric's older codebases report their window
   geometry rather than a GTK3-wide issue. Nothing to fix compositor-side: spitfire has no
   way to know a client's reported geometry doesn't match where it actually draws.
-- **`spitfire.rule({ blur = true })` is unverified on `--udev`** — confirmed working live
-  on `--winit` (see [What's implemented](#whats-implemented)), but the fix that made it
-  visible there at all (forcing a full redraw on any frame with an active blur backdrop)
-  has no equivalent wired up on `--udev` yet: the cheap API for it
-  (`DrmCompositor::reset_buffer_ages`) isn't reachable through `DrmOutput`'s public
-  wrapper, and substituting the much heavier `reset_buffers` (reallocates every
-  swapchain slot) every frame blur is active wasn't something to guess is safe without
-  real hardware to test it on. Also unverified on `--udev`, for the multi-GPU case
-  specifically: whether `MultiRenderer`'s `Offscreen<GlesTexture>` and its
-  `AsMut<GlesRenderer>` resolve to the same GPU context (see `crate::blur`'s own doc
-  comment) — true by construction on single-GPU, unverified on real multi-GPU.
+- **`spitfire.rule({ blur = true })`'s `--winit` stale-framebuffer fix has no `--udev`
+  equivalent wired up** — confirmed working live on real `--udev` hardware regardless
+  (single-GPU; see [What's implemented](#whats-implemented)), so the bug the `--winit`
+  fix addresses (forcing a full redraw on any frame with an active blur backdrop) hasn't
+  been observed to reproduce there in practice. Still no equivalent fix actually wired
+  up, though: the cheap API for it (`DrmCompositor::reset_buffer_ages`) isn't reachable
+  through `DrmOutput`'s public wrapper, and substituting the much heavier
+  `reset_buffers` (reallocates every swapchain slot) every frame blur is active wasn't
+  something to guess is safe without more hardware to test it on — one clean real-world
+  session not hitting it isn't the same as it being structurally impossible. Also
+  unverified, for the multi-GPU case specifically: whether `MultiRenderer`'s
+  `Offscreen<GlesTexture>` and its `AsMut<GlesRenderer>` resolve to the same GPU context
+  (see `crate::blur`'s own doc comment) — true by construction on single-GPU, unverified
+  on real multi-GPU.
 
 ## Layout
 

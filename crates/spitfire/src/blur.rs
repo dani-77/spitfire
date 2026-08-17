@@ -81,16 +81,20 @@
 //! [`blur_backdrops`] with that directly, rather than this module trying to
 //! abstract the difference away itself.
 //!
-//! **Untested on real hardware (`--udev`)**: every reproduction so far is
-//! nested `spitfire --winit` (see `nested-winit-testing-blind-spots` in
-//! this project's own notes on that environment's limits). The multi-GPU
-//! case in particular rests on an unverified assumption: that
-//! `MultiRenderer`'s `Offscreen<GlesTexture>` (used for the whole-output
-//! backdrop capture) and its `AsMut<GlesRenderer>` (used for the shader
-//! passes) resolve to the *same* GPU context, so a `GlesTexture` made via
-//! one is safely sampled from the other. True on any single-GPU box
-//! (the common case) by construction; unverified for a real multi-GPU
-//! `--udev` session.
+//! **Real hardware (`--udev`)**: confirmed working live on the user's own
+//! real single-GPU session the same day this landed — genuine blur, not
+//! just the opaque-backdrop bug from before the second fix above. The
+//! `--winit`-side stale-framebuffer fix (`age = 0`) still has no `--udev`
+//! equivalent wired up (see `udev.rs`'s own doc comment, right where the
+//! call would go, for the reachability gap), so
+//! this is "hasn't been observed to matter in one real session", not a
+//! structural guarantee. The multi-GPU case specifically remains
+//! unverified either way: whether `MultiRenderer`'s `Offscreen<
+//! GlesTexture>` (used for the whole-output backdrop capture) and its
+//! `AsMut<GlesRenderer>` (used for the shader passes) resolve to the
+//! *same* GPU context, so a `GlesTexture` made via one is safely sampled
+//! from the other — true on single-GPU by construction, untested on real
+//! multi-GPU.
 
 use smithay::{
     backend::{

@@ -187,6 +187,27 @@ pub(crate) fn install(
             })?;
             workspace_table.set("move_window", move_window_fn)?;
         }
+        // spitfire.workspace.next() / .prev() — relative to whichever
+        // workspace is currently active, unlike .focus(n) above (a fixed
+        // target). See Command::WorkspaceCycle's own doc comment for why
+        // this needs a dedicated Command rather than being computable in
+        // Lua.
+        {
+            let commands = commands.clone();
+            let next_fn = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WorkspaceCycle(1));
+                Ok(())
+            })?;
+            workspace_table.set("next", next_fn)?;
+        }
+        {
+            let commands = commands.clone();
+            let prev_fn = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WorkspaceCycle(-1));
+                Ok(())
+            })?;
+            workspace_table.set("prev", prev_fn)?;
+        }
         spitfire.set("workspace", workspace_table)?;
     }
 

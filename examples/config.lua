@@ -39,8 +39,12 @@ end
 -- would match any finger count; 3/4 here keep both sets off of whatever a
 -- 2-finger swipe already means to you (scroll). A gesture's callback runs
 -- exactly like a bind's — any spitfire.* call works inside it.
-spitfire.gesture(3, "left", function() spitfire.workspace.focus(2) end)
-spitfire.gesture(3, "right", function() spitfire.workspace.focus(1) end)
+-- next()/prev() move relative to whichever workspace is currently active
+-- — unlike focus(n), a fixed target — so swiping the same direction
+-- repeatedly keeps advancing (1 -> 2 -> 3 -> ...) instead of bouncing
+-- back and forth between two fixed numbers.
+spitfire.gesture(3, "left", function() spitfire.workspace.next() end)
+spitfire.gesture(3, "right", function() spitfire.workspace.prev() end)
 spitfire.gesture(3, "up", function() spitfire.window.toggle_scratchpad() end)
 spitfire.gesture(3, "down", function() spitfire.layout.cycle() end)
 -- 4-finger left/right cycles window focus instead — same as Mod4+j/k,

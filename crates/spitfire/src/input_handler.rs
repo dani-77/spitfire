@@ -210,6 +210,18 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 self.switch_workspace(n.saturating_sub(1));
             }
 
+            ConfigCommand::WorkspaceCycle(delta) => {
+                let current = self.workspaces.active_index() as i32;
+                // Clamp at workspace 1 (index 0) going backward — no
+                // negative/zero index to clamp *to* the way `focus(n)`'s
+                // own `saturating_sub(1)` clamps an out-of-range `n`.
+                // Growing the list forward is `switch_workspace` ->
+                // `switch_to` -> `ensure_len`'s job, same as `focus(n)`
+                // past the end.
+                let next = (current + delta).max(0) as usize;
+                self.switch_workspace(next);
+            }
+
             ConfigCommand::WorkspaceMoveWindow(n) => {
                 self.move_focused_window_to_workspace(n.saturating_sub(1));
             }

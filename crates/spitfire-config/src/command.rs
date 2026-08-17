@@ -19,6 +19,14 @@ pub enum Command {
     /// `spitfire.workspace.focus(n)` — 1-based, switches the view;
     /// creates workspace `n` if it doesn't exist yet.
     WorkspaceFocus(usize),
+    /// `spitfire.workspace.next()`/`.prev()` — relative to whichever
+    /// workspace is *currently* active (`+1`/`-1`), not a fixed target —
+    /// what `spitfire.workspace.focus(n)` can't express, since Lua has no
+    /// access to compositor state to compute "current + 1" itself (see
+    /// this module's own doc comment). Clamps at workspace 1 going
+    /// backward; grows the list dynamically going forward, same
+    /// niri-style behavior `focus(n)` already has past the end.
+    WorkspaceCycle(i32),
     /// `spitfire.workspace.move_window(n)` — 1-based, moves the focused
     /// window to workspace `n` without switching the view there.
     WorkspaceMoveWindow(usize),
