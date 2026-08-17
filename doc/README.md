@@ -38,7 +38,8 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   (`$XDG_CONFIG_HOME/spitfire/config.lua`, falling back to
   `~/.config/spitfire/config.lua`), reloadable at runtime with `spitfire.reload()` — no
   recompile. `spitfire.bind`/`gesture`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`window`/
-  `rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`/`anim`/`focus_follows_mouse`. Mod4/Super and Mod1/Alt are both
+  `scratchpad`/`rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`/`anim`/`blur`/
+  `focus_follows_mouse`. Mod4/Super and Mod1/Alt are both
   first-class modifiers, freely mixable per bind. See `../examples/config.lua` for the
   default bindings.
   - `spitfire.window.close()`/`.focus_next()`/`.focus_prev()`/`.swap_next()`/`.swap_prev()`: close
@@ -665,12 +666,18 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `ScreenCast`/`Screenshot` now route to `xdg-desktop-portal-wlr` too (2026-08-14) —
   spitfire implements `wlr-screencopy` (see the bullet above) and that was the only
   reason they weren't covered before; the config just hadn't caught up.
-  `ext-image-copy-capture-v1` (the protocol `xdg-desktop-portal-gnome`/`-kde` would want
-  instead) still isn't implemented at all, so those backends remain out of reach on
-  purpose. Not yet re-verified end-to-end against a live `Screenshot`/`ScreenCast` call
+  `ext-image-copy-capture-v1` — the protocol `xdg-desktop-portal-gnome`/`-kde` would
+  actually want, and no longer a reason those backends couldn't work: spitfire has
+  implemented it since 2026-08-16 (see that entry above), and the user's own installed
+  `xdg-desktop-portal-wlr` already prefers it automatically over `wlr-screencopy` once
+  both are advertised. Still routed to `wlr` here rather than `gnome`/`kde`, though —
+  that's the backend actually verified end-to-end (real `grim` captures against a real
+  session), not a statement that `gnome`/`kde` couldn't work now; routing this protocol
+  through them specifically has never been tried against spitfire. Not yet re-verified
+  end-to-end against a live `Screenshot`/`ScreenCast` call through the portal either way
   (previously confirmed only that `xdg-desktop-portal-wlr` stayed uninvoked while
-  unrouted) — worth a real capture through the portal, not just `grim` directly, before
-  relying on it. Verified live: a fresh
+  unrouted) — worth a real capture through the portal, not just `grim`/a throwaway test
+  client directly, before relying on it. Verified live: a fresh
   session restart on real hardware, `xdg-desktop-portal-gtk` activates cleanly and stays
   up, `FileChooser`/`Settings` (via the `gnome` backend for the latter, which doesn't
   need Mutter for plain `GSettings` reads) both answer over D-Bus.
