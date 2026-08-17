@@ -71,12 +71,11 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   msg/hyprctl-style): `reload`, `quit`, `layout <mode>`, `workspace focus <n>`,
   `list-windows`, `list-outputs`, `list-workspaces`.
 - **Dynamic per-output workspaces** (`crate::workspace`, niri-style growth — focusing
-  workspace 12 when only `spitfire.workspace.max` exist still just creates the rest, no
-  fixed ceiling required; 1 through `max`, default 9, already exist from startup instead
-  of being created lazily one at a time — see the dated entry further down), advertised
-  live over `ext-workspace-v1` (`crate::ext_workspace`, hand-implemented — not provided
-  by Smithay, see `../NOTICE.md`). `spitfire.workspace.focus(n)` /
-  `spitfire.workspace.move_window(n)` / `.next()` / `.prev()` (1-based).
+  workspace 5 when only 2 exist just creates 3, 4, and 5; nothing exists until it's
+  actually asked for), advertised live over `ext-workspace-v1` (`crate::ext_workspace`,
+  hand-implemented — not provided by Smithay, see `../NOTICE.md`).
+  `spitfire.workspace.focus(n)` / `spitfire.workspace.move_window(n)` / `.next()` /
+  `.prev()` (1-based).
   - Verified end-to-end against a real Quickshell client (`Quickshell.WindowManager`,
     the same component Utumno's `Workspaces.qml` uses) in both directions:
     compositor-driven switches show up live in the client, and the client calling
@@ -875,20 +874,16 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   in spitfire had caused a regression — the user's memory of "9 at every clean boot" was
   accurate, just misattributed: it was recalling `wasp` (their other compositor, which
   does pre-populate at startup), not spitfire, which had simply never done this before.
-  Confirmed and resolved together, live — see the next entry for the actual feature
-  request that came out of it.
-- **Workspaces 1-`max` exist from the very first frame** (2026-08-17,
-  `SpitfireState::new`) — `spitfire.workspace.max` (see above) now doubles as "how many
-  workspaces to have ready at startup," wasp-style: `workspaces.ensure(max - 1)` right
-  after construction, reusing the exact same dynamic-growth machinery `.focus(n)`/
-  `.next()` already lean on (`Workspaces::ensure_len`), just run once, eagerly, instead
-  of waiting for something to ask for workspace 9 first. Workspace 1 stays active —
-  `ensure`, not `switch_to`, only pre-allocates the rest. `max == 0` (unbounded) is a
-  no-op here (`ensure(0)`, workspace 1 already exists) — nothing to eagerly create when
-  there's no ceiling to create up to. Verified live in nested `spitfire --winit`: a
-  fresh start's `spitfirectl list-workspaces` immediately lists all of `1`-`9`, workspace
-  `1` active, matching what a client bound to `ext-workspace-v1` at startup (Utumno
-  included) sees from its very first snapshot.
+
+  **Pre-creating 1-`max` at startup, wasp-style, was tried right after and reverted the
+  same day.** `SpitfireState::new` briefly called `workspaces.ensure(max - 1)` right
+  after construction — same `Workspaces::ensure_len` machinery `.focus(n)`/`.next()`
+  already use, just run once, eagerly, instead of waiting for something to ask for
+  workspace 9 first. Verified working (a fresh start's `spitfirectl list-workspaces`
+  immediately listed all of `1`-`9`), then reverted on reflection: spitfire's own
+  "nothing exists until asked for" growth was the intended design, not an accident
+  worth matching wasp's over. `max` stays purely a ceiling on `.next()`'s growth (see
+  above) — never also a startup floor.
 
 ## Known limitations / pending work
 

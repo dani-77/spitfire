@@ -873,18 +873,16 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
 
         let mut workspaces = crate::workspace::WorkspaceSet::default();
         workspaces.apply_gaps(config.gaps);
-        // spitfire.workspace.max (default 9) also doubles as "how many
-        // workspaces to have ready at startup" — wasp-style, all of them
-        // visible in a workspace-aware bar from the very first frame,
-        // rather than growing lazily from just 1 as each gets visited for
-        // the first time (still exactly what happens past `max`, or
-        // whenever `max == 0`: `ensure(0)` here is a no-op, workspace 1
-        // already exists). `ensure`, not `switch_to` — workspace 1 stays
-        // active; this only pre-allocates the *rest*, matching the
-        // dynamic-growth `Workspaces::ensure_len` every other caller of
-        // `.focus(n)`/`.next()` already relies on, just run once, up
-        // front, instead of waiting for something to ask for workspace 9.
-        workspaces.ensure(config.workspace.max.saturating_sub(1));
+        // Deliberately *not* pre-creating up to spitfire.workspace.max here
+        // — tried, briefly (2026-08-17, reverted the same day): every
+        // workspace 1..max existing from the very first frame, wasp-style.
+        // Decided against it on reflection — spitfire's own niri-style
+        // "nothing exists until you ask for it" growth (`.focus(n)`/
+        // `.next()`/`spitfire.rule({ workspace = n })` all still create on
+        // demand via `Workspaces::ensure_len`) is the intended behavior,
+        // `max` stays purely a *ceiling* on `.next()`'s growth, not also a
+        // startup floor. `Workspaces::ensure` is still what a caller wanting
+        // the old eager behavior back would reach for.
         let ext_workspace_state = crate::ext_workspace::ExtWorkspaceState::new::<Self>(&dh);
         let screencopy_state = crate::screencopy::ScreencopyState::new::<Self>(&dh);
         let ext_screencopy_state = crate::ext_screencopy::ExtScreencopyState::new::<Self>(&dh);
