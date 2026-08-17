@@ -1639,6 +1639,9 @@ impl SpitfireState<UdevData> {
         } else {
             crate::blur::blur_windows_for_output(&rules, &self.space, &output)
         };
+        // Must run before the real frame's own `render_surface` call below
+        // — see winit.rs's identical call site for why.
+        crate::blur::sync_blur_flags(&self.space, &output, &blur_windows);
         let mut blur_backdrops: Vec<crate::blur::BlurBackdrop> = Vec::new();
         if !blur_windows.is_empty() {
             let mut backdrop_border_cache = RectCache::default();

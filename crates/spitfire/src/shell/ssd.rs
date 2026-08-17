@@ -35,6 +35,21 @@ pub struct WindowState {
     /// underneath, so any translucency blends with that instead of
     /// whatever window happens to be lower in the stack.
     pub backdrop: SolidColorBuffer,
+    /// `spitfire.rule({ blur = true })` currently matches this window —
+    /// synced fresh every frame by `crate::blur::sync_blur_flags`, read
+    /// here by `WindowElement::render_elements` to skip pushing
+    /// `backdrop`'s own opaque fill entirely. Without this, `backdrop`
+    /// (always fully opaque, drawn immediately behind the window's real
+    /// content) would blend with the window's own translucency before
+    /// `crate::blur`'s own backdrop — drawn further back still, behind
+    /// *this* whole element set — ever gets a chance to: a `blur = true`
+    /// window would render exactly as opaque as any other, defeating the
+    /// entire feature. `blur = true` is an explicit opt-in for real
+    /// per-pixel transparency (with spitfire's own blur behind it,
+    /// instead of raw desktop content) — it supersedes this backdrop's
+    /// generic "protect against accidental translucency" default on
+    /// purpose, for exactly the windows that asked for it.
+    pub blur: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +260,7 @@ impl WindowElement {
                     close_button: SolidColorBuffer::default(),
                 },
                 backdrop: SolidColorBuffer::default(),
+                blur: false,
             })
         });
 

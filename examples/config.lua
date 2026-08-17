@@ -120,7 +120,14 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 -- `background_opacity`, foot's `alpha`), so whatever's behind it reads as
 -- blurred through the translucent parts instead of sharp. `spitfire.blur`
 -- below is the one global strength knob every `blur = true` window shares.
--- spitfire.rule({ app_id = "alacritty", blur = true })
+-- `app_id` matching is exact and case-sensitive (same caveat the
+-- `workspace` rule above already calls out) — a plain `alacritty` launch
+-- reports "Alacritty", capitalized; confirm with `spitfirectl list-windows`
+-- if this doesn't fire. Two rules, not one, because the named-scratchpad
+-- terminal above spawns with `--class scratchterm` — a *different* app_id
+-- from a plain launch, so it needs its own line to get blur too.
+-- spitfire.rule({ app_id = "Alacritty", blur = true })
+-- spitfire.rule({ app_id = "scratchterm", blur = true })
 
 -- `radius` (logical pixels, default 0) rounds the border's corners — and,
 -- since it's drawn on top of the window, masks the window's own square

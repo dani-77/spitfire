@@ -249,6 +249,29 @@ pub fn blur_windows_for_output(
         .collect()
 }
 
+/// Syncs every window on `output` (not just `blur_windows`) with whether
+/// it's currently one of them — `WindowElement::render_elements` reads
+/// this back (`WindowState::blur`, shell/ssd.rs) to decide whether to skip
+/// its own opaque backdrop. Has to touch every window, not just the ones
+/// currently in `blur_windows`: a window that *was* blurred and lost the
+/// rule (`spitfire.reload()` editing it out) needs its flag cleared back
+/// to `false`, or it would keep skipping its backdrop — showing raw
+/// desktop through its own translucency again — forever after, the exact
+/// bug `WindowState::backdrop` exists to prevent in the first place.
+/// Called once per frame, right before building this frame's real render
+/// elements — cheap even at `blur_windows` empty (a handful of `bool`
+/// writes, no GL work), so unlike the rest of this module's pipeline it's
+/// not worth gating behind an early return.
+pub fn sync_blur_flags(
+    space: &Space<WindowElement>,
+    output: &Output,
+    blur_windows: &[WindowElement],
+) {
+    for window in space.elements_for_output(output) {
+        window.decoration_state().blur = blur_windows.contains(window);
+    }
+}
+
 /// Renders `elements` (the whole output, minus whichever windows are about
 /// to get a blur backdrop — see this module's own doc comment, step 2) into
 /// an offscreen `GlesTexture` the size of `output`'s own mode, and hands

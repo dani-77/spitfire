@@ -478,6 +478,13 @@ where
     ) -> Vec<C> {
         let window_bbox = SpaceElement::bbox(&self.0);
 
+        // `spitfire.rule({ blur = true })` — skip the opaque backdrop
+        // below entirely for this window: it exists specifically to
+        // absorb a window's own translucency, which is exactly what a
+        // `blur = true` window wants to let through to `crate::blur`'s own
+        // backdrop instead. See `WindowState::blur`'s doc comment.
+        let skip_backdrop = self.decoration_state().blur;
+
         // Sized to exactly the content geometry, drawn *behind* the
         // client's own content — see `WindowState::backdrop`'s doc comment
         // (shell/ssd.rs) for the real bug this papers over (a client
@@ -517,13 +524,17 @@ where
             let window_elements: Vec<WindowRenderElement<R>> =
                 AsRenderElements::render_elements(&self.0, renderer, location, scale, alpha);
             vec.extend(window_elements);
-            vec.push(backdrop_element(location, window_geo.size));
+            if !skip_backdrop {
+                vec.push(backdrop_element(location, window_geo.size));
+            }
             vec.into_iter().map(C::from).collect()
         } else {
             let content_size = SpaceElement::geometry(&self.0).size;
             let mut vec: Vec<WindowRenderElement<R>> =
                 AsRenderElements::render_elements(&self.0, renderer, location, scale, alpha);
-            vec.push(backdrop_element(location, content_size));
+            if !skip_backdrop {
+                vec.push(backdrop_element(location, content_size));
+            }
             vec.into_iter().map(C::from).collect()
         }
     }

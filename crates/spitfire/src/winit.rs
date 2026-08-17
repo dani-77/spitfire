@@ -434,6 +434,12 @@ pub fn run_winit() {
                 } else {
                     crate::blur::blur_windows_for_output(&rules, space, &output)
                 };
+                // Must run before the real frame's own `render_output` call
+                // below — `WindowElement::render_elements` reads this back
+                // to decide whether to skip its opaque backdrop. See
+                // `sync_blur_flags`'s own doc comment for why it always
+                // touches every window, not just `blur_windows`.
+                crate::blur::sync_blur_flags(space, &output, &blur_windows);
                 let mut blur_backdrops: Vec<crate::blur::BlurBackdrop> = Vec::new();
                 if !blur_windows.is_empty() {
                     // Own throwaway caches, not `border_cache`/`corner_masks`
