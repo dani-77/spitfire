@@ -213,6 +213,10 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
         WindowElement,
         smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle,
     )>,
+    /// `spitfire.rule({ blur = true })`'s compiled GLES blur shader —
+    /// compiled once, lazily, and reused every frame after. See
+    /// `crate::blur`.
+    pub blur_state: crate::blur::BlurState,
     /// Phase 2: Lua config loaded from `spitfire_config::Config::default_path()`.
     pub config: spitfire_config::Config,
     /// Phase 8: the optional built-in bar's own runtime state (currently
@@ -887,6 +891,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             ext_screencopy_state,
             foreign_toplevel_list_state,
             foreign_toplevel_handles: Vec::new(),
+            blur_state: crate::blur::BlurState::default(),
             display_handle: dh,
             socket_name,
             running: Arc::new(AtomicBool::new(true)),

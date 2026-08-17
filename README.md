@@ -32,6 +32,11 @@ the window manager.
   it off with one line if you'd rather run your own (waybar, eww, ...).
 - **Window borders and gaps**, colored however you like — with optional rounded
   corners.
+- **Blur-behind for translucent windows** — a terminal with real opacity set
+  (alacritty's `window.opacity`, kitty's `background_opacity`, foot's `alpha`) shows a
+  frosted-glass blur of whatever's behind it instead of the sharp original, via
+  `spitfire.rule({ app_id = "...", blur = true })` and one global strength knob,
+  `spitfire.blur = { radius = n }`.
 - **Window animations** — a quick scale-in ("pop") when a window opens, a smooth tween
   whenever the tiling layout moves or resizes it, and a slide when you switch
   workspaces. Configurable via `spitfire.anim` in `config.lua`.

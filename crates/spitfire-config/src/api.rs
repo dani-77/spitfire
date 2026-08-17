@@ -16,7 +16,7 @@ use crate::{
     command::Command,
     gesture::{Gesture, GestureDirection},
     rule::WindowRule,
-    AnimConfig, BarConfig, BorderConfig, KeyboardConfig, OutputConfig,
+    AnimConfig, BarConfig, BlurConfig, BorderConfig, KeyboardConfig, OutputConfig,
 };
 
 pub(crate) fn install(
@@ -278,7 +278,7 @@ pub(crate) fn install(
     }
 
     // spitfire.rule({ app_id = "...", floating = true, centered = true,
-    // hide_from_capture = true, workspace = n })
+    // hide_from_capture = true, workspace = n, blur = true })
     {
         let rules = rules.clone();
         let rule_fn = lua.create_function(move |_, tbl: Table| {
@@ -291,12 +291,14 @@ pub(crate) fn install(
                 warn!("spitfire.rule: workspace is 1-based, 0 is not valid — ignoring");
             }
             let workspace = workspace.filter(|&n| n != 0);
+            let blur: bool = tbl.get("blur").unwrap_or(false);
             rules.borrow_mut().push(WindowRule {
                 app_id,
                 floating,
                 centered,
                 hide_from_capture,
                 workspace,
+                blur,
             });
             Ok(())
         })?;
@@ -352,6 +354,7 @@ pub(crate) fn read_globals(
     KeyboardConfig,
     OutputConfig,
     AnimConfig,
+    BlurConfig,
     bool,
 )> {
     let mut gaps = spitfire_layout::Gaps::default();
@@ -360,6 +363,7 @@ pub(crate) fn read_globals(
     let mut keyboard = KeyboardConfig::default();
     let mut output = OutputConfig::default();
     let mut anim = AnimConfig::default();
+    let mut blur = BlurConfig::default();
     let mut focus_follows_mouse = false;
 
     let spitfire: Table = lua.globals().get("spitfire")?;
@@ -498,6 +502,19 @@ pub(crate) fn read_globals(
         }
     }
 
+    if let Ok(t) = spitfire.get::<Table>("blur") {
+        if let Ok(v) = t.get::<i32>("radius") {
+            if v >= 0 {
+                blur.radius = v;
+            } else {
+                warn!(
+                    value = v,
+                    "spitfire.blur.radius: must be >= 0, keeping the default"
+                );
+            }
+        }
+    }
+
     // A bare boolean global, not a sub-table like the ones above — no
     // nested `spitfire.focus_follows_mouse.something` to speak of.
     if let Ok(v) = spitfire.get::<bool>("focus_follows_mouse") {
@@ -511,6 +528,7 @@ pub(crate) fn read_globals(
         keyboard,
         output,
         anim,
+        blur,
         focus_follows_mouse,
     ))
 }

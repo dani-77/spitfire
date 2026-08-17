@@ -82,6 +82,24 @@ impl AnimConfig {
     }
 }
 
+/// `spitfire.blur = { radius = 20 }` — strength of the `spitfire.rule({
+/// blur = true })` blur-behind backdrop, shared by every window that opts
+/// in (no per-window override yet). Roughly a pixel radius: the actual
+/// shader is a two-pass separable Gaussian with a fixed tap count, this
+/// scales how far apart those taps sample — `0` disables blur entirely
+/// (skipped before any GL work happens, see `crate::blur` in the
+/// `spitfire` crate) without needing to touch individual rules.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlurConfig {
+    pub radius: i32,
+}
+
+impl Default for BlurConfig {
+    fn default() -> Self {
+        BlurConfig { radius: 20 }
+    }
+}
+
 /// `spitfire.bar = { enable = true, height = 24, bg = "#1e1e2e", fg = "#6c7086", fg_active = "#cdd6f4" }`.
 ///
 /// Phase 8, off by default. Drawn by the compositor itself, not a client —
@@ -187,6 +205,7 @@ pub struct Config {
     pub keyboard: KeyboardConfig,
     pub output: OutputConfig,
     pub anim: AnimConfig,
+    pub blur: BlurConfig,
     /// `spitfire.focus_follows_mouse = true` — sloppy focus: hovering a
     /// window gives it keyboard focus without raising/reordering it
     /// (raising stays click-only). Hovering empty space (gaps, wallpaper,
@@ -246,7 +265,7 @@ impl Config {
             }
         }
 
-        let (gaps, border, bar, keyboard, output, anim, focus_follows_mouse) =
+        let (gaps, border, bar, keyboard, output, anim, blur, focus_follows_mouse) =
             api::read_globals(&lua)?;
         // Can't `Rc::try_unwrap` here: the `spitfire.autostart` closure kept
         // inside `lua` holds a live reference to this Rc for as long as
@@ -268,6 +287,7 @@ impl Config {
             keyboard,
             output,
             anim,
+            blur,
             focus_follows_mouse,
         })
     }
@@ -356,6 +376,7 @@ impl std::fmt::Debug for Config {
             .field("keyboard", &self.keyboard)
             .field("output", &self.output)
             .field("anim", &self.anim)
+            .field("blur", &self.blur)
             .finish_non_exhaustive()
     }
 }
@@ -430,6 +451,19 @@ mod tests {
     fn reads_border_radius() {
         let config = load_str(r#"spitfire.border = { radius = 10 }"#);
         assert_eq!(config.border.radius, 10);
+    }
+
+    #[test]
+    fn blur_radius_defaults_and_reads() {
+        assert_eq!(load_str("").blur.radius, 20);
+        let config = load_str(r#"spitfire.blur = { radius = 8 }"#);
+        assert_eq!(config.blur.radius, 8);
+    }
+
+    #[test]
+    fn negative_blur_radius_is_rejected_not_zeroed() {
+        let config = load_str(r#"spitfire.blur = { radius = -5 }"#);
+        assert_eq!(config.blur.radius, 20);
     }
 
     #[test]
@@ -544,6 +578,17 @@ mod tests {
         let rules = config.rules();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].workspace, None);
+    }
+
+    #[test]
+    fn collects_blur_rule() {
+        let config = load_str(r#"spitfire.rule({ app_id = "alacritty", blur = true })"#);
+        let rules = config.rules();
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].blur);
+        // Defaults to false when unset, same as `floating`/`hide_from_capture`.
+        let config = load_str(r#"spitfire.rule({ app_id = "alacritty" })"#);
+        assert!(!config.rules()[0].blur);
     }
 
     #[test]

@@ -757,6 +757,70 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   XWayland-workspace-visibility bug above (Steam silently still receiving input) rather
   than a lost keyboard event — a full keycode-level audit of the press/release log
   never turned up an actual dropped or duplicated event.
+- **`spitfire.rule({ blur = true })` + `spitfire.blur = { radius = n }`** (2026-08-17,
+  `crate::blur`) — a frosted-glass backdrop rendered right behind a window's own content,
+  for a terminal/launcher with real per-pixel alpha in its own buffer (alacritty's
+  `window.opacity`, kitty's `background_opacity`, foot's `alpha`). spitfire has no
+  wlroots/SceneFX scene graph to inherit this from (unlike wasp, the feature's origin
+  point — see this project's own roadmap notes) — hand-rolled instead: a two-pass
+  separable GLES Gaussian blur (`BLUR_FRAG_SHADER`, compiled once via `GlesRenderer::
+  compile_custom_texture_shader` and reused every frame after) sampling an offscreen
+  capture of the whole output with the `blur = true` window itself excluded, cropped to
+  that window's own on-screen rect, composited back in as a plain
+  `MemoryRenderBufferRenderElement` immediately behind the window's own content in
+  `output_elements`'s existing per-window loop. Real screen only for now —
+  `wlr-screencopy`/`ext-image-copy-capture-v1` captures don't reproduce it (a `blur =
+  true` window shows as if the rule weren't set in a screenshot/recording).
+
+  **Two real bugs found and fixed live, both the hard way, both required for the feature
+  to actually be visible**:
+
+  1. The blur math itself worked on the very first attempt (confirmed by dumping the raw
+     blurred buffer to a PNG and inspecting it directly), but nothing showed up on
+     screen — a translucent window's own real alpha blending was compositing correctly,
+     just against *stale* framebuffer content from before blur ever started, not the
+     freshly blurred backdrop. Root cause: a blurred backdrop is a brand-new
+     `MemoryRenderBuffer` (a brand-new `Id`) every single frame at a screen position that
+     hasn't necessarily moved, which isn't enough on its own for `buffer_age()`-based
+     partial redraw to know a *content* change happened there that should count as
+     damage. Fixed on `--winit` by forcing a full redraw (`age = 0` instead of the real
+     buffer age) on any frame with an active blur backdrop. **Not yet fixed on
+     `--udev`**: the equivalent fix (`DrmCompositor::reset_buffer_ages`, cheap — only
+     clears each swapchain slot's own age counter) isn't reachable through `DrmOutput`'s
+     public API, which only re-exposes the much heavier `reset_buffers` (discards and
+     reallocates every slot's actual buffer) — substituting that every frame blur is
+     active wasn't a substitution this session could verify was safe on real hardware,
+     so it was left as a documented, open gap (`udev.rs`, right where the call would go)
+     rather than guessed at.
+  2. Even after fix 1, blur *still* didn't show — the window's own translucency was
+     reaching a real, freshly-drawn backdrop, just the wrong one. `WindowElement::
+     render_elements` (shell/element.rs) already draws an unconditional, fully opaque
+     `WindowState::backdrop` immediately behind *every* window's own content (the
+     `BG_COLOR` fix noted above, 2026-08-16, for a client relying on compositor blur that
+     didn't exist yet) — sitting directly between the window's real surface and
+     `crate::blur`'s own backdrop, which is pushed further back still. Any window's own
+     alpha was blending with that flat, deliberate fill color, never reaching `crate::
+     blur`'s content at all — a `blur = true` window rendered exactly as opaque as any
+     other. Fixed with a new `WindowState::blur` flag (shell/ssd.rs), synced fresh every
+     frame by `crate::blur::sync_blur_flags` for *every* window on the output (not just
+     the currently-blurred ones — a window that loses the rule via `spitfire.reload()`
+     needs the flag cleared too, or it keeps skipping its backdrop forever after) and
+     read back by `render_elements` to skip pushing its own backdrop entirely for a
+     `blur = true` window — an explicit opt-in superseding the generic default, on
+     purpose, only for windows that asked for it.
+
+  Every reproduction and the live visual confirmation (a striped/textured background
+  clearly visible as a soft Gaussian wash through the translucent window, sharp right up
+  to its edge, unchanged outside it) happened in nested `spitfire --winit`; `--udev`
+  behavior — including whether the buffer-age bug above reproduces there at all —
+  remains unverified.
+
+  **A third thing worth knowing, not a bug**: `spitfire.rule` matches `app_id` exactly,
+  so `spitfire.scratchpad.toggle("term", "alacritty --class scratchterm", ...)`-style
+  named scratchpads spawn with a *different* `app_id` (`scratchterm`, not `Alacritty`)
+  than a plain launch of the same program — a `blur = true` rule aimed at one doesn't
+  cover the other; needs its own separate rule line (see `examples/config.lua`'s
+  updated comment).
 
 ## Known limitations / pending work
 
@@ -790,6 +854,17 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   something specific to how AbiWord/Gnumeric's older codebases report their window
   geometry rather than a GTK3-wide issue. Nothing to fix compositor-side: spitfire has no
   way to know a client's reported geometry doesn't match where it actually draws.
+- **`spitfire.rule({ blur = true })` is unverified on `--udev`** — confirmed working live
+  on `--winit` (see [What's implemented](#whats-implemented)), but the fix that made it
+  visible there at all (forcing a full redraw on any frame with an active blur backdrop)
+  has no equivalent wired up on `--udev` yet: the cheap API for it
+  (`DrmCompositor::reset_buffer_ages`) isn't reachable through `DrmOutput`'s public
+  wrapper, and substituting the much heavier `reset_buffers` (reallocates every
+  swapchain slot) every frame blur is active wasn't something to guess is safe without
+  real hardware to test it on. Also unverified on `--udev`, for the multi-GPU case
+  specifically: whether `MultiRenderer`'s `Offscreen<GlesTexture>` and its
+  `AsMut<GlesRenderer>` resolve to the same GPU context (see `crate::blur`'s own doc
+  comment) — true by construction on single-GPU, unverified on real multi-GPU.
 
 ## Layout
 

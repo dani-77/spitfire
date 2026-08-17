@@ -1628,6 +1628,90 @@ impl SpitfireState<UdevData> {
         }
         .unwrap();
 
+        // spitfire.rule({ blur = true }) — see `crate::blur`'s doc comment
+        // for the whole pipeline (this mirrors winit.rs's own call site,
+        // its comments carry the reasoning that doesn't need repeating
+        // twice). The shader-pass half needs a concrete `&mut GlesRenderer`
+        // (`renderer.as_mut()`, via `MultiRenderer`'s own `AsMut` — see
+        // `crate::blur`'s doc comment on why that can't stay generic).
+        let blur_windows = if locked {
+            Vec::new()
+        } else {
+            crate::blur::blur_windows_for_output(&rules, &self.space, &output)
+        };
+        // Must run before the real frame's own `render_surface` call below
+        // — see winit.rs's identical call site for why.
+        crate::blur::sync_blur_flags(&self.space, &output, &blur_windows);
+        let mut blur_backdrops: Vec<crate::blur::BlurBackdrop> = Vec::new();
+        if !blur_windows.is_empty() {
+            let mut backdrop_border_cache = RectCache::default();
+            let mut backdrop_corner_masks = crate::render::CornerMaskCache::default();
+            let (backdrop_elements, _clear_color) = output_elements(
+                &output,
+                &self.space,
+                std::iter::empty::<CustomRenderElements<UdevRenderer<'_>>>(),
+                &mut renderer,
+                false,
+                locked_surface.as_ref(),
+                &border_rects,
+                border.width,
+                border.radius,
+                crate::render::hex_to_color32f(border.active),
+                crate::render::hex_to_color32f(border.inactive),
+                &mut backdrop_border_cache,
+                &mut backdrop_corner_masks,
+                &anims,
+                &blur_windows,
+                &[],
+            );
+            let scale = Scale::from(output.current_scale().fractional_scale());
+            if let Some((backdrop_tex, backdrop_size)) =
+                crate::blur::capture_backdrop(&mut renderer, &output, &backdrop_elements, scale)
+            {
+                let gles: &mut GlesRenderer = renderer.as_mut();
+                blur_backdrops = crate::blur::blur_backdrops(
+                    gles,
+                    &mut self.blur_state,
+                    &backdrop_tex,
+                    backdrop_size,
+                    &self.space,
+                    &output,
+                    &blur_windows,
+                    self.config.blur.radius,
+                    scale,
+                );
+            }
+        }
+        // KNOWN GAP, not yet fixed here — see winit.rs's own `age = 0`
+        // override right before its `render_output` call for the bug this
+        // would sidestep: a blurred backdrop is a brand-new
+        // `MemoryRenderBuffer` every frame at a position that hasn't
+        // necessarily moved, which isn't enough on its own to guarantee a
+        // buffer-age-based partial redraw actually repaints that region
+        // rather than leaving pre-existing (pre-blur, sharp) swapchain
+        // buffer content showing through it — confirmed live via the winit
+        // backend, where `OutputDamageTracker::render_output` takes an
+        // explicit `age` this crate controls directly, overridable to `0`
+        // (force full redraw) whenever `blur_backdrops` is non-empty. The
+        // equivalent fix here would be `DrmCompositor::reset_buffer_ages`
+        // (cheap — just clears each swapchain slot's own age counter,
+        // *not* `DrmOutput::reset_buffers`, which discards and reallocates
+        // every slot's actual buffer instead) — but `DrmOutput` (the
+        // wrapper `surface.drm_output` actually is here) only re-exposes
+        // `reset_buffers`, not `reset_buffer_ages`, so this crate has no
+        // way to reach the cheap one without either an upstream smithay
+        // change or holding the `DrmCompositor` some other way than
+        // through `DrmOutput`. Left unfixed rather than substituting the
+        // heavy `reset_buffers` call every frame blur is active (repeated
+        // full swapchain buffer reallocation is a real, different cost —
+        // not something to guess is safe to pay every frame without being
+        // able to verify it on real `--udev` hardware). Practical effect:
+        // `spitfire.rule({ blur = true })` may render correctly for a
+        // buffer's first frame post-damage-reset and then go stale the
+        // same way winit.rs did before its own fix — unverified either
+        // way, since every reproduction so far has been nested `--winit`
+        // (see `crate::blur`'s own doc comment).
+
         let pointer_images = &mut self.backend_data.pointer_images;
         let pointer_image = pointer_images
             .iter()
@@ -1674,6 +1758,7 @@ impl SpitfireState<UdevData> {
             &bar_status_text,
             &mut self.bar,
             &anims,
+            &blur_backdrops,
         );
 
         // Real damage this tick, for service_pending_captures's
@@ -1842,6 +1927,7 @@ fn render_surface<'a>(
     bar_status_text: &str,
     bar: &mut crate::bar::Bar,
     anims: &[crate::anim::AnimatedWindow],
+    blur_backdrops: &[crate::blur::BlurBackdrop],
 ) -> Result<(bool, RenderElementStates), SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1955,6 +2041,7 @@ fn render_surface<'a>(
         // `crate::screencopy`'s own direct `output_elements` call populates
         // this, from `hide_from_capture` rule matches.
         &[],
+        blur_backdrops,
     );
 
     let frame_mode = if surface.disable_direct_scanout {

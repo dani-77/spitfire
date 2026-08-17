@@ -303,6 +303,7 @@ pub fn run_winit() {
             // `state` as a whole) — same reasoning as `border_rects`/`anims`
             // just above, both already per-frame `Vec` allocations.
             let rules: Vec<spitfire_config::WindowRule> = state.config.rules().clone();
+            let blur_radius = state.config.blur.radius;
 
             let bar_config = state.config.bar;
             let bar_margin = state.config.gaps.outer;
@@ -344,6 +345,7 @@ pub fn run_winit() {
             let corner_masks = &mut state.backend_data.corner_masks;
             let screencopy_state = &mut state.screencopy_state;
             let ext_screencopy_state = &mut state.ext_screencopy_state;
+            let blur_state = &mut state.blur_state;
             let show_window_preview = state.show_window_preview;
             let locked = state.locked;
             let lock_surfaces = &state.lock_surfaces;
@@ -423,6 +425,83 @@ pub fn run_winit() {
                     .flatten()
                     .map(|s| s.wl_surface());
 
+                // spitfire.rule({ blur = true }) — see `crate::blur`'s doc
+                // comment for the whole pipeline. Skipped entirely (no GL
+                // work at all) whenever nothing on this output currently
+                // needs it, which is the overwhelmingly common case.
+                let blur_windows = if locked {
+                    Vec::new()
+                } else {
+                    crate::blur::blur_windows_for_output(&rules, space, &output)
+                };
+                // Must run before the real frame's own `render_output` call
+                // below — `WindowElement::render_elements` reads this back
+                // to decide whether to skip its opaque backdrop. See
+                // `sync_blur_flags`'s own doc comment for why it always
+                // touches every window, not just `blur_windows`.
+                crate::blur::sync_blur_flags(space, &output, &blur_windows);
+                let mut blur_backdrops: Vec<crate::blur::BlurBackdrop> = Vec::new();
+                if !blur_windows.is_empty() {
+                    // Own throwaway caches, not `border_cache`/`corner_masks`
+                    // above — same reasoning `crate::screencopy::capture_one`
+                    // already gives for its own fresh ones: this is a second,
+                    // independent render this tick, not part of the real
+                    // frame's own damage-tracked border bookkeeping.
+                    let mut backdrop_border_cache = RectCache::default();
+                    let mut backdrop_corner_masks = CornerMaskCache::default();
+                    let (backdrop_elements, _clear_color) = output_elements(
+                        &output,
+                        space,
+                        std::iter::empty::<CustomRenderElements<GlesRenderer>>(),
+                        renderer,
+                        false,
+                        locked_surface,
+                        &border_rects,
+                        border.width,
+                        border.radius,
+                        crate::render::hex_to_color32f(border.active),
+                        crate::render::hex_to_color32f(border.inactive),
+                        &mut backdrop_border_cache,
+                        &mut backdrop_corner_masks,
+                        &anims,
+                        &blur_windows,
+                        &[],
+                    );
+                    if let Some((backdrop_tex, backdrop_size)) =
+                        crate::blur::capture_backdrop(renderer, &output, &backdrop_elements, scale)
+                    {
+                        blur_backdrops = crate::blur::blur_backdrops(
+                            renderer,
+                            blur_state,
+                            &backdrop_tex,
+                            backdrop_size,
+                            space,
+                            &output,
+                            &blur_windows,
+                            blur_radius,
+                            scale,
+                        );
+                    }
+                }
+
+                // A blurred backdrop is a brand-new `MemoryRenderBuffer` (a
+                // brand-new `Id`) every single frame, at a screen position
+                // that itself hasn't necessarily changed — which isn't
+                // enough on its own to guarantee this region gets truly
+                // repainted rather than left showing whatever the *previous*
+                // frame had there. Confirmed live: without this, the
+                // translucent window's own real alpha blending was
+                // compositing correctly, but against genuinely stale
+                // framebuffer content from before blur ever started
+                // (sharp, unblurred) rather than this frame's fresh
+                // backdrop — `buffer_age()`'s partial-redraw bookkeeping
+                // has no way to know a *content* change happened here
+                // that it should count as damage, only that a new element
+                // showed up. Forcing a full redraw (`age = 0`) whenever any
+                // blur backdrop is active this frame sidesteps the whole
+                // question at a real but bounded cost (only paid while a
+                // `blur = true` window is actually on screen).
+                let age = if blur_backdrops.is_empty() { age } else { 0 };
                 let res = render_output(
                     &output,
                     space,
@@ -441,6 +520,7 @@ pub fn run_winit() {
                     border_cache,
                     corner_masks,
                     &anims,
+                    &blur_backdrops,
                 )
                 .map_err(|err| match err {
                     OutputDamageTrackerError::Rendering(err) => err.into(),
