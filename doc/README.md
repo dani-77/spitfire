@@ -70,10 +70,12 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   msg/hyprctl-style): `reload`, `quit`, `layout <mode>`, `workspace focus <n>`,
   `list-windows`, `list-outputs`, `list-workspaces`.
 - **Dynamic per-output workspaces** (`crate::workspace`, niri-style growth — focusing
-  workspace 5 when only 2 exist just creates 3, 4, and 5), advertised live over
-  `ext-workspace-v1` (`crate::ext_workspace`, hand-implemented — not provided by
-  Smithay, see `../NOTICE.md`). `spitfire.workspace.focus(n)` /
-  `spitfire.workspace.move_window(n)` (1-based).
+  workspace 12 when only `spitfire.workspace.max` exist still just creates the rest, no
+  fixed ceiling required; 1 through `max`, default 9, already exist from startup instead
+  of being created lazily one at a time — see the dated entry further down), advertised
+  live over `ext-workspace-v1` (`crate::ext_workspace`, hand-implemented — not provided
+  by Smithay, see `../NOTICE.md`). `spitfire.workspace.focus(n)` /
+  `spitfire.workspace.move_window(n)` / `.next()` / `.prev()` (1-based).
   - Verified end-to-end against a real Quickshell client (`Quickshell.WindowManager`,
     the same component Utumno's `Workspaces.qml` uses) in both directions:
     compositor-driven switches show up live in the client, and the client calling
