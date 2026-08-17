@@ -2,6 +2,7 @@
 
 pub mod anim;
 pub mod bar;
+pub mod blur;
 // Loads the default XCursor pointer image — used by XWayland (the default
 // cursor handed to X11 clients that don't set their own) and by the
 // DRM/KMS backend (the only backends that ever have to draw the cursor

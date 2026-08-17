@@ -607,6 +607,21 @@ smithay::backend::renderer::element::render_elements! {
     // (`render_elements!` derives one `From<T>` impl per inner type; reusing
     // `Preview`'s type here would conflict with the arm above).
     Anim=RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>,
+    // `spitfire.rule({ blur = true })`'s backdrop — a plain CPU-readback
+    // `MemoryRenderBuffer`, not a GPU `TextureRenderElement`, and not
+    // folded into `CustomRenderElements` above despite being structurally
+    // identical to that enum's own `CornerMask` variant: `render_elements!`
+    // derives one `From<T>` impl per inner type, so a second variant
+    // wrapping the exact same `MemoryRenderBufferRenderElement<R>` would
+    // conflict — same reason `Preview`/`Anim` above can't share a variant
+    // either. See `crate::blur`'s doc comment for why this is CPU-readback
+    // at all rather than a texture handle passed straight through: `R`'s
+    // own `TextureId` differs per backend (`GlesTexture` for winit,
+    // `MultiTexture` for udev), and nothing converts an arbitrary
+    // already-rendered `GlesTexture` into the latter outside real buffer
+    // import — going through `ImportMem` (already generic over both
+    // backends, exactly like `CornerMask`) sidesteps that entirely.
+    Blur=MemoryRenderBufferRenderElement<R>,
 }
 
 impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug> std::fmt::Debug
@@ -618,6 +633,7 @@ impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug>
             Self::Window(arg0) => f.debug_tuple("Window").field(arg0).finish(),
             Self::Custom(arg0) => f.debug_tuple("Custom").field(arg0).finish(),
             Self::Preview(arg0) => f.debug_tuple("Preview").field(arg0).finish(),
+            Self::Blur(arg0) => f.debug_tuple("Blur").field(arg0).finish(),
             Self::Anim(arg0) => f.debug_tuple("Anim").field(arg0).finish(),
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
@@ -861,7 +877,16 @@ where
 /// them. Always `&[]` for the real on-screen frame (winit.rs/udev.rs); only
 /// `crate::screencopy`'s throwaway capture render populates it, from
 /// `spitfire.rule({ hide_from_capture = true })` matches — see
-/// `spitfire_config::WindowRule`'s doc comment.
+/// `spitfire_config::WindowRule`'s doc comment. Also reused (aimed the
+/// other way) by `crate::blur`'s own throwaway backdrop-capture render —
+/// see that module's doc comment.
+///
+/// `blur_backdrops`: the opposite direction — a per-window blurred-behind
+/// buffer to draw immediately behind that window's own content (never its
+/// border, which stays in front — see the push order below). Always `&[]`
+/// except the real on-screen frame's own call, built fresh every frame by
+/// `crate::blur::blur_backdrops`; screencopy/ext_screencopy captures don't
+/// populate this yet (see `crate::blur`'s doc comment on that gap).
 #[profiling::function]
 #[allow(clippy::too_many_arguments)]
 pub fn output_elements<R>(
@@ -880,6 +905,7 @@ pub fn output_elements<R>(
     corner_masks: &mut CornerMaskCache,
     anims: &[AnimatedWindow],
     hidden_windows: &[WindowElement],
+    blur_backdrops: &[crate::blur::BlurBackdrop],
 ) -> (
     Vec<OutputRenderElements<R, WindowRenderElement<R>>>,
     Color32F,
@@ -959,15 +985,20 @@ where
             0
         };
 
-        if anims.is_empty() && border_width <= 0 && hidden_windows.is_empty() {
+        if anims.is_empty()
+            && border_width <= 0
+            && hidden_windows.is_empty()
+            && blur_backdrops.is_empty()
+        {
             // Byte-for-byte the pre-spitfire.anim/pre-border-interleave
             // path when there's nothing to animate and no border to draw —
             // idle stays exactly zero-damage, see `RectCache`'s doc comment
-            // for why that matters. A non-empty `hidden_windows` also routes
-            // through the per-window loop below instead — `space_render_
-            // elements` has no way to skip one window out of the blanket
-            // call, but the loop already visits (and can now skip) windows
-            // one at a time.
+            // for why that matters. A non-empty `hidden_windows`/
+            // `blur_backdrops` also routes through the per-window loop
+            // below instead — `space_render_elements` has no way to skip
+            // or augment one window out of the blanket call, but the loop
+            // already visits (and can now skip, or add a blur backdrop
+            // behind) windows one at a time.
             let space_elements = smithay::desktop::space::space_render_elements::<
                 _,
                 WindowElement,
@@ -1087,6 +1118,28 @@ where
                             .map(|e| OutputRenderElements::Window(Wrap::from(e))),
                     );
                 }
+
+                // spitfire.rule({ blur = true }) — pushed *after* this
+                // window's own content above (border, then content, then
+                // this), so in the front-to-back push order every other
+                // element in this loop already relies on, it lands behind
+                // that content (translucent parts blend over it) but still
+                // in front of whatever the next iteration down the stack
+                // pushes. See `crate::blur`'s doc comment for how `buffer`
+                // got built.
+                if let Some(b) = blur_backdrops.iter().find(|b| &b.window == window) {
+                    if let Ok(element) = MemoryRenderBufferRenderElement::from_buffer(
+                        renderer,
+                        b.physical_loc.to_f64(),
+                        &b.buffer,
+                        None,
+                        None,
+                        Some(b.logical_size),
+                        Kind::Unspecified,
+                    ) {
+                        output_render_elements.push(OutputRenderElements::Blur(element));
+                    }
+                }
             }
 
             // Lower band (`Layer::Bottom`/`Background`, e.g. a wallpaper
@@ -1129,6 +1182,7 @@ pub fn render_output<'a, 'd, R>(
     border_cache: &mut RectCache,
     corner_masks: &mut CornerMaskCache,
     anims: &[AnimatedWindow],
+    blur_backdrops: &[crate::blur::BlurBackdrop],
 ) -> Result<RenderOutputResult<'d>, OutputDamageTrackerError<R::Error>>
 where
     R: Renderer + ImportAll + ImportMem,
@@ -1153,6 +1207,7 @@ where
         // `crate::screencopy`'s own direct `output_elements` call populates
         // this, from `hide_from_capture` rule matches.
         &[],
+        blur_backdrops,
     );
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

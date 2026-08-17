@@ -114,6 +114,14 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 -- (a word processor on workspace 2, a chat client on 9, ...).
 -- spitfire.rule({ app_id = "abiword", workspace = 2 })
 
+-- `blur = true` renders a frosted-glass backdrop right behind this
+-- window's own content — meant for a terminal (or launcher) with real
+-- per-pixel transparency of its own (alacritty's `window.opacity`, kitty's
+-- `background_opacity`, foot's `alpha`), so whatever's behind it reads as
+-- blurred through the translucent parts instead of sharp. `spitfire.blur`
+-- below is the one global strength knob every `blur = true` window shares.
+-- spitfire.rule({ app_id = "alacritty", blur = true })
+
 -- `radius` (logical pixels, default 0) rounds the border's corners — and,
 -- since it's drawn on top of the window, masks the window's own square
 -- corners along with it. 0 keeps the classic square-cornered look. Keep
@@ -122,6 +130,12 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 -- radius's curve, leaving a sliver of square corner poking out.
 spitfire.border = { width = 5, active = "#7aa2f7", inactive = "#414868", radius = 12 }
 spitfire.gaps = { inner = 20, outer = 10 }
+
+-- Strength of every `spitfire.rule({ blur = true })` window's backdrop
+-- (roughly a pixel radius — see the rule example above). 0 disables blur
+-- entirely without touching individual rules. Only costs anything on a
+-- frame where a `blur = true` window is actually on screen.
+-- spitfire.blur = { radius = 20 }
 
 -- Window animations (scale-in "pop" on open, tween on tiling re-flow, slide
 -- on workspace switch) — purely visual; layout, focus and hit-testing are

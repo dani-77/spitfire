@@ -696,6 +696,9 @@ where
         &mut corner_masks,
         &[],
         &hidden_windows,
+        // No blur-behind in captures yet — see `crate::blur`'s doc comment
+        // on that gap.
+        &[],
     );
 
     let mode = output.current_mode().ok_or("output has no mode")?;

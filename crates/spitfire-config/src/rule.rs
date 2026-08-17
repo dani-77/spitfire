@@ -20,6 +20,18 @@
 /// `spitfire.workspace.move_window(n)`, which this reuses via
 /// `SpitfireState::move_window_to_workspace`. `None`/absent leaves the
 /// window on whichever workspace was active when it opened.
+/// `blur = true`: a frosted-glass "blur-behind" backdrop is rendered right
+/// behind this window's own content, every frame it's visible — meant for
+/// windows with real per-pixel alpha in their own buffer (a terminal with
+/// `background_opacity`/`opacity` set, a launcher) so whatever's behind
+/// them reads as blurred rather than sharp through the translucent parts.
+/// Unconditional, not alpha-detected: an opaque window with `blur = true`
+/// just never shows it (nothing of the backdrop is visible through zero
+/// translucent pixels) — see `crate::blur`'s doc comment for the whole
+/// pipeline and `spitfire.blur.radius`, the one global strength knob.
+/// Real screen only — a `wlr-screencopy`/`ext-image-copy-capture-v1`
+/// capture currently renders this window as if `blur` were unset (see
+/// `crate::blur`'s doc comment).
 #[derive(Debug, Clone, Default)]
 pub struct WindowRule {
     pub app_id: Option<String>,
@@ -27,6 +39,7 @@ pub struct WindowRule {
     pub centered: bool,
     pub hide_from_capture: bool,
     pub workspace: Option<usize>,
+    pub blur: bool,
 }
 
 impl WindowRule {
@@ -54,6 +67,7 @@ mod tests {
             centered: false,
             hide_from_capture: false,
             workspace: None,
+            blur: false,
         };
         assert!(rule.matches(Some("pavucontrol")));
         assert!(!rule.matches(Some("foot")));
@@ -68,6 +82,7 @@ mod tests {
             centered: false,
             hide_from_capture: false,
             workspace: None,
+            blur: false,
         };
         assert!(rule.matches(Some("anything")));
         assert!(rule.matches(None));
@@ -76,6 +91,11 @@ mod tests {
     #[test]
     fn hide_from_capture_defaults_off() {
         assert!(!WindowRule::default().hide_from_capture);
+    }
+
+    #[test]
+    fn blur_defaults_off() {
+        assert!(!WindowRule::default().blur);
     }
 
     #[test]
