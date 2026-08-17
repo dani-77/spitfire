@@ -46,6 +46,9 @@ end
 -- past spitfire.workspace.max (default 9, uncomment to change) — a
 -- repeated swipe has no natural "stop" the way typing a number does, so
 -- unlike focus(n)/spitfire.rule({ workspace = n }) it needs a ceiling.
+-- max also doubles as "how many workspaces exist from the very first
+-- frame" — 1..max are all real (and visible to any ext-workspace-v1-aware
+-- bar) from startup, not created lazily as each is first visited.
 -- spitfire.workspace.max = 9
 spitfire.gesture(3, "left", function() spitfire.workspace.next() end)
 spitfire.gesture(3, "right", function() spitfire.workspace.prev() end)

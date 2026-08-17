@@ -854,12 +854,32 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `examples/config.lua` and the user's own config.lua both had this exact pattern for
   their 3-finger gestures; both now use `.next()`/`.prev()` instead. The `max` cap itself
   was a second, related fix, added right after: testing `.next()` with no ceiling grew
-  the user's real workspace list well past 9, which is also what the "Utumno's bar
-  isn't showing all 9 workspaces at startup" report the same session turned out to be —
-  not a regression (`ext_workspace.rs`, the actual `ext-workspace-v1` exposure, hasn't
-  changed at all recently — confirmed via `git log`/`git diff`), just a fresh session
-  correctly starting back at exactly 1 workspace after a long prior session had
-  organically grown well past 9 through testing.
+  the user's real workspace list well past 9.
+
+  A third report the same session ("Utumno's bar isn't showing all 9 workspaces at
+  startup anymore") turned into a long, thorough live investigation — every workspace-
+  count-related file in the whole stack (`ext_workspace.rs`, `workspace.rs`, `bar.rs`,
+  `input_handler.rs`, and Utumno's own `Workspaces.qml`) checked line by line and
+  confirmed either unchanged or purely reactive to real state, `git log`/`git diff`
+  evidence for each, plus exact boot-timeline reconstruction via `last -x reboot` to
+  settle exactly which session showed what and when. All of it correctly showed nothing
+  in spitfire had caused a regression — the user's memory of "9 at every clean boot" was
+  accurate, just misattributed: it was recalling `wasp` (their other compositor, which
+  does pre-populate at startup), not spitfire, which had simply never done this before.
+  Confirmed and resolved together, live — see the next entry for the actual feature
+  request that came out of it.
+- **Workspaces 1-`max` exist from the very first frame** (2026-08-17,
+  `SpitfireState::new`) — `spitfire.workspace.max` (see above) now doubles as "how many
+  workspaces to have ready at startup," wasp-style: `workspaces.ensure(max - 1)` right
+  after construction, reusing the exact same dynamic-growth machinery `.focus(n)`/
+  `.next()` already lean on (`Workspaces::ensure_len`), just run once, eagerly, instead
+  of waiting for something to ask for workspace 9 first. Workspace 1 stays active —
+  `ensure`, not `switch_to`, only pre-allocates the rest. `max == 0` (unbounded) is a
+  no-op here (`ensure(0)`, workspace 1 already exists) — nothing to eagerly create when
+  there's no ceiling to create up to. Verified live in nested `spitfire --winit`: a
+  fresh start's `spitfirectl list-workspaces` immediately lists all of `1`-`9`, workspace
+  `1` active, matching what a client bound to `ext-workspace-v1` at startup (Utumno
+  included) sees from its very first snapshot.
 
 ## Known limitations / pending work
 
