@@ -25,10 +25,11 @@ spitfire.bind("Mod4", "h", function() spitfire.mfact.inc(-0.05) end)
 spitfire.bind("Mod4", "i", function() spitfire.nmaster.inc(1) end)
 spitfire.bind("Mod4", "d", function() spitfire.nmaster.inc(-1) end)
 
--- Workspaces — dynamic, niri-style: asking to focus workspace 5 when only
--- 2 exist just creates 3, 4, and 5. 1-based. Advertised over
--- ext-workspace-v1, so any bar that knows that protocol sees them too —
--- spitfire.bar below shows them directly.
+-- Workspaces — dynamic, niri-style: 1 through spitfire.workspace.max
+-- (default 9) already exist from startup, and asking to focus one past
+-- that still just creates it, no fixed ceiling required. 1-based.
+-- Advertised over ext-workspace-v1, so any bar that knows that protocol
+-- sees them too — spitfire.bar below shows them directly.
 for i = 1, 9 do
   spitfire.bind("Mod4", tostring(i), function() spitfire.workspace.focus(i) end)
   spitfire.bind("Mod1", tostring(i), function() spitfire.workspace.move_window(i) end)
