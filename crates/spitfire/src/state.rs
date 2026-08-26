@@ -1007,10 +1007,22 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                     x11_socket,
                     display_number,
                 } => {
+                    // Defaults to the real output scale, not a flat 1.0 —
+                    // X11 clients place popups/menus using pointer
+                    // coordinates smithay reports in *this* scale
+                    // (xwm/mod.rs divides a ConfigureRequest's client-space
+                    // x/y by it to get logical coordinates). Left at 1.0 on
+                    // an output scaled to e.g. 1.25, every such placement is
+                    // off by exactly that ratio — the symptom actually seen:
+                    // Steam's CEF-based context menus landing well off from
+                    // the cursor that opened them. `SPITFIRE_XWAYLAND_SCALE`
+                    // still overrides, for anyone deliberately wanting
+                    // XWayland clients rendered at a different scale than
+                    // the output itself.
                     let xwayland_scale = std::env::var("SPITFIRE_XWAYLAND_SCALE")
                         .ok()
                         .and_then(|s| s.parse::<f64>().ok())
-                        .unwrap_or(1.);
+                        .unwrap_or(data.config.output.scale);
                     data.client_compositor_state(&client)
                         .set_client_scale(xwayland_scale);
                     let mut wm = X11Wm::start_wm(data.handle.clone(), x11_socket, client.clone())
