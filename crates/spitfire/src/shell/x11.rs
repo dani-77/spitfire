@@ -126,7 +126,27 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
             unreachable!()
         };
         xsurface.configure(Some(bbox)).unwrap();
-        window.set_ssd(!xsurface.is_decorated());
+        // Deliberately never SSD an X11 window (unlike xdg-shell's
+        // `new_toplevel` in shell/xdg.rs, which does base this on whether
+        // the client asked for its own decorations). A Wayland client has
+        // no idea where it sits on screen, so a header bar composited
+        // above/around its surface — extra space added only to this
+        // WindowElement's own bbox, never told to the client — is
+        // invisible to it and harmless. An X11 client, by contrast, *is*
+        // its own on-screen coordinate system: `xsurface.configure()`
+        // above already told the real X11 window (and hence Xwayland's own
+        // bookkeeping of it) its exact, un-inflated position and size. Any
+        // header height added only on our side afterward is space the X11
+        // window itself is never aware of, so `XTranslateCoordinates` (or
+        // any other absolute-position query) returns coordinates that
+        // don't match where we actually render its content — every
+        // popup/menu the client positions off of that (Steam's own
+        // CEF-based context menus among them) lands off-target by exactly
+        // the header height, no matter the window's on-screen position or
+        // the output's scale. Matches wasp (our dwl fork): it never draws
+        // SSD for XWayland clients at all, only for xdg-shell ones via the
+        // wlr-xdg-decoration protocol.
+        window.set_ssd(false);
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
@@ -308,7 +328,9 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
             .find(|e| matches!(e.0.x11_surface(), Some(w) if w == &window))
         {
             window.set_fullscreen(false).unwrap();
-            elem.set_ssd(!window.is_decorated());
+            // Never SSD an X11 window — see the doc comment on
+            // `set_ssd(false)` in `map_window_request` above.
+            elem.set_ssd(false);
             if let Some(output) = self.space.outputs().find(|o| {
                 o.user_data()
                     .get::<FullscreenSurface>()
