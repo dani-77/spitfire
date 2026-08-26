@@ -982,6 +982,24 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             }
         };
 
+        // `display_number()` is known the instant `spawn()` returns — no
+        // need to wait for `XWaylandEvent::Ready` for this part. Setting
+        // `DISPLAY` on our own process now (not just handing it explicitly
+        // to each `Command` we spawn ourselves, as `xdisplay_env()`
+        // elsewhere does) means every descendant of spitfire inherits it
+        // from here on, transitively — including a frontend launched via
+        // `spitfire.autostart` (Utumno) and whatever *it* in turn spawns
+        // (its app launcher, e.g. Steam), which never went through our own
+        // `Command::envs()` calls at all. Without this, such a frontend
+        // that happened to start before the async `Ready` event landed —
+        // or that outlives a slow/failed one — stays without `DISPLAY` for
+        // its entire lifetime, breaking every XWayland-only app it tries to
+        // launch. Mirrors wasp's plain `setenv("DISPLAY", ...)` right after
+        // `wlr_xwayland_create()` in wasp.c.
+        let display_number = xwayland.display_number();
+        std::env::set_var("DISPLAY", format!(":{display_number}"));
+        self.xdisplay = Some(display_number);
+
         let ret = self
             .handle
             .insert_source(xwayland, move |event, _, data| match event {

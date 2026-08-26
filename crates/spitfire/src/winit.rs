@@ -1,5 +1,3 @@
-#[cfg(feature = "xwayland")]
-use std::time::Instant;
 use std::{sync::atomic::Ordering, time::Duration};
 
 #[cfg(feature = "egl")]
@@ -236,24 +234,12 @@ pub fn run_winit() {
     state.space.map_output(&output, (0, 0));
     crate::ipc::start(&event_loop.handle());
 
-    // See the matching comment in udev.rs: bound-wait for XWayland's
-    // `Ready` event (which sets `state.xdisplay`) before running autostart,
-    // since nothing dispatches the event loop between the two calls
-    // otherwise and autostart entries needing `DISPLAY` would always race
-    // and lose it.
+    // `start_xwayland` sets `state.xdisplay` (and this process's own
+    // `DISPLAY`) synchronously before returning — see the matching comment
+    // in udev.rs. Autostart below already sees a real `DISPLAY`, no need to
+    // pump the event loop and wait for `XWaylandEvent::Ready` first.
     #[cfg(feature = "xwayland")]
-    {
-        state.start_xwayland();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while state.xdisplay.is_none() && Instant::now() < deadline {
-            if event_loop
-                .dispatch(Some(Duration::from_millis(20)), &mut state)
-                .is_err()
-            {
-                break;
-            }
-        }
-    }
+    state.start_xwayland();
 
     state.spawn_autostart();
 

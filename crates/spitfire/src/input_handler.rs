@@ -284,10 +284,12 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
     /// set) and before the main loop starts. This is how the Utumno
     /// frontend gets launched — see `examples/config.lua`.
     ///
-    /// Note this runs before XWayland has necessarily finished starting
-    /// (`start_xwayland` is lazy), so `self.xdisplay` may still be `None`
-    /// here even on sessions where XWayland is enabled — autostart entries
-    /// that need `DISPLAY` should launch it themselves or wait.
+    /// `self.xdisplay` (and the process's own `DISPLAY`) is set synchronously
+    /// in `start_xwayland`, as soon as `XWayland::spawn` returns a display
+    /// number — well before this runs — even though the X server itself
+    /// may still be finishing startup in the background at this point. A
+    /// client connecting early just queues on the socket until Xwayland
+    /// gets there, same as it would on any other lazily-starting X server.
     pub fn spawn_autostart(&self) {
         self.update_dbus_activation_environment();
         for cmd in &self.config.autostart {
