@@ -23,23 +23,17 @@ mkdir -p "$log_dir"
 # xdg-desktop-portal-gnome with no gnome-shell actually running).
 export XDG_CURRENT_DESKTOP=spitfire
 
-# Default to just enough logging to diagnose input issues (every key
-# press/release spitfire's input handler sees, and which keysym/action it
-# resolved to — see the `debug!` calls in input_handler.rs) without
-# drowning session.log in per-frame render noise. Scoped to that one
-# module rather than a blanket `debug` level for the same reason — but
-# with an explicit `warn` default alongside it, not just the bare
-# per-target directive: tracing_subscriber's `EnvFilter` falls back
-# unmatched targets to `error` only, not `warn`, once *any* RUST_LOG is
-# set (unset, main.rs's no-filter path shows everything, which is what
-# made this omission easy to miss). Without that default, every other
-# module's `warn!` — including things like "no default cursor in this
-# xcursor theme, using fallback" — would quietly stop reaching
-# session.log the moment this line takes effect. Doesn't override an
-# already-exported RUST_LOG, so this is a default, not a floor — set
-# your own before invoking this script (or edit the line below) if you
-# need something else logged.
-: "${RUST_LOG:=warn,spitfire::input_handler=debug}"
+# Default to warnings from everything plus spitfire's own info messages
+# (spawns, config reloads, VT switches). Key presses are deliberately not
+# logged by default: spitfire::input_handler's debug level records every
+# keysym, which would put anything typed (passwords included) into
+# session.log. To diagnose input issues, export for example
+#   RUST_LOG=warn,spitfire=info,spitfire::input_handler=debug
+# before starting this script. The explicit `warn` matters: once RUST_LOG is
+# set, tracing_subscriber's EnvFilter drops unmatched targets below `error`,
+# so without it other modules' warnings would stop reaching session.log.
+# An already-exported RUST_LOG is kept.
+: "${RUST_LOG:=warn,spitfire=info}"
 export RUST_LOG
 
 # dbus-run-session opens a private D-Bus *session* bus and exports
