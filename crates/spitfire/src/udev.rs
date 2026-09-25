@@ -1432,7 +1432,12 @@ impl SpitfireState<UdevData> {
                 true
             }
             Err(err) => {
-                warn!("Error during rendering: {:?}", err);
+                if is_device_inactive(&err) {
+                    // Expected while another VT holds the DRM device.
+                    debug!("Skipping frame submit, DRM device inactive");
+                } else {
+                    warn!("Error during rendering: {:?}", err);
+                }
                 match err {
                     SwapBuffersError::AlreadySwapped => true,
                     // If the device has been deactivated do not reschedule, this will be done
@@ -1825,12 +1830,21 @@ impl SpitfireState<UdevData> {
                 !has_rendered
             }
             Err(err) => {
-                warn!("Error during rendering: {:#?}", err);
+                if is_device_inactive(&err) {
+                    // Expected while another VT holds the DRM device.
+                    debug!("Skipping render, DRM device inactive");
+                } else {
+                    warn!("Error during rendering: {:#?}", err);
+                }
                 match err {
                     SwapBuffersError::AlreadySwapped => false,
                     SwapBuffersError::TemporaryFailure(err) => match err.downcast_ref::<DrmError>()
                     {
-                        Some(DrmError::DeviceInactive) => true,
+                        // Don't retry every frame while another VT holds the
+                        // device: that flooded session.log with this error.
+                        // SessionEvent::ActivateSession renders every output
+                        // again on resume.
+                        Some(DrmError::DeviceInactive) => false,
                         Some(DrmError::Access(DrmAccessError { source, .. })) => {
                             source.kind() == io::ErrorKind::PermissionDenied
                         }
@@ -1886,6 +1900,16 @@ impl SpitfireState<UdevData> {
 
         profiling::finish_frame!();
     }
+}
+
+/// Whether a render error only means the session's DRM device is inactive
+/// (another VT is in front), which is expected rather than a failure.
+fn is_device_inactive(err: &SwapBuffersError) -> bool {
+    matches!(
+        err,
+        SwapBuffersError::TemporaryFailure(err)
+            if matches!(err.downcast_ref::<DrmError>(), Some(DrmError::DeviceInactive))
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
