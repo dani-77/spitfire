@@ -225,23 +225,29 @@ fn read_battery_status() -> Option<(u8, bool)> {
     None
 }
 
+/// Runs `iw` from PATH or, failing that, from the sbin directories that some
+/// distributions (Slackware among them) leave out of regular users' PATH;
+/// `iw dev ... link` itself works unprivileged.
+fn run_iw(args: &[&str]) -> Option<std::process::Output> {
+    ["iw", "/usr/sbin/iw", "/sbin/iw"]
+        .into_iter()
+        .find_map(|iw| std::process::Command::new(iw).args(args).output().ok())
+}
+
 /// The active wireless connection's SSID and signal strength, via `iw`
 /// (present on essentially every Linux system with wireless hardware,
 /// unlike e.g. NetworkManager/`nmcli`, which not everyone runs). `None`
 /// if there's no wireless interface, it's not associated, or `iw` isn't
 /// installed — any of which just shows "--" instead of a name/percent.
 fn read_network_status() -> Option<(String, u8)> {
-    let dev_output = std::process::Command::new("iw").arg("dev").output().ok()?;
+    let dev_output = run_iw(&["dev"])?;
     let dev_text = String::from_utf8(dev_output.stdout).ok()?;
     let iface = dev_text
         .lines()
         .find_map(|l| l.trim().strip_prefix("Interface "))?
         .to_string();
 
-    let link_output = std::process::Command::new("iw")
-        .args(["dev", &iface, "link"])
-        .output()
-        .ok()?;
+    let link_output = run_iw(&["dev", &iface, "link"])?;
     let link_text = String::from_utf8(link_output.stdout).ok()?;
     if link_text.trim_start().starts_with("Not connected") {
         return None;
