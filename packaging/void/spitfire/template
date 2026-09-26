@@ -19,6 +19,7 @@ checksum=80e7359690852931cacc2869c7a212d9326c401e239e0caf2737a262839a0d6c
 # Config file installed under /etc, not something xbps should ever
 # overwrite silently on upgrade.
 conf_files="/etc/xdg-desktop-portal/spitfire-portals.conf"
+repository=d77
 
 # Smithay (the Wayland compositor library spitfire is built on) is pinned as
 # a git dependency in Cargo.lock rather than pulled from crates.io, so the
@@ -32,4 +33,5 @@ do_install() {
 	# no-op at this point — build_style=cargo already produced
 	# target/release/ with the same feature flags via make_build_args.
 	make install DESTDIR="${DESTDIR}" PREFIX=/usr
+	vlicense LICENSE
 }

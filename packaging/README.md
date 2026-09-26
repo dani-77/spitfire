@@ -7,22 +7,20 @@ what `sudo make install` already does.
 
 ## Arch Linux
 
-`arch/PKGBUILD` — a standard AUR-style `PKGBUILD`. To build and install locally:
+`arch/PKGBUILD` — the same `PKGBUILD` published in the AUR as
+[`spitfire`](https://aur.archlinux.org/packages/spitfire):
 
 ```sh
+yay -S spitfire
+# or, from this repo:
 cd packaging/arch
 makepkg -si
 ```
 
-If you're submitting this to the AUR, regenerate `.SRCINFO` first:
-
-```sh
-makepkg --printsrcinfo > .SRCINFO
-```
-
 ## Void Linux
 
-`void/spitfire/template` — a `void-packages` template. Drop it into a local
+`void/spitfire/template` — a copy of the template in
+[`d77void/srcpkgs-d77`](https://github.com/d77void/srcpkgs-d77). Drop it into a local
 `void-packages` checkout and build with `xbps-src`:
 
 ```sh
