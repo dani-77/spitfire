@@ -1,5 +1,7 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
+#[cfg(feature = "xwayland")]
+use smithay::xwayland::xwm::XwmOfferData;
 #[cfg(feature = "xwayland")]
 use smithay::xwayland::X11Surface;
 pub use smithay::{
@@ -17,6 +19,7 @@ pub use smithay::{
 use smithay::{
     desktop::{Window, WindowSurface},
     input::{
+        dnd::{DndFocus, OfferData, Source},
         pointer::{
             GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
             GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
@@ -24,6 +27,9 @@ use smithay::{
         },
         touch::TouchTarget,
     },
+    reexports::wayland_server::DisplayHandle,
+    utils::{Logical, Point},
+    wayland::selection::data_device::WlOfferData,
 };
 
 use crate::{
@@ -567,6 +573,157 @@ impl WaylandFocus for KeyboardFocusTarget {
             KeyboardFocusTarget::LayerSurface(l) => Some(Cow::Borrowed(l.wl_surface())),
             KeyboardFocusTarget::Popup(p) => Some(Cow::Borrowed(p.wl_surface())),
             KeyboardFocusTarget::LockSurface(l) => Some(Cow::Borrowed(l.wl_surface())),
+        }
+    }
+}
+
+pub enum SpitfireOfferData<S: Source> {
+    Wayland(WlOfferData<S>),
+    #[cfg(feature = "xwayland")]
+    X11(XwmOfferData<S>),
+}
+
+impl<S: Source> OfferData for SpitfireOfferData<S> {
+    fn disable(&self) {
+        match self {
+            SpitfireOfferData::Wayland(data) => data.disable(),
+            #[cfg(feature = "xwayland")]
+            SpitfireOfferData::X11(data) => data.disable(),
+        }
+    }
+
+    fn drop(&self) {
+        match self {
+            SpitfireOfferData::Wayland(data) => data.drop(),
+            #[cfg(feature = "xwayland")]
+            SpitfireOfferData::X11(data) => data.drop(),
+        }
+    }
+
+    fn validated(&self) -> bool {
+        match self {
+            SpitfireOfferData::Wayland(data) => data.validated(),
+            #[cfg(feature = "xwayland")]
+            SpitfireOfferData::X11(data) => data.validated(),
+        }
+    }
+}
+
+// Drag'n'drop targets, ported from anvil at the same Smithay revision: only
+// client surfaces take part, SSD decorations never accept a drop.
+#[allow(unreachable_patterns)]
+impl<BackendData: Backend> DndFocus<SpitfireState<BackendData>> for PointerFocusTarget {
+    type OfferData<S>
+        = SpitfireOfferData<S>
+    where
+        S: Source;
+
+    fn enter<S: Source>(
+        &self,
+        data: &mut SpitfireState<BackendData>,
+        dh: &DisplayHandle,
+        source: Arc<S>,
+        seat: &Seat<SpitfireState<BackendData>>,
+        location: Point<f64, Logical>,
+        serial: &Serial,
+    ) -> Option<SpitfireOfferData<S>> {
+        match self {
+            PointerFocusTarget::WlSurface(surface) => {
+                DndFocus::enter(surface, data, dh, source, seat, location, serial)
+                    .map(SpitfireOfferData::Wayland)
+            }
+            #[cfg(feature = "xwayland")]
+            PointerFocusTarget::X11Surface(surface) => {
+                DndFocus::enter(surface, data, dh, source, seat, location, serial)
+                    .map(SpitfireOfferData::X11)
+            }
+            _ => None,
+        }
+    }
+
+    fn motion<S: Source>(
+        &self,
+        data: &mut SpitfireState<BackendData>,
+        offer: Option<&mut SpitfireOfferData<S>>,
+        seat: &Seat<SpitfireState<BackendData>>,
+        location: Point<f64, Logical>,
+        time: u32,
+    ) {
+        match self {
+            PointerFocusTarget::WlSurface(surface) => {
+                let offer = match offer {
+                    Some(SpitfireOfferData::Wayland(offer)) => Some(offer),
+                    None => None,
+                    _ => return,
+                };
+                DndFocus::motion(surface, data, offer, seat, location, time)
+            }
+            #[cfg(feature = "xwayland")]
+            PointerFocusTarget::X11Surface(surface) => {
+                let offer = match offer {
+                    Some(SpitfireOfferData::X11(offer)) => Some(offer),
+                    None => None,
+                    _ => return,
+                };
+                DndFocus::motion(surface, data, offer, seat, location, time)
+            }
+            _ => {}
+        }
+    }
+
+    fn leave<S: Source>(
+        &self,
+        data: &mut SpitfireState<BackendData>,
+        offer: Option<&mut SpitfireOfferData<S>>,
+        seat: &Seat<SpitfireState<BackendData>>,
+    ) {
+        match self {
+            PointerFocusTarget::WlSurface(surface) => {
+                let offer = match offer {
+                    Some(SpitfireOfferData::Wayland(offer)) => Some(offer),
+                    None => None,
+                    _ => return,
+                };
+                DndFocus::leave(surface, data, offer, seat)
+            }
+            #[cfg(feature = "xwayland")]
+            PointerFocusTarget::X11Surface(surface) => {
+                let offer = match offer {
+                    Some(SpitfireOfferData::X11(offer)) => Some(offer),
+                    None => None,
+                    _ => return,
+                };
+                DndFocus::leave(surface, data, offer, seat)
+            }
+            _ => {}
+        }
+    }
+
+    fn drop<S: Source>(
+        &self,
+        data: &mut SpitfireState<BackendData>,
+        offer: Option<&mut SpitfireOfferData<S>>,
+        seat: &Seat<SpitfireState<BackendData>>,
+    ) {
+        match self {
+            PointerFocusTarget::WlSurface(surface) => {
+                let offer = match offer {
+                    Some(SpitfireOfferData::Wayland(offer)) => Some(offer),
+                    None => None,
+                    _ => return,
+                };
+                DndFocus::drop(surface, data, offer, seat)
+            }
+            #[cfg(feature = "xwayland")]
+            PointerFocusTarget::X11Surface(surface) => {
+                let offer = match offer {
+                    Some(SpitfireOfferData::X11(offer)) => Some(offer),
+                    None => None,
+                    _ => return,
+                };
+                DndFocus::drop(surface, data, offer, seat)
+            }
+            _ => {}
         }
     }
 }

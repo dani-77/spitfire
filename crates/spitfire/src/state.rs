@@ -33,8 +33,9 @@ use smithay::{
         PopupKind, PopupManager, Space,
     },
     input::{
+        dnd::{DnDGrab, DndGrabHandler, DndTarget, GrabType, Source},
         keyboard::{Keysym, LedState, XkbConfig},
-        pointer::{CursorImageStatus, CursorImageSurfaceData, PointerHandle},
+        pointer::{CursorImageStatus, CursorImageSurfaceData, Focus, PointerHandle},
         Seat, SeatHandler, SeatState,
     },
     output::Output,
@@ -46,11 +47,11 @@ use smithay::{
         },
         wayland_server::{
             backend::{ClientData, ClientId, DisconnectReason},
-            protocol::{wl_data_source::WlDataSource, wl_surface::WlSurface},
+            protocol::wl_surface::WlSurface,
             Client, Display, DisplayHandle, Resource,
         },
     },
-    utils::{Clock, Logical, Monotonic, Point, Rectangle, Time},
+    utils::{Clock, Logical, Monotonic, Point, Rectangle, Serial, Time},
     wayland::{
         commit_timing::{CommitTimerBarrierStateUserData, CommitTimingManagerState},
         compositor::{
@@ -80,8 +81,7 @@ use smithay::{
         },
         selection::{
             data_device::{
-                set_data_device_focus, ClientDndGrabHandler, DataDeviceHandler, DataDeviceState,
-                ServerDndGrabHandler,
+                set_data_device_focus, DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler,
             },
             primary_selection::{
                 set_primary_focus, PrimarySelectionHandler, PrimarySelectionState,
@@ -319,17 +319,19 @@ pub struct PendingGesture {
 delegate_compositor!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
 
 impl<BackendData: Backend> DataDeviceHandler for SpitfireState<BackendData> {
-    fn data_device_state(&self) -> &DataDeviceState {
-        &self.data_device_state
+    fn data_device_state(&mut self) -> &mut DataDeviceState {
+        &mut self.data_device_state
     }
 }
 
-impl<BackendData: Backend> ClientDndGrabHandler for SpitfireState<BackendData> {
-    fn started(
+impl<BackendData: Backend> WaylandDndGrabHandler for SpitfireState<BackendData> {
+    fn dnd_requested<S: Source>(
         &mut self,
-        _source: Option<WlDataSource>,
+        source: S,
         icon: Option<WlSurface>,
-        _seat: Seat<Self>,
+        seat: Seat<Self>,
+        serial: Serial,
+        type_: GrabType,
     ) {
         let offset = if let CursorImageStatus::Surface(ref surface) = self.cursor_status {
             with_states(surface, |states| {
@@ -346,14 +348,42 @@ impl<BackendData: Backend> ClientDndGrabHandler for SpitfireState<BackendData> {
             (0, 0).into()
         };
         self.dnd_icon = icon.map(|surface| DndIcon { surface, offset });
-    }
-    fn dropped(&mut self, _target: Option<WlSurface>, _validated: bool, _seat: Seat<Self>) {
-        self.dnd_icon = None;
+
+        // Since Smithay's DnD rework the compositor starts the grab itself
+        // (it used to be implicit) — same as anvil at this revision.
+        match type_ {
+            GrabType::Pointer => {
+                let pointer = seat.get_pointer().unwrap();
+                let start_data = pointer.grab_start_data().unwrap();
+                pointer.set_grab(
+                    self,
+                    DnDGrab::new_pointer(&self.display_handle, start_data, source, seat),
+                    serial,
+                    Focus::Keep,
+                );
+            }
+            GrabType::Touch => {
+                let touch = seat.get_touch().unwrap();
+                let start_data = touch.grab_start_data().unwrap();
+                touch.set_grab(
+                    self,
+                    DnDGrab::new_touch(&self.display_handle, start_data, source, seat),
+                    serial,
+                );
+            }
+        }
     }
 }
-impl<BackendData: Backend> ServerDndGrabHandler for SpitfireState<BackendData> {
-    fn send(&mut self, _mime_type: String, _fd: OwnedFd, _seat: Seat<Self>) {
-        unreachable!("Spitfire doesn't do server-side grabs");
+
+impl<BackendData: Backend> DndGrabHandler for SpitfireState<BackendData> {
+    fn dropped(
+        &mut self,
+        _target: Option<DndTarget<'_, Self>>,
+        _validated: bool,
+        _seat: Seat<Self>,
+        _location: Point<f64, Logical>,
+    ) {
+        self.dnd_icon = None;
     }
 }
 delegate_data_device!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
@@ -388,7 +418,7 @@ impl<BackendData: Backend> SelectionHandler for SpitfireState<BackendData> {
         _user_data: &(),
     ) {
         if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) = xwm.send_selection(ty, mime_type, fd, self.handle.clone()) {
+            if let Err(err) = xwm.send_selection(ty, mime_type, fd) {
                 warn!(?err, "Failed to send primary (X11 -> Wayland)");
             }
         }
@@ -396,15 +426,15 @@ impl<BackendData: Backend> SelectionHandler for SpitfireState<BackendData> {
 }
 
 impl<BackendData: Backend> PrimarySelectionHandler for SpitfireState<BackendData> {
-    fn primary_selection_state(&self) -> &PrimarySelectionState {
-        &self.primary_selection_state
+    fn primary_selection_state(&mut self) -> &mut PrimarySelectionState {
+        &mut self.primary_selection_state
     }
 }
 delegate_primary_selection!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
 
 impl<BackendData: Backend> DataControlHandler for SpitfireState<BackendData> {
-    fn data_control_state(&self) -> &DataControlState {
-        &self.data_control_state
+    fn data_control_state(&mut self) -> &mut DataControlState {
+        &mut self.data_control_state
     }
 }
 
@@ -1025,8 +1055,13 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                         .unwrap_or(data.config.output.scale);
                     data.client_compositor_state(&client)
                         .set_client_scale(xwayland_scale);
-                    let mut wm = X11Wm::start_wm(data.handle.clone(), x11_socket, client.clone())
-                        .expect("Failed to attach X11 Window Manager");
+                    let mut wm = X11Wm::start_wm(
+                        data.handle.clone(),
+                        &data.display_handle,
+                        x11_socket,
+                        client.clone(),
+                    )
+                    .expect("Failed to attach X11 Window Manager");
 
                     let cursor = Cursor::load();
                     let image = cursor.get_image(1, Duration::ZERO);
@@ -1409,6 +1444,7 @@ pub fn update_primary_scanout_output(
                 surface,
                 output,
                 states,
+                None,
                 render_element_states,
                 default_primary_scanout_output_compare,
             );
@@ -1421,6 +1457,7 @@ pub fn update_primary_scanout_output(
                 surface,
                 output,
                 states,
+                None,
                 render_element_states,
                 default_primary_scanout_output_compare,
             );
@@ -1433,6 +1470,7 @@ pub fn update_primary_scanout_output(
                 surface,
                 output,
                 states,
+                None,
                 render_element_states,
                 default_primary_scanout_output_compare,
             );
@@ -1445,6 +1483,7 @@ pub fn update_primary_scanout_output(
                 surface,
                 output,
                 states,
+                None,
                 render_element_states,
                 default_primary_scanout_output_compare,
             );
@@ -1465,6 +1504,7 @@ pub fn update_primary_scanout_output(
                 surface,
                 output,
                 states,
+                None,
                 render_element_states,
                 default_primary_scanout_output_compare,
             );
@@ -1493,7 +1533,11 @@ pub fn take_presentation_feedback(
                 &mut output_presentation_feedback,
                 surface_primary_scanout_output,
                 |surface, _| {
-                    surface_presentation_feedback_flags_from_states(surface, render_element_states)
+                    surface_presentation_feedback_flags_from_states(
+                        surface,
+                        None,
+                        render_element_states,
+                    )
                 },
             );
         }
@@ -1504,7 +1548,11 @@ pub fn take_presentation_feedback(
             &mut output_presentation_feedback,
             surface_primary_scanout_output,
             |surface, _| {
-                surface_presentation_feedback_flags_from_states(surface, render_element_states)
+                surface_presentation_feedback_flags_from_states(
+                    surface,
+                    None,
+                    render_element_states,
+                )
             },
         );
     }
@@ -1515,7 +1563,11 @@ pub fn take_presentation_feedback(
             &mut output_presentation_feedback,
             surface_primary_scanout_output,
             |surface, _| {
-                surface_presentation_feedback_flags_from_states(surface, render_element_states)
+                surface_presentation_feedback_flags_from_states(
+                    surface,
+                    None,
+                    render_element_states,
+                )
             },
         );
     }

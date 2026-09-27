@@ -491,6 +491,7 @@ impl<R: Renderer> RenderElement<R> for GlyphBatchElement {
         _dst: Rectangle<i32, Physical>,
         _damage: &[Rectangle<i32, Physical>],
         _opaque_regions: &[Rectangle<i32, Physical>],
+        _cache: Option<&smithay::utils::user_data::UserDataMap>,
     ) -> Result<(), R::Error> {
         // `draw` only runs when the compositor already decided this
         // element needs (re)drawing (see `Element::damage_since`'s

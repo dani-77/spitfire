@@ -20,8 +20,8 @@ use smithay::{
         compositor::{self, with_states},
         seat::WaylandFocus,
         shell::xdg::{
-            Configure, PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler,
-            XdgShellState, XdgToplevelSurfaceData,
+            Configure, PopupSurface, PositionerState, ToplevelCachedState, ToplevelSurface,
+            XdgShellHandler, XdgShellState,
         },
     },
 };
@@ -269,14 +269,12 @@ impl<BackendData: Backend> XdgShellHandler for SpitfireState<BackendData> {
                 // will no longer have the resize state set
                 let is_resizing = with_states(&surface, |states| {
                     states
-                        .data_map
-                        .get::<XdgToplevelSurfaceData>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .current
-                        .states
-                        .contains(xdg_toplevel::State::Resizing)
+                        .cached_state
+                        .get::<ToplevelCachedState>()
+                        .current()
+                        .last_acked
+                        .as_ref()
+                        .is_some_and(|c| c.state.states.contains(xdg_toplevel::State::Resizing))
                 });
 
                 if configure.serial >= serial && is_resizing {
@@ -316,11 +314,13 @@ impl<BackendData: Backend> XdgShellHandler for SpitfireState<BackendData> {
         surface: ToplevelSurface,
         mut wl_output: Option<wl_output::WlOutput>,
     ) {
-        if surface
-            .current_state()
-            .capabilities
-            .contains(xdg_toplevel::WmCapabilities::Fullscreen)
-        {
+        if surface.with_committed_state(|state| {
+            state.is_some_and(|state| {
+                state
+                    .capabilities
+                    .contains(xdg_toplevel::WmCapabilities::Fullscreen)
+            })
+        }) {
             // NOTE: This is only one part of the solution. We can set the
             // location and configure size here, but the surface should be rendered fullscreen
             // independently from its buffer size
@@ -379,11 +379,9 @@ impl<BackendData: Backend> XdgShellHandler for SpitfireState<BackendData> {
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
-        if !surface
-            .current_state()
-            .states
-            .contains(xdg_toplevel::State::Fullscreen)
-        {
+        if !surface.with_committed_state(|state| {
+            state.is_some_and(|state| state.states.contains(xdg_toplevel::State::Fullscreen))
+        }) {
             return;
         }
 
@@ -407,11 +405,13 @@ impl<BackendData: Backend> XdgShellHandler for SpitfireState<BackendData> {
     fn maximize_request(&mut self, surface: ToplevelSurface) {
         // NOTE: This should use layer-shell when it is implemented to
         // get the correct maximum size
-        if surface
-            .current_state()
-            .capabilities
-            .contains(xdg_toplevel::WmCapabilities::Maximize)
-        {
+        if surface.with_committed_state(|state| {
+            state.is_some_and(|state| {
+                state
+                    .capabilities
+                    .contains(xdg_toplevel::WmCapabilities::Maximize)
+            })
+        }) {
             let window = self.window_for_surface(surface.wl_surface()).unwrap();
             let outputs_for_window = self.space.outputs_for_element(&window);
             let output = outputs_for_window
@@ -439,11 +439,9 @@ impl<BackendData: Backend> XdgShellHandler for SpitfireState<BackendData> {
     }
 
     fn unmaximize_request(&mut self, surface: ToplevelSurface) {
-        if !surface
-            .current_state()
-            .states
-            .contains(xdg_toplevel::State::Maximized)
-        {
+        if !surface.with_committed_state(|state| {
+            state.is_some_and(|state| state.states.contains(xdg_toplevel::State::Maximized))
+        }) {
             return;
         }
 
@@ -536,11 +534,9 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 let mut initial_window_location = self.space.element_location(&window).unwrap();
 
                 // If surface is maximized then unmaximize it
-                let current_state = surface.current_state();
-                if current_state
-                    .states
-                    .contains(xdg_toplevel::State::Maximized)
-                {
+                if surface.with_committed_state(|state| {
+                    state.is_some_and(|state| state.states.contains(xdg_toplevel::State::Maximized))
+                }) {
                     surface.with_pending_state(|state| {
                         state.states.unset(xdg_toplevel::State::Maximized);
                         state.size = None;
@@ -603,11 +599,9 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let mut initial_window_location = self.space.element_location(&window).unwrap();
 
         // If surface is maximized then unmaximize it
-        let current_state = surface.current_state();
-        if current_state
-            .states
-            .contains(xdg_toplevel::State::Maximized)
-        {
+        if surface.with_committed_state(|state| {
+            state.is_some_and(|state| state.states.contains(xdg_toplevel::State::Maximized))
+        }) {
             surface.with_pending_state(|state| {
                 state.states.unset(xdg_toplevel::State::Maximized);
                 state.size = None;

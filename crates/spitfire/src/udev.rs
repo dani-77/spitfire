@@ -331,7 +331,7 @@ pub fn run_udev() {
                     if let Err(err) = device.config_tap_set_enabled(true) {
                         warn!(
                             ?err,
-                            device = device.name(),
+                            device = %device.name(),
                             "Failed to enable tap-to-click"
                         );
                     }
@@ -396,6 +396,7 @@ pub fn run_udev() {
                     // we will try to reset the state when trying to queue a frame.
                     backend
                         .drm_output_manager
+                        .lock()
                         .activate(false)
                         .expect("failed to activate drm backend");
                     if let Some(lease_global) = backend.leasing_global.as_mut() {
@@ -907,7 +908,7 @@ impl SpitfireState<UdevData> {
             })
             .ok_or(DeviceAddError::PrimaryGpuMissing)?;
 
-        let framebuffer_exporter = GbmFramebufferExporter::new(gbm.clone(), render_node);
+        let framebuffer_exporter = GbmFramebufferExporter::new(gbm.clone(), render_node.into());
 
         let color_formats = if std::env::var("SPITFIRE_DISABLE_10BIT").is_ok() {
             SUPPORTED_FORMATS_8BIT_ONLY
@@ -1020,6 +1021,11 @@ impl SpitfireState<UdevData> {
             .and_then(|info| info.model())
             .unwrap_or_else(|| "Unknown".into());
 
+        let serial_number = display_info
+            .as_ref()
+            .and_then(|info| info.serial())
+            .unwrap_or_else(|| "Unknown".into());
+
         if non_desktop {
             info!(
                 "Connector {} is non-desktop, setting up for leasing",
@@ -1053,6 +1059,7 @@ impl SpitfireState<UdevData> {
                     subpixel: connector.subpixel().into(),
                     make,
                     model,
+                    serial_number,
                 },
             );
             let global = output.create_global::<SpitfireState<UdevData>>(&self.display_handle);
@@ -1114,6 +1121,7 @@ impl SpitfireState<UdevData> {
 
             let drm_output = match device
                 .drm_output_manager
+                .lock()
                 .initialize_output::<_, OutputRenderElements<UdevRenderer<'_>, WindowRenderElement<UdevRenderer<'_>>>>(
                     crtc,
                     drm_mode,
@@ -1226,7 +1234,7 @@ impl SpitfireState<UdevData> {
             .gpus
             .single_renderer(&render_node)
             .unwrap();
-        let _ = device.drm_output_manager.try_to_restore_modifiers::<_, OutputRenderElements<
+        let _ = device.drm_output_manager.lock().try_to_restore_modifiers::<_, OutputRenderElements<
             UdevRenderer<'_>,
             WindowRenderElement<UdevRenderer<'_>>,
         >>(
