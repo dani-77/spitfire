@@ -238,6 +238,13 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// The lock surfaces currently shown while `locked` — one per output,
     /// normally. Cleared on `unlock`.
     pub lock_surfaces: Vec<LockSurface>,
+    /// ext-idle-notify-v1, for idle daemons such as swayidle; see `idle.rs`.
+    pub idle_notifier_state:
+        smithay::wayland::idle_notify::IdleNotifierState<SpitfireState<BackendData>>,
+    /// zwp-idle-inhibit-v1: surfaces asking to keep the session awake.
+    pub idle_inhibit_manager_state: smithay::wayland::idle_inhibit::IdleInhibitManagerState,
+    pub idle_inhibiting_surfaces:
+        Vec<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
     pub output_manager_state: OutputManagerState,
     pub primary_selection_state: PrimarySelectionState,
     pub data_control_state: DataControlState,
@@ -832,6 +839,10 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_client| true);
+        let idle_notifier_state =
+            smithay::wayland::idle_notify::IdleNotifierState::<Self>::new(&dh, handle.clone());
+        let idle_inhibit_manager_state =
+            smithay::wayland::idle_inhibit::IdleInhibitManagerState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
         let data_control_state =
@@ -948,6 +959,9 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             session_lock_state,
             locked: false,
             lock_surfaces: Vec::new(),
+            idle_notifier_state,
+            idle_inhibit_manager_state,
+            idle_inhibiting_surfaces: Vec::new(),
             output_manager_state,
             primary_selection_state,
             data_control_state,

@@ -883,6 +883,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         event: InputEvent<B>,
         output_name: &str,
     ) {
+        self.notify_idle_activity();
         match event {
             InputEvent::Keyboard { event } => match self.keyboard_key_to_action::<B>(event) {
                 KeyAction::ScaleUp => {
@@ -1035,6 +1036,7 @@ impl SpitfireState<UdevData> {
         dh: &DisplayHandle,
         event: InputEvent<B>,
     ) {
+        self.notify_idle_activity();
         match event {
             InputEvent::Keyboard { event, .. } => match self.keyboard_key_to_action::<B>(event) {
                 #[cfg(feature = "udev")]
