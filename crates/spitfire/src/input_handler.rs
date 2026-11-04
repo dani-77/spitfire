@@ -514,9 +514,24 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                                 alt: modifiers.alt,
                                 shift: modifiers.shift,
                             };
+                            // A bind matches the keysym the key produces
+                            // right now first, then its layout-independent
+                            // one (the unshifted symbol, from a Latin
+                            // layout when the active one isn't): so
+                            // `"Mod4+Shift", "2"` fires whatever Shift+2
+                            // types on this layout ("at" on us, "quotedbl"
+                            // on pt), and binds keep working on non-Latin
+                            // layouts. Built-in shortcuts stay on the
+                            // produced keysym only.
                             let action = cstate
                                 .config
                                 .find_bind(config_mods, keysym)
+                                .or_else(|| {
+                                    handle
+                                        .raw_latin_sym_or_raw_current_sym()
+                                        .filter(|raw| *raw != keysym)
+                                        .and_then(|raw| cstate.config.find_bind(config_mods, raw))
+                                })
                                 .map(KeyAction::LuaBind)
                                 .or_else(|| process_keyboard_shortcut(*modifiers, keysym));
 

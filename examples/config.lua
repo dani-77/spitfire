@@ -63,6 +63,10 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 -- Keybindings --------------------------------------------------------
 -- spitfire.bind(mods, key, fn) — mods is "Mod4" (Super)/"Mod1" (Alt)/
 -- "Shift"/"Ctrl", combined with "+" (e.g. "Mod4+Shift"); "" = no modifier.
+-- key is a keysym name. It matches what the key types, or the key's own
+-- unshifted Latin symbol, so ("Mod4+Shift", "2") works on any layout (no
+-- need to name "at"/"quotedbl"), and letter binds keep working on
+-- non-Latin layouts.
 
 -- Layouts: tile (dwm master-stack), floating, fibonacci (spiral), monocle.
 spitfire.bind("Mod4", "t", function() spitfire.layout.set("tile") end)
