@@ -904,7 +904,70 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         under.map(|(s, l)| (s, l.to_f64()))
     }
 
+    /// Runs the `spitfire.wheel` bind matching this axis event, if any,
+    /// and returns whether the event was consumed by one (and so must not
+    /// reach the client). Only a real wheel counts, once per notch:
+    /// `amount_v120` is in 120ths of a notch, which high-resolution wheels
+    /// split over several events, and touchpad (finger) or continuous
+    /// scrolling would otherwise fire a bind dozens of times per swipe.
+    /// Never while locked.
+    fn run_wheel_bind<B: InputBackend>(&mut self, evt: &B::PointerAxisEvent) -> bool {
+        if self.locked || !matches!(evt.source(), AxisSource::Wheel | AxisSource::WheelTilt) {
+            return false;
+        }
+        let Some(keyboard) = self.seat.get_keyboard() else {
+            return false;
+        };
+        let modifiers = keyboard.modifier_state();
+        let mods = spitfire_config::Modifiers {
+            logo: modifiers.logo,
+            ctrl: modifiers.ctrl,
+            alt: modifiers.alt,
+            shift: modifiers.shift,
+        };
+
+        let mut consumed = false;
+        for (i, axis) in [Axis::Vertical, Axis::Horizontal].into_iter().enumerate() {
+            let v120 = evt.amount_v120(axis).unwrap_or(0.0) as i32;
+            if v120 == 0 {
+                continue;
+            }
+            let direction = match (axis, v120 > 0) {
+                (Axis::Vertical, false) => spitfire_config::WheelDirection::Up,
+                (Axis::Vertical, true) => spitfire_config::WheelDirection::Down,
+                (_, false) => spitfire_config::WheelDirection::Left,
+                (_, true) => spitfire_config::WheelDirection::Right,
+            };
+            let Some(idx) = self.config.find_wheel(mods, direction) else {
+                continue;
+            };
+            consumed = true;
+            let notch = &mut self.wheel_notch[i];
+            if (*notch > 0) != (v120 > 0) {
+                *notch = 0; // direction changed mid-notch
+            }
+            *notch += v120;
+            if notch.abs() < 120 {
+                continue;
+            }
+            *notch %= 120;
+            match self.config.invoke_wheel(idx) {
+                Ok(commands) => {
+                    for cmd in commands {
+                        self.apply_config_command(cmd);
+                    }
+                }
+                Err(err) => error!(%err, "Lua wheel callback raised an error"),
+            }
+        }
+        consumed
+    }
+
     fn on_pointer_axis<B: InputBackend>(&mut self, evt: B::PointerAxisEvent) {
+        if self.run_wheel_bind::<B>(&evt) {
+            return;
+        }
+
         let horizontal_amount = evt.amount(input::Axis::Horizontal).unwrap_or_else(|| {
             evt.amount_v120(input::Axis::Horizontal).unwrap_or(0.0) * 15.0 / 120.
         });

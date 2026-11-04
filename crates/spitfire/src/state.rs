@@ -279,6 +279,10 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// `PendingGesture`'s own doc comment and `input_handler.rs`'s
     /// `on_gesture_swipe_*` handlers.
     pub pending_gesture: Option<PendingGesture>,
+    /// Wheel travel toward the next `spitfire.wheel` notch, per axis
+    /// (`[vertical, horizontal]`), in 120ths of a notch — see
+    /// `on_pointer_axis`.
+    pub wheel_notch: [i32; 2],
     pub seat_name: String,
     pub seat: Seat<SpitfireState<BackendData>>,
     pub clock: Clock<Monotonic>,
@@ -987,6 +991,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             suppressed_keys: Vec::new(),
             cursor_status: CursorImageStatus::default_named(),
             pending_gesture: None,
+            wheel_notch: [0; 2],
             seat_name,
             seat,
             pointer,

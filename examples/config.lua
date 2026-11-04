@@ -136,3 +136,11 @@ spitfire.gesture(3, "up", function() spitfire.window.toggle_scratchpad() end)
 spitfire.gesture(3, "down", function() spitfire.layout.cycle() end)
 spitfire.gesture(4, "left", function() spitfire.window.focus_prev() end)
 spitfire.gesture(4, "right", function() spitfire.window.focus_next() end)
+
+-- Mouse wheel ----------------------------------------------------------
+-- spitfire.wheel(mods, direction, fn) — direction is "up"/"down" (or
+-- "left"/"right" for a tilt/horizontal wheel), mods as in spitfire.bind.
+-- Runs once per wheel notch, never for touchpad scrolling; an unbound
+-- mods+direction scrolls the window under the pointer as usual.
+-- spitfire.wheel("Mod4", "up", function() spitfire.workspace.prev() end)
+-- spitfire.wheel("Mod4", "down", function() spitfire.workspace.next() end)

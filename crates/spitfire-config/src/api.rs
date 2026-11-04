@@ -16,6 +16,7 @@ use crate::{
     command::Command,
     gesture::{Gesture, GestureDirection},
     rule::WindowRule,
+    wheel::{WheelBind, WheelDirection},
     AnimConfig, BarConfig, BlurConfig, BorderConfig, KeyboardConfig, OutputConfig, WorkspaceConfig,
 };
 
@@ -26,6 +27,7 @@ pub(crate) fn install(
     autostart: Rc<RefCell<Vec<String>>>,
     rules: Rc<RefCell<Vec<WindowRule>>>,
     gestures: Rc<RefCell<Vec<Gesture>>>,
+    wheel_binds: Rc<RefCell<Vec<WheelBind>>>,
 ) -> mlua::Result<()> {
     let spitfire = lua.create_table()?;
 
@@ -69,6 +71,29 @@ pub(crate) fn install(
             },
         )?;
         spitfire.set("gesture", gesture_fn)?;
+    }
+
+    // spitfire.wheel(mods, direction, function) — mouse wheel binds, one
+    // call per notch. Same mods syntax as `bind`, same unknown-direction
+    // handling as `gesture`.
+    {
+        let wheel_binds = wheel_binds.clone();
+        let wheel_fn = lua.create_function(
+            move |lua, (mods, direction, callback): (String, String, mlua::Function)| {
+                let Some(direction) = WheelDirection::parse(&direction) else {
+                    return Ok(());
+                };
+                let mods = Modifiers::parse(&mods);
+                let callback = lua.create_registry_value(callback)?;
+                wheel_binds.borrow_mut().push(WheelBind {
+                    mods,
+                    direction,
+                    callback,
+                });
+                Ok(())
+            },
+        )?;
+        spitfire.set("wheel", wheel_fn)?;
     }
 
     // spitfire.spawn(cmd)

@@ -17,11 +17,13 @@ mod bind;
 mod command;
 mod gesture;
 mod rule;
+mod wheel;
 
 pub use bind::{Bind, Modifiers};
 pub use command::Command;
 pub use gesture::{Gesture, GestureDirection};
 pub use rule::WindowRule;
+pub use wheel::{WheelBind, WheelDirection};
 pub use xkbcommon::xkb::Keysym;
 
 use mlua::Lua;
@@ -220,6 +222,7 @@ pub struct Config {
     binds: Rc<RefCell<Vec<Bind>>>,
     rules: Rc<RefCell<Vec<WindowRule>>>,
     gestures: Rc<RefCell<Vec<Gesture>>>,
+    wheel_binds: Rc<RefCell<Vec<WheelBind>>>,
     commands: Rc<RefCell<Vec<Command>>>,
     pub autostart: Vec<String>,
     pub gaps: spitfire_layout::Gaps,
@@ -266,6 +269,7 @@ impl Config {
         let autostart = Rc::new(RefCell::new(Vec::new()));
         let rules = Rc::new(RefCell::new(Vec::new()));
         let gestures = Rc::new(RefCell::new(Vec::new()));
+        let wheel_binds = Rc::new(RefCell::new(Vec::new()));
 
         api::install(
             &lua,
@@ -274,6 +278,7 @@ impl Config {
             autostart.clone(),
             rules.clone(),
             gestures.clone(),
+            wheel_binds.clone(),
         )?;
 
         match std::fs::read_to_string(path) {
@@ -303,6 +308,7 @@ impl Config {
             binds,
             rules,
             gestures,
+            wheel_binds,
             commands,
             autostart,
             gaps,
@@ -383,6 +389,28 @@ impl Config {
                 .get(idx)
                 .ok_or_else(|| mlua::Error::RuntimeError(format!("invalid gesture: {idx}")))?;
             let func: mlua::Function = self.lua.registry_value(&gesture.callback)?;
+            func.call::<()>(())?;
+        }
+        Ok(self.drain_commands())
+    }
+
+    /// Finds the first `spitfire.wheel` matching `mods`/`direction` — same
+    /// "index, not the value" shape as `find_bind`.
+    pub fn find_wheel(&self, mods: Modifiers, direction: WheelDirection) -> Option<usize> {
+        self.wheel_binds
+            .borrow()
+            .iter()
+            .position(|w| w.matches(mods, direction))
+    }
+
+    /// Invokes wheel bind `idx` — same mechanics as `invoke_bind`.
+    pub fn invoke_wheel(&self, idx: usize) -> mlua::Result<Vec<Command>> {
+        {
+            let wheel_binds = self.wheel_binds.borrow();
+            let wheel = wheel_binds
+                .get(idx)
+                .ok_or_else(|| mlua::Error::RuntimeError(format!("invalid wheel bind: {idx}")))?;
+            let func: mlua::Function = self.lua.registry_value(&wheel.callback)?;
             func.call::<()>(())?;
         }
         Ok(self.drain_commands())
@@ -741,6 +769,41 @@ mod tests {
         assert!(config.has_gesture_for_fingers(3));
         assert!(config.has_gesture_for_fingers(4));
         assert!(config.find_gesture(3, GestureDirection::Up).is_some());
+    }
+
+    #[test]
+    fn wheel_fires_and_produces_commands() {
+        let config = load_str(
+            r#"
+            spitfire.wheel("Mod4", "down", function()
+                spitfire.workspace.next()
+            end)
+            "#,
+        );
+        let mod4 = Modifiers::parse("Mod4");
+        let idx = config
+            .find_wheel(mod4, WheelDirection::Down)
+            .expect("wheel bind not found");
+        let commands = config.invoke_wheel(idx).unwrap();
+        assert_eq!(commands, vec![Command::WorkspaceCycle(1)]);
+        // Exact modifiers and direction, same as `bind`.
+        assert!(config.find_wheel(mod4, WheelDirection::Up).is_none());
+        assert!(config
+            .find_wheel(Modifiers::default(), WheelDirection::Down)
+            .is_none());
+    }
+
+    #[test]
+    fn wheel_unknown_direction_is_never_registered() {
+        let config = load_str(r#"spitfire.wheel("Mod4", "sideways", function() end)"#);
+        for direction in [
+            WheelDirection::Up,
+            WheelDirection::Down,
+            WheelDirection::Left,
+            WheelDirection::Right,
+        ] {
+            assert!(config.find_wheel(Modifiers::parse("Mod4"), direction).is_none());
+        }
     }
 
     #[test]
