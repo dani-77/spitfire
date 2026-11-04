@@ -941,7 +941,7 @@ where
         .get::<FullscreenSurface>()
         .and_then(|f| f.get())
     {
-        let scale = output.current_scale().fractional_scale().into();
+        let scale: Scale<f64> = output.current_scale().fractional_scale().into();
         let window_render_elements: Vec<WindowRenderElement<R>> =
             if hidden_windows.contains(&window) {
                 Vec::new()
@@ -949,12 +949,59 @@ where
                 AsRenderElements::<R>::render_elements(&window, renderer, (0, 0).into(), scale, 1.0)
             };
 
+        // Besides the fullscreen window itself, only what has to stay
+        // visible over it: the overlay layer (notifications, OSDs, a
+        // launcher) and X11 override-redirect windows (the menus and
+        // tooltips an XWayland app opens, its own fullscreen one
+        // included). Like sway, the top layer (bars) stays hidden. Front to
+        // back: the first element pushed is the topmost one drawn.
+        // `surface_under` routes the pointer in the same order.
+        let layer_map = layer_map_for_output(output);
+        let overlay_elements: Vec<CustomRenderElements<R>> = layer_map
+            .layers_on(Layer::Overlay)
+            .rev()
+            .filter_map(|layer| layer_map.layer_geometry(layer).map(|geo| (geo.loc, layer)))
+            .flat_map(|(loc, layer)| {
+                AsRenderElements::<R>::render_elements::<CustomRenderElements<R>>(
+                    layer,
+                    renderer,
+                    loc.to_physical_precise_round(scale),
+                    scale,
+                    1.0,
+                )
+            })
+            .collect();
+        drop(layer_map);
+        let output_loc = space.output_geometry(output).map(|g| g.loc).unwrap_or_default();
+        let unmanaged_windows: Vec<WindowElement> = space
+            .elements_for_output(output)
+            .rev()
+            .filter(|w| w.is_override_redirect() && *w != &window)
+            .cloned()
+            .collect();
+        let unmanaged_elements: Vec<WindowRenderElement<R>> = unmanaged_windows
+            .iter()
+            .filter_map(|w| {
+                let loc = space.element_location(w)? - w.geometry().loc - output_loc;
+                Some(AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
+                    w,
+                    renderer,
+                    loc.to_physical_precise_round(scale),
+                    scale,
+                    1.0,
+                ))
+            })
+            .flatten()
+            .collect();
+
         let elements = custom_elements
             .into_iter()
             .map(OutputRenderElements::from)
+            .chain(overlay_elements.into_iter().map(OutputRenderElements::from))
             .chain(
-                window_render_elements
+                unmanaged_elements
                     .into_iter()
+                    .chain(window_render_elements)
                     .map(|e| OutputRenderElements::Window(Wrap::from(e))),
             )
             .collect::<Vec<_>>();

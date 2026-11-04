@@ -137,6 +137,17 @@ impl WindowElement {
         self.0.is_wayland()
     }
 
+    /// Whether this is an X11 override-redirect window (a menu, tooltip or
+    /// dropdown placing itself) — always false without XWayland.
+    #[inline]
+    pub fn is_override_redirect(&self) -> bool {
+        #[cfg(feature = "xwayland")]
+        if let Some(surface) = self.0.x11_surface() {
+            return surface.is_override_redirect();
+        }
+        false
+    }
+
     #[inline]
     pub fn wl_surface(&self) -> Option<Cow<'_, WlSurface>> {
         self.0.wl_surface()

@@ -18,7 +18,7 @@ use smithay::{
         self, Axis, AxisSource, Event, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
         PointerAxisEvent, PointerButtonEvent,
     },
-    desktop::{layer_map_for_output, WindowSurfaceType},
+    desktop::{layer_map_for_output, space::SpaceElement, WindowSurfaceType},
     input::{
         keyboard::{keysyms as xkb, FilterResult, Keysym, ModifiersState},
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
@@ -613,6 +613,28 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             let output = self.space.output_under(location).next().cloned();
             if let Some(output) = output.as_ref() {
                 let output_geo = self.space.output_geometry(output).unwrap();
+                // The overlay layer comes first, even over a fullscreen
+                // window: it's drawn on top of it (see `output_elements`).
+                let layers = layer_map_for_output(output);
+                if let Some(layer) =
+                    layers.layer_under(WlrLayer::Overlay, location - output_geo.loc.to_f64())
+                {
+                    if layer.can_receive_keyboard_focus() {
+                        if let Some((_, _)) = layer.surface_under(
+                            location
+                                - output_geo.loc.to_f64()
+                                - layers.layer_geometry(layer).unwrap().loc.to_f64(),
+                            WindowSurfaceType::ALL,
+                        ) {
+                            let layer = layer.clone();
+                            drop(layers);
+                            keyboard.set_focus(self, Some(layer.into()), serial);
+                            return;
+                        }
+                    }
+                }
+                drop(layers);
+
                 if let Some(window) = output
                     .user_data()
                     .get::<FullscreenSurface>()
@@ -631,11 +653,8 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 }
 
                 let layers = layer_map_for_output(output);
-                if let Some(layer) = layers
-                    .layer_under(WlrLayer::Overlay, location - output_geo.loc.to_f64())
-                    .or_else(|| {
-                        layers.layer_under(WlrLayer::Top, location - output_geo.loc.to_f64())
-                    })
+                if let Some(layer) =
+                    layers.layer_under(WlrLayer::Top, location - output_geo.loc.to_f64())
                 {
                     if layer.can_receive_keyboard_focus() {
                         if let Some((_, _)) = layer.surface_under(
@@ -792,12 +811,48 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         })?;
         let output_geo = self.space.output_geometry(output).unwrap();
         let layers = layer_map_for_output(output);
+        let fullscreen = output.user_data().get::<FullscreenSurface>().and_then(|f| f.get());
 
         let mut under = None;
-        if let Some((surface, loc)) = output
-            .user_data()
-            .get::<FullscreenSurface>()
-            .and_then(|f| f.get())
+        // Over a fullscreen window, the overlay layer and X11
+        // override-redirect windows are drawn on top of it (see
+        // `output_elements`), so they get the pointer first.
+        if fullscreen.is_some() {
+            under = layers
+                .layer_under(WlrLayer::Overlay, pos - output_geo.loc.to_f64())
+                .and_then(|layer| {
+                    let layer_loc = layers.layer_geometry(layer).unwrap().loc;
+                    layer
+                        .surface_under(
+                            pos - output_geo.loc.to_f64() - layer_loc.to_f64(),
+                            WindowSurfaceType::ALL,
+                        )
+                        .map(|(surface, loc)| {
+                            (
+                                PointerFocusTarget::from(surface),
+                                loc + layer_loc + output_geo.loc,
+                            )
+                        })
+                })
+                .or_else(|| {
+                    // Not `element_under`: the fullscreen window can sit
+                    // above a menu in `Space`'s own stacking order (raised
+                    // on focus after the menu mapped), and would win.
+                    self.space
+                        .elements()
+                        .rev()
+                        .filter(|window| window.is_override_redirect())
+                        .find_map(|window| {
+                            let loc = self.space.element_location(window)? - window.geometry().loc;
+                            window
+                                .surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL)
+                                .map(|(surface, surf_loc)| (surface, surf_loc + loc))
+                        })
+                });
+        }
+        if under.is_some() {
+            // Found above, over the fullscreen window.
+        } else if let Some((surface, loc)) = fullscreen
             .and_then(|w| w.surface_under(pos - output_geo.loc.to_f64(), WindowSurfaceType::ALL))
         {
             under = Some((surface, loc + output_geo.loc));
