@@ -37,7 +37,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
 - **Config** (`spitfire-config`, via `mlua`): a single `config.lua`
   (`$XDG_CONFIG_HOME/spitfire/config.lua`, falling back to
   `~/.config/spitfire/config.lua`), reloadable at runtime with `spitfire.reload()` — no
-  recompile. `spitfire.bind`/`gesture`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`window`/
+  recompile. `spitfire.bind`/`unbind`/`gesture`/`spawn`/`layout`/`mfact`/`nmaster`/`workspace`/`window`/
   `scratchpad`/`rule`/`autostart`/`gaps`/`border`/`bar`/`keyboard`/`output`/`anim`/`blur`/
   `focus_follows_mouse`. Mod4/Super and Mod1/Alt are both
   first-class modifiers, freely mixable per bind. See `../examples/config.lua` for the
