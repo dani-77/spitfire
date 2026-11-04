@@ -16,7 +16,7 @@ use tracing::debug;
 
 use crate::{
     focus::KeyboardFocusTarget,
-    shell::WindowElement,
+    shell::{FullscreenSurface, WindowElement},
     state::{Backend, SpitfireState},
 };
 
@@ -384,6 +384,13 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// frame, right after the tiling order's own dead-window pruning above
     /// — same reasoning: there is no dedicated "window closed" hook.
     ///
+    /// A fullscreen window of the active workspace wins over the history:
+    /// it covers everything else, so focusing a window behind it would
+    /// send keys (and `spitfire.window.close()`) to something invisible.
+    /// With no candidate at all (e.g. after switching to an empty
+    /// workspace) a dangling focus is cleared rather than left on a
+    /// window that's no longer shown.
+    ///
     /// Never runs while locked: the lock screen owns the keyboard, and
     /// before its surface exists focus is deliberately on nothing (see
     /// `SessionLockHandler::lock`).
@@ -411,17 +418,25 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
 
         self.focus_history.retain(|w| w.alive());
         let active_windows = self.workspaces.active().tiling.windows();
-        let Some(window) = self
-            .focus_history
-            .iter()
-            .rev()
-            .find(|w| active_windows.contains(w))
-            .cloned()
-        else {
-            return;
-        };
+        let fullscreen = self
+            .space
+            .outputs()
+            .next()
+            .and_then(|o| o.user_data().get::<FullscreenSurface>().and_then(|f| f.get()))
+            .filter(|w| active_windows.contains(w));
+        let window = fullscreen.or_else(|| {
+            self.focus_history
+                .iter()
+                .rev()
+                .find(|w| active_windows.contains(w))
+                .cloned()
+        });
 
         let serial = SERIAL_COUNTER.next_serial();
-        keyboard.set_focus(self, Some(window.into()), serial);
+        match window {
+            Some(window) => keyboard.set_focus(self, Some(window.into()), serial),
+            None if keyboard.current_focus().is_some() => keyboard.set_focus(self, None, serial),
+            None => {}
+        }
     }
 }
