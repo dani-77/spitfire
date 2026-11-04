@@ -22,8 +22,50 @@ use smithay::{utils::Rectangle, xwayland::xwm::ResizeEdge as X11ResizeEdge};
 use super::{SurfaceData, WindowElement};
 use crate::{
     focus::PointerFocusTarget,
+    layout::usable_area,
     state::{Backend, SpitfireState},
 };
+
+/// `spitfire.snap`: moves `location` (where a window being dragged would
+/// go) onto the nearest edge of the usable area of the output under the
+/// pointer when within `snap` pixels of it, horizontally and vertically on
+/// their own — dwm's snap (dwl 8f52e96).
+fn snap_location<BackendData: Backend>(
+    data: &SpitfireState<BackendData>,
+    window: &WindowElement,
+    pointer: Point<f64, Logical>,
+    location: Point<i32, Logical>,
+) -> Point<i32, Logical> {
+    let snap = data.config.snap.min(i32::MAX as u32) as i32;
+    if snap == 0 {
+        return location;
+    }
+    let Some(output) = data.space.output_under(pointer).next() else {
+        return location;
+    };
+    let bar_height = if data.config.bar.enabled {
+        data.config.bar.height
+    } else {
+        0
+    };
+    let Some(area) = usable_area(&data.space, output, bar_height, data.config.gaps.outer) else {
+        return location;
+    };
+    let size = window.geometry().size;
+    let snap_axis = |pos: i32, len: i32, start: i32, area_len: i32| {
+        if (pos - start).abs() < snap {
+            start
+        } else if ((start + area_len) - (pos + len)).abs() < snap {
+            start + area_len - len
+        } else {
+            pos
+        }
+    };
+    Point::from((
+        snap_axis(location.x, size.w, area.loc.x, area.size.w),
+        snap_axis(location.y, size.h, area.loc.y, area.size.h),
+    ))
+}
 
 pub struct PointerMoveSurfaceGrab<BackendData: Backend + 'static> {
     pub start_data: PointerGrabStartData<SpitfireState<BackendData>>,
@@ -46,9 +88,15 @@ impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>>
 
         let delta = event.location - self.start_data.location;
         let new_location = self.initial_window_location.to_f64() + delta;
+        let new_location = snap_location(
+            data,
+            &self.window,
+            event.location,
+            new_location.to_i32_round(),
+        );
 
         data.space
-            .map_element(self.window.clone(), new_location.to_i32_round(), true);
+            .map_element(self.window.clone(), new_location, true);
     }
 
     fn relative_motion(

@@ -241,6 +241,11 @@ pub struct Config {
     /// this is turned on. See `SpitfireState::update_keyboard_focus_hover`
     /// in the `spitfire` crate.
     pub focus_follows_mouse: bool,
+    /// `spitfire.snap = <px>` — a window being moved with the mouse snaps
+    /// to the edges of the output's usable area once within this many
+    /// pixels of one, as in dwm. Default 32; 0 turns it off. See
+    /// `PointerMoveSurfaceGrab` in the `spitfire` crate.
+    pub snap: u32,
 }
 
 impl Config {
@@ -294,7 +299,7 @@ impl Config {
             }
         }
 
-        let (gaps, border, bar, keyboard, output, anim, blur, workspace, focus_follows_mouse) =
+        let (gaps, border, bar, keyboard, output, anim, blur, workspace, focus_follows_mouse, snap) =
             api::read_globals(&lua)?;
         // Can't `Rc::try_unwrap` here: the `spitfire.autostart` closure kept
         // inside `lua` holds a live reference to this Rc for as long as
@@ -320,6 +325,7 @@ impl Config {
             blur,
             workspace,
             focus_follows_mouse,
+            snap,
         })
     }
 
@@ -772,6 +778,15 @@ mod tests {
     }
 
     #[test]
+    fn snap_defaults_to_32_and_reads_the_global() {
+        assert_eq!(load_str("").snap, 32);
+        assert_eq!(load_str("spitfire.snap = 0").snap, 0);
+        assert_eq!(load_str("spitfire.snap = 16").snap, 16);
+        // Negative is rejected, keeping the default.
+        assert_eq!(load_str("spitfire.snap = -5").snap, 32);
+    }
+
+    #[test]
     fn wheel_fires_and_produces_commands() {
         let config = load_str(
             r#"
@@ -802,7 +817,9 @@ mod tests {
             WheelDirection::Left,
             WheelDirection::Right,
         ] {
-            assert!(config.find_wheel(Modifiers::parse("Mod4"), direction).is_none());
+            assert!(config
+                .find_wheel(Modifiers::parse("Mod4"), direction)
+                .is_none());
         }
     }
 

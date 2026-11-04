@@ -403,6 +403,7 @@ pub(crate) fn read_globals(
     BlurConfig,
     WorkspaceConfig,
     bool,
+    u32,
 )> {
     let mut gaps = spitfire_layout::Gaps::default();
     let mut border = BorderConfig::default();
@@ -413,6 +414,7 @@ pub(crate) fn read_globals(
     let mut blur = BlurConfig::default();
     let mut workspace = WorkspaceConfig::default();
     let mut focus_follows_mouse = false;
+    let mut snap = 32;
 
     let spitfire: Table = lua.globals().get("spitfire")?;
 
@@ -587,6 +589,18 @@ pub(crate) fn read_globals(
         focus_follows_mouse = v;
     }
 
+    // Another bare global: pixels, 0 turns snapping off.
+    if let Ok(v) = spitfire.get::<i64>("snap") {
+        if v >= 0 {
+            snap = v.min(u32::MAX as i64) as u32;
+        } else {
+            warn!(
+                value = v,
+                "spitfire.snap: must be >= 0, keeping the default"
+            );
+        }
+    }
+
     Ok((
         gaps,
         border,
@@ -597,6 +611,7 @@ pub(crate) fn read_globals(
         blur,
         workspace,
         focus_follows_mouse,
+        snap,
     ))
 }
 

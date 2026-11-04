@@ -27,6 +27,10 @@ spitfire.anim = { enabled = true, duration = 150 } -- pop-in on open, tween on r
 -- what raises). Off by default.
 -- spitfire.focus_follows_mouse = true
 
+-- A window dragged by its title bar snaps to the screen edges within this
+-- many pixels (default 32; 0 = off).
+-- spitfire.snap = 32
+
 -- Output scale (niri-style), >= 1.0 — a starting value; Mod+Shift+P/M
 -- already rescales live at runtime.
 -- spitfire.output = { scale = 1.0 }
