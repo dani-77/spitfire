@@ -383,7 +383,14 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// one (dwm/i3-style) instead of leaving focus on nothing. Runs every
     /// frame, right after the tiling order's own dead-window pruning above
     /// — same reasoning: there is no dedicated "window closed" hook.
+    ///
+    /// Never runs while locked: the lock screen owns the keyboard, and
+    /// before its surface exists focus is deliberately on nothing (see
+    /// `SessionLockHandler::lock`).
     fn refocus_if_dangling(&mut self) {
+        if self.locked {
+            return;
+        }
         let Some(keyboard) = self.seat.get_keyboard() else {
             return;
         };

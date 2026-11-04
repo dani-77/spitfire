@@ -12,7 +12,7 @@ use smithay::{
         layer_map_for_output, space::SpaceElement, LayerSurface, PopupKind, PopupManager, Space,
         WindowSurfaceType,
     },
-    input::pointer::{CursorImageStatus, CursorImageSurfaceData},
+    input::pointer::{CursorImageStatus, CursorImageSurfaceData, MotionEvent},
     output::Output,
     reexports::{
         calloop::Interest,
@@ -407,6 +407,21 @@ impl<BackendData: Backend> SessionLockHandler for SpitfireState<BackendData> {
         self.locked = true;
         self.lock_surfaces.clear();
 
+        // Until the lock client creates its surface (`new_surface` below),
+        // nothing may keep the keyboard: `keyboard_key_to_action` forwards
+        // every key while locked, so whatever window had focus would get
+        // the password typed into it. Also cancel any interactive
+        // move/resize and take the pointer away from the clients below.
+        let serial = SERIAL_COUNTER.next_serial();
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.set_focus(self, None, serial);
+        }
+        let pointer = self.pointer.clone();
+        if pointer.is_grabbed() {
+            pointer.unset_grab(self, serial, self.clock.now().as_millis());
+        }
+        self.refresh_pointer_focus();
+
         // v1: no separate "cleared frame presented on every output" sync —
         // confirm right away. The render loop switches to lock-only
         // rendering the instant `self.locked` flips (see render.rs), so the
@@ -418,6 +433,16 @@ impl<BackendData: Backend> SessionLockHandler for SpitfireState<BackendData> {
         tracing::info!("Session unlocked");
         self.locked = false;
         self.lock_surfaces.clear();
+
+        // The keyboard is still on the (now dead) lock surface; drop it so
+        // `refocus_if_dangling` hands it back to the last focused window
+        // on the next `arrange_tiling`, and let the pointer find whatever
+        // is under it again.
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
+        }
+        self.arrange_tiling();
+        self.refresh_pointer_focus();
     }
 
     fn new_surface(&mut self, surface: LockSurface, wl_output: wl_output::WlOutput) {
@@ -444,10 +469,31 @@ impl<BackendData: Backend> SessionLockHandler for SpitfireState<BackendData> {
         }
 
         self.lock_surfaces.push(surface);
+        // `surface_under` returns the first lock surface from now on.
+        self.refresh_pointer_focus();
     }
 }
 
 impl<BackendData: Backend> SpitfireState<BackendData> {
+    /// Re-sends pointer focus for the current location without a real
+    /// motion event — after a lock/unlock changed what `surface_under`
+    /// returns for it.
+    fn refresh_pointer_focus(&mut self) {
+        let pointer = self.pointer.clone();
+        let location = pointer.current_location();
+        let under = self.surface_under(location);
+        pointer.motion(
+            self,
+            under,
+            &MotionEvent {
+                location,
+                serial: SERIAL_COUNTER.next_serial(),
+                time: self.clock.now().as_millis(),
+            },
+        );
+        pointer.frame(self);
+    }
+
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<WindowElement> {
         self.space
             .elements()
