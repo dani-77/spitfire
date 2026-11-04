@@ -874,4 +874,68 @@ mod tests {
             vec![Command::Spawn("qs -p frontend/utumno".to_string())]
         );
     }
+
+    fn keysym(name: &str) -> xkbcommon::xkb::Keysym {
+        xkbcommon::xkb::keysym_from_name(name, xkbcommon::xkb::KEYSYM_NO_FLAGS)
+    }
+
+    #[test]
+    fn unbind_removes_the_binding() {
+        let config = load_str(
+            r#"
+            spitfire.bind("Mod4", "t", function() spitfire.layout.set("tile") end)
+            spitfire.bind("Mod4", "m", function() spitfire.layout.set("monocle") end)
+            assert(spitfire.unbind("Mod4", "t") == 1)
+            "#,
+        );
+        let logo = Modifiers::parse("Mod4");
+        assert!(config.find_bind(logo, keysym("t")).is_none());
+        assert!(config.find_bind(logo, keysym("m")).is_some());
+    }
+
+    #[test]
+    fn unbind_then_bind_replaces_the_action() {
+        let config = load_str(
+            r#"
+            spitfire.bind("Mod4", "Return", function() spitfire.spawn("foot") end)
+            spitfire.unbind("Mod4", "Return")
+            spitfire.bind("Mod4", "Return", function() spitfire.spawn("alacritty") end)
+            "#,
+        );
+        let idx = config
+            .find_bind(Modifiers::parse("Mod4"), keysym("Return"))
+            .expect("bind not found");
+        assert_eq!(
+            config.invoke_bind(idx).unwrap(),
+            vec![Command::Spawn("alacritty".to_string())]
+        );
+    }
+
+    #[test]
+    fn unbind_needs_the_exact_modifiers_and_ignores_letter_case() {
+        let config = load_str(
+            r#"
+            spitfire.bind("Mod4", "q", function() end)
+            spitfire.bind("Mod4+Shift", "q", function() end)
+            spitfire.bind("Mod4", "q", function() end)
+            assert(spitfire.unbind("Mod4", "Q") == 2)
+            assert(spitfire.unbind("Mod4", "x") == 0)
+            "#,
+        );
+        assert!(config.find_bind(Modifiers::parse("Mod4"), keysym("q")).is_none());
+        assert!(config
+            .find_bind(Modifiers::parse("Mod4+Shift"), keysym("Q"))
+            .is_some());
+    }
+
+    #[test]
+    fn unbind_only_affects_binds_made_before_it() {
+        let config = load_str(
+            r#"
+            spitfire.unbind("Mod4", "t")
+            spitfire.bind("Mod4", "t", function() end)
+            "#,
+        );
+        assert!(config.find_bind(Modifiers::parse("Mod4"), keysym("t")).is_some());
+    }
 }

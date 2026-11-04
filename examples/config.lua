@@ -71,6 +71,9 @@ spitfire.rule({ app_id = "pavucontrol", floating = true, centered = true })
 -- unshifted Latin symbol, so ("Mod4+Shift", "2") works on any layout (no
 -- need to name "at"/"quotedbl"), and letter binds keep working on
 -- non-Latin layouts.
+-- spitfire.unbind(mods, key) drops every bind made so far for exactly that
+-- combination (the first matching bind wins, so rebinding a key means
+-- unbinding it first). Returns how many binds it dropped.
 
 -- Layouts: tile (dwm master-stack), floating, fibonacci (spiral), monocle.
 spitfire.bind("Mod4", "t", function() spitfire.layout.set("tile") end)

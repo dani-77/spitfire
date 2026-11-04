@@ -50,6 +50,24 @@ pub(crate) fn install(
         spitfire.set("bind", bind_fn)?;
     }
 
+    // spitfire.unbind(mods, key) — drops every bind registered so far for
+    // exactly these modifiers and key, and returns how many it dropped.
+    // Binds are looked up first-match-wins, so this is how a file loaded
+    // at the end of config.lua (Kantele's settings, say) replaces or
+    // switches off a binding instead of being shadowed by it.
+    {
+        let binds = binds.clone();
+        let unbind_fn = lua.create_function(move |_, (mods, key): (String, String)| {
+            let mods = Modifiers::parse(&mods);
+            let keysym = parse_keysym(&key);
+            let mut binds = binds.borrow_mut();
+            let before = binds.len();
+            binds.retain(|b| !b.matches(mods, keysym));
+            Ok(before - binds.len())
+        })?;
+        spitfire.set("unbind", unbind_fn)?;
+    }
+
     // spitfire.gesture(fingers, direction, function) — fingers = 0 matches
     // any finger count. An unknown `direction` string is dropped with a
     // warning (see `GestureDirection::parse`), same "harmless, never fires"
