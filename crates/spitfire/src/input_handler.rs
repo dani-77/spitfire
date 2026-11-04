@@ -908,18 +908,21 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
     }
 
     /// Runs the `spitfire.wheel` bind matching this axis event, if any,
-    /// and returns whether the event was consumed by one (and so must not
-    /// reach the client). Only a real wheel counts, once per notch:
-    /// `amount_v120` is in 120ths of a notch, which high-resolution wheels
-    /// split over several events, and touchpad (finger) or continuous
-    /// scrolling would otherwise fire a bind dozens of times per swipe.
-    /// Never while locked.
-    fn run_wheel_bind<B: InputBackend>(&mut self, evt: &B::PointerAxisEvent) -> bool {
+    /// and returns which axes (`[vertical, horizontal]`) were consumed by
+    /// one and so must not reach the client; the other axis still does.
+    /// Only a real wheel counts, once per notch: `amount_v120` is in 120ths
+    /// of a notch, which high-resolution wheels split over several events
+    /// and a fast spin can pack several notches into one (240, 360…), each
+    /// firing the bind once; touchpad (finger) or continuous scrolling
+    /// would otherwise fire a bind dozens of times per swipe. Never while
+    /// locked.
+    fn run_wheel_bind<B: InputBackend>(&mut self, evt: &B::PointerAxisEvent) -> [bool; 2] {
+        let mut consumed = [false; 2];
         if self.locked || !matches!(evt.source(), AxisSource::Wheel | AxisSource::WheelTilt) {
-            return false;
+            return consumed;
         }
         let Some(keyboard) = self.seat.get_keyboard() else {
-            return false;
+            return consumed;
         };
         let modifiers = keyboard.modifier_state();
         let mods = spitfire_config::Modifiers {
@@ -929,7 +932,6 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             shift: modifiers.shift,
         };
 
-        let mut consumed = false;
         for (i, axis) in [Axis::Vertical, Axis::Horizontal].into_iter().enumerate() {
             let v120 = evt.amount_v120(axis).unwrap_or(0.0) as i32;
             if v120 == 0 {
@@ -944,32 +946,33 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             let Some(idx) = self.config.find_wheel(mods, direction) else {
                 continue;
             };
-            consumed = true;
+            consumed[i] = true;
             let notch = &mut self.wheel_notch[i];
             if (*notch > 0) != (v120 > 0) {
                 *notch = 0; // direction changed mid-notch
             }
             *notch += v120;
-            if notch.abs() < 120 {
-                continue;
-            }
+            let notches = notch.abs() / 120;
             *notch %= 120;
-            match self.config.invoke_wheel(idx) {
-                Ok(commands) => {
-                    for cmd in commands {
-                        self.apply_config_command(cmd);
+            for _ in 0..notches {
+                match self.config.invoke_wheel(idx) {
+                    Ok(commands) => {
+                        for cmd in commands {
+                            self.apply_config_command(cmd);
+                        }
+                    }
+                    Err(err) => {
+                        error!(%err, "Lua wheel callback raised an error");
+                        break;
                     }
                 }
-                Err(err) => error!(%err, "Lua wheel callback raised an error"),
             }
         }
         consumed
     }
 
     fn on_pointer_axis<B: InputBackend>(&mut self, evt: B::PointerAxisEvent) {
-        if self.run_wheel_bind::<B>(&evt) {
-            return;
-        }
+        let [vertical_consumed, horizontal_consumed] = self.run_wheel_bind::<B>(&evt);
 
         let horizontal_amount = evt.amount(input::Axis::Horizontal).unwrap_or_else(|| {
             evt.amount_v120(input::Axis::Horizontal).unwrap_or(0.0) * 15.0 / 120.
@@ -980,9 +983,18 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let horizontal_amount_discrete = evt.amount_v120(input::Axis::Horizontal);
         let vertical_amount_discrete = evt.amount_v120(input::Axis::Vertical);
 
+        // Nothing left for the client once the `spitfire.wheel` binds took
+        // every axis that moved: no empty axis frame.
+        if (horizontal_consumed || horizontal_amount == 0.0)
+            && (vertical_consumed || vertical_amount == 0.0)
+            && (vertical_consumed || horizontal_consumed)
+        {
+            return;
+        }
+
         {
             let mut frame = AxisFrame::new(evt.time_msec()).source(evt.source());
-            if horizontal_amount != 0.0 {
+            if horizontal_amount != 0.0 && !horizontal_consumed {
                 frame = frame
                     .relative_direction(Axis::Horizontal, evt.relative_direction(Axis::Horizontal));
                 frame = frame.value(Axis::Horizontal, horizontal_amount);
@@ -990,7 +1002,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                     frame = frame.v120(Axis::Horizontal, discrete as i32);
                 }
             }
-            if vertical_amount != 0.0 {
+            if vertical_amount != 0.0 && !vertical_consumed {
                 frame = frame
                     .relative_direction(Axis::Vertical, evt.relative_direction(Axis::Vertical));
                 frame = frame.value(Axis::Vertical, vertical_amount);
