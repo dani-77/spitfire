@@ -441,7 +441,11 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             .space
             .outputs()
             .next()
-            .and_then(|o| o.user_data().get::<FullscreenSurface>().and_then(|f| f.get()))
+            .and_then(|o| {
+                o.user_data()
+                    .get::<FullscreenSurface>()
+                    .and_then(|f| f.get())
+            })
             .filter(|w| active_windows.contains(w));
         let window = fullscreen.or_else(|| {
             self.focus_history

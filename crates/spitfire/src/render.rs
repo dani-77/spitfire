@@ -972,7 +972,10 @@ where
             })
             .collect();
         drop(layer_map);
-        let output_loc = space.output_geometry(output).map(|g| g.loc).unwrap_or_default();
+        let output_loc = space
+            .output_geometry(output)
+            .map(|g| g.loc)
+            .unwrap_or_default();
         let unmanaged_windows: Vec<WindowElement> = space
             .elements_for_output(output)
             .rev()
@@ -983,7 +986,9 @@ where
             .iter()
             .filter_map(|w| {
                 let loc = space.element_location(w)? - w.geometry().loc - output_loc;
-                Some(AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
+                Some(AsRenderElements::<R>::render_elements::<
+                    WindowRenderElement<R>,
+                >(
                     w,
                     renderer,
                     loc.to_physical_precise_round(scale),

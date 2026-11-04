@@ -811,7 +811,10 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         })?;
         let output_geo = self.space.output_geometry(output).unwrap();
         let layers = layer_map_for_output(output);
-        let fullscreen = output.user_data().get::<FullscreenSurface>().and_then(|f| f.get());
+        let fullscreen = output
+            .user_data()
+            .get::<FullscreenSurface>()
+            .and_then(|f| f.get());
 
         let mut under = None;
         // Over a fullscreen window, the overlay layer and X11
