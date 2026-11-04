@@ -496,7 +496,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                             .flatten();
 
                             if action.is_some() {
-                                suppressed_keys.push(keysym);
+                                suppressed_keys.push(handle.raw_code());
                             }
 
                             return action
@@ -521,7 +521,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                                 .or_else(|| process_keyboard_shortcut(*modifiers, keysym));
 
                             if action.is_some() {
-                                suppressed_keys.push(keysym);
+                                suppressed_keys.push(handle.raw_code());
                             }
 
                             action
@@ -531,9 +531,10 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                             FilterResult::Forward
                         }
                     } else {
-                        let suppressed = suppressed_keys.contains(&keysym);
+                        let code = handle.raw_code();
+                        let suppressed = suppressed_keys.contains(&code);
                         if suppressed {
-                            suppressed_keys.retain(|k| *k != keysym);
+                            suppressed_keys.retain(|k| *k != code);
                             FilterResult::Intercept(KeyAction::None)
                         } else {
                             FilterResult::Forward

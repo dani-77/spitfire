@@ -34,7 +34,7 @@ use smithay::{
     },
     input::{
         dnd::{DnDGrab, DndGrabHandler, DndTarget, GrabType, Source},
-        keyboard::{Keysym, LedState, XkbConfig},
+        keyboard::{Keycode, LedState, XkbConfig},
         pointer::{CursorImageStatus, CursorImageSurfaceData, Focus, PointerHandle},
         Seat, SeatHandler, SeatState,
     },
@@ -267,7 +267,12 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     pub dnd_icon: Option<DndIcon>,
 
     // input-related fields
-    pub suppressed_keys: Vec<Keysym>,
+    /// Keycodes whose press triggered a binding, so their release is
+    /// swallowed too. Keycodes, not keysyms: the keysym of the release can
+    /// differ from the press's (Shift let go first turns `R` into `r`),
+    /// which used to leave the entry behind for good and then eat the
+    /// release of a later, unbound press of the same keysym.
+    pub suppressed_keys: Vec<Keycode>,
     pub cursor_status: CursorImageStatus,
     /// A touchpad swipe currently in progress, from `GestureSwipeBegin` to
     /// `GestureSwipeEnd`/cancel — `None` whenever no swipe is live. See
