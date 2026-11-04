@@ -1567,7 +1567,11 @@ impl SpitfireState<UdevData> {
     /// a direction is known.
     fn on_gesture_swipe_begin<B: InputBackend>(&mut self, evt: B::GestureSwipeBeginEvent) {
         let fingers = evt.fingers();
-        let intercepted = self.config.has_gesture_for_fingers(fingers);
+        // While locked no `spitfire.gesture` may run (it could switch
+        // workspaces, close windows or spawn things behind the lock
+        // screen), so the swipe is forwarded like any other — to the lock
+        // surface, the only thing `surface_under` returns then.
+        let intercepted = !self.locked && self.config.has_gesture_for_fingers(fingers);
         self.pending_gesture = Some(crate::state::PendingGesture {
             fingers,
             dx: 0.0,
@@ -1617,8 +1621,9 @@ impl SpitfireState<UdevData> {
                 // A cancelled swipe (e.g. a finger lifted mid-gesture)
                 // fires nothing — same as a swipe whose finger count
                 // matched some `spitfire.gesture` but whose eventual
-                // direction matched none: a shrug, not an error.
-                if !evt.cancelled() {
+                // direction matched none: a shrug, not an error. Nor
+                // does one that began before the session locked.
+                if !evt.cancelled() && !self.locked {
                     let direction =
                         spitfire_config::GestureDirection::classify(pending.dx, pending.dy);
                     if let Some(idx) = self.config.find_gesture(pending.fingers, direction) {
