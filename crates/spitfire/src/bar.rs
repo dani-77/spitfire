@@ -58,7 +58,9 @@ pub struct Bar {
     date_text: String,
     cpu_text: String,
     ram_text: String,
-    bat_text: String,
+    /// `None` on a machine with no battery (a desktop): the whole `BAT:`
+    /// segment is left out of `status_text` then, not shown as "--".
+    bat_text: Option<String>,
     net_text: String,
     /// (total, idle) jiffies from `/proc/stat` as of the last tick — CPU%
     /// is a delta between two samples, not a point-in-time reading (the
@@ -125,15 +127,13 @@ impl Bar {
             self.ram_text = format!("{percent}%");
         }
 
-        self.bat_text = read_battery_status()
-            .map(|(percent, charging)| {
-                if charging {
-                    format!("{percent}%+")
-                } else {
-                    format!("{percent}%")
-                }
-            })
-            .unwrap_or_else(|| "--".to_string());
+        self.bat_text = read_battery_status().map(|(percent, charging)| {
+            if charging {
+                format!("{percent}%+")
+            } else {
+                format!("{percent}%")
+            }
+        });
 
         self.net_text = read_network_status()
             .map(|(ssid, percent)| format!("{ssid} {percent}%"))
@@ -142,18 +142,19 @@ impl Bar {
 
     /// The whole right-hand side of the bar as one string, in the fixed
     /// order requested: `CPU: n% | RAM: n% | BAT: n% | NETWORK: ssid n% |
-    /// HH:MM - DD.MM.YYYY`. Uppercased because the bitmap font below only
+    /// HH:MM - DD.MM.YYYY`, without the `BAT` segment on a machine with
+    /// no battery. Uppercased because the bitmap font below only
     /// has glyphs for A-Z — an SSID with lowercase letters still shows up
     /// (just not case-accurately), rather than silently vanishing.
     pub fn status_text(&self) -> String {
+        let bat = self
+            .bat_text
+            .as_ref()
+            .map(|bat| format!("BAT: {bat} | "))
+            .unwrap_or_default();
         format!(
-            "CPU: {} | RAM: {} | BAT: {} | NETWORK: {} | {} - {}",
-            self.cpu_text,
-            self.ram_text,
-            self.bat_text,
-            self.net_text,
-            self.time_text,
-            self.date_text
+            "CPU: {} | RAM: {} | {bat}NETWORK: {} | {} - {}",
+            self.cpu_text, self.ram_text, self.net_text, self.time_text, self.date_text
         )
         .to_uppercase()
     }
@@ -202,8 +203,8 @@ fn read_ram_percent() -> Option<u64> {
 
 /// Battery percentage and whether it's currently charging, from the first
 /// `/sys/class/power_supply/BAT*` entry found — `None` on a desktop (no
-/// `BAT*` directory at all), which shows "--" the same way a wireless-less
-/// machine does for the network segment.
+/// `BAT*` directory at all), which drops the `BAT` segment from the bar
+/// (unlike the network one, which shows "--" on a wireless-less machine).
 fn read_battery_status() -> Option<(u8, bool)> {
     let entries = std::fs::read_dir("/sys/class/power_supply").ok()?;
     for entry in entries.flatten() {
@@ -979,6 +980,34 @@ mod tests {
 
         assert_eq!(first.id, second.id);
         assert_ne!(first.commit, second.commit);
+    }
+
+    fn bar_with_battery(bat_text: Option<&str>) -> Bar {
+        Bar {
+            time_text: "14:23".into(),
+            date_text: "06.08.2026".into(),
+            cpu_text: "66%".into(),
+            ram_text: "45%".into(),
+            bat_text: bat_text.map(Into::into),
+            net_text: "MyHomeWifi 80%".into(),
+            ..Bar::default()
+        }
+    }
+
+    #[test]
+    fn status_text_shows_the_battery_when_there_is_one() {
+        assert_eq!(
+            bar_with_battery(Some("82%+")).status_text(),
+            "CPU: 66% | RAM: 45% | BAT: 82%+ | NETWORK: MYHOMEWIFI 80% | 14:23 - 06.08.2026"
+        );
+    }
+
+    #[test]
+    fn status_text_drops_the_battery_segment_without_one() {
+        assert_eq!(
+            bar_with_battery(None).status_text(),
+            "CPU: 66% | RAM: 45% | NETWORK: MYHOMEWIFI 80% | 14:23 - 06.08.2026"
+        );
     }
 
     #[test]
