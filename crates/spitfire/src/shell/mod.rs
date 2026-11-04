@@ -43,7 +43,7 @@ use smithay::{
 
 use crate::{
     focus::KeyboardFocusTarget,
-    layout::usable_area,
+    layout::{usable_area, ForceFloating},
     state::{Backend, SpitfireState},
     ClientState,
 };
@@ -264,6 +264,22 @@ impl<BackendData: Backend> CompositorHandler for SpitfireState<BackendData> {
                                 let claimed = self.claim_pending_named_scratchpad(
                                     &window, &output, bar_height, bar_margin,
                                 );
+                                if !claimed && window.is_float_type() {
+                                    // A dialog or fixed-size window floats
+                                    // (see `matches_floating_rule`). Like
+                                    // dwl, decided once at map: pinned so a
+                                    // later size-hint change doesn't re-tile
+                                    // it, and centered instead of left at
+                                    // the random cascade spot.
+                                    window.0.user_data().insert_if_missing(|| ForceFloating);
+                                    center_on_output(
+                                        &mut self.space,
+                                        &output,
+                                        &window,
+                                        bar_height,
+                                        bar_margin,
+                                    );
+                                }
                                 if !claimed {
                                     let rules = self.config.rules().clone();
                                     center_if_ruled(

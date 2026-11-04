@@ -35,7 +35,7 @@ use smithay::{
         compositor::{with_states, SurfaceData as WlSurfaceData},
         dmabuf::DmabufFeedback,
         seat::WaylandFocus,
-        shell::xdg::XdgToplevelSurfaceData,
+        shell::xdg::{SurfaceCachedState, XdgToplevelSurfaceData},
     },
 };
 
@@ -135,6 +135,41 @@ impl WindowElement {
     #[inline]
     pub fn is_wayland(&self) -> bool {
         self.0.is_wayland()
+    }
+
+    /// The client's (min, max) size hints; 0 on an axis means no limit.
+    pub fn size_hints(&self) -> (Size<i32, Logical>, Size<i32, Logical>) {
+        #[cfg(feature = "xwayland")]
+        if let Some(surface) = self.0.x11_surface() {
+            return (
+                surface.min_size().unwrap_or_default(),
+                surface.max_size().unwrap_or_default(),
+            );
+        }
+        let Some(surface) = self.wl_surface() else {
+            return Default::default();
+        };
+        with_states(&surface, |states| {
+            let mut guard = states.cached_state.get::<SurfaceCachedState>();
+            let data = guard.current();
+            (data.min_size, data.max_size)
+        })
+    }
+
+    /// Whether a Wayland window should float instead of tiling no matter
+    /// the rules: a dialog (it has a parent toplevel) or a window that
+    /// can't be resized on at least one axis (min == max), as dwl's
+    /// `client_is_float_type()` does. X11 windows have their own check in
+    /// shell/x11.rs (`is_positioned_by_client`).
+    pub fn is_float_type(&self) -> bool {
+        let Some(toplevel) = self.0.toplevel() else {
+            return false;
+        };
+        if toplevel.parent().is_some() {
+            return true;
+        }
+        let (min, max) = self.size_hints();
+        min.w > 0 && min.h > 0 && (min.w == max.w || min.h == max.h)
     }
 
     /// Whether this is an X11 override-redirect window (a menu, tooltip or

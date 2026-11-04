@@ -145,7 +145,22 @@ impl TilingLayout {
             } else {
                 0
             };
-            let size = Size::from((rect.w.max(1), (rect.h - ssd_height).max(1)));
+            // Clamped to the client's own size hints: it would draw at its
+            // minimum (or maximum) anyway, possibly past its slot (dwl
+            // 4de32d2).
+            let (min, max) = window.size_hints();
+            let clamp = |v: i32, min: i32, max: i32| {
+                let v = v.max(min).max(1);
+                if max > 0 {
+                    v.min(max)
+                } else {
+                    v
+                }
+            };
+            let size = Size::from((
+                clamp(rect.w, min.w, max.w),
+                clamp(rect.h - ssd_height, min.h, max.h),
+            ));
             if let Some(toplevel) = window.0.toplevel() {
                 toplevel.with_pending_state(|state| {
                     state.size = Some(size);
@@ -241,12 +256,16 @@ pub(crate) struct ForceFloating;
 /// Checking here closes that window (no pun intended) instead of relying
 /// on `ForceFloating` alone, which only ever prevents *future* passes from
 /// re-tiling it, not the one that already sent a bad initial size.
+///
+/// Dialogs and fixed-size windows (`WindowElement::is_float_type`) float
+/// too, checked live for the same timing reason; their first buffer commit
+/// then pins them with `ForceFloating` (see `commit()` in shell/mod.rs).
 fn matches_floating_rule(
     window: &WindowElement,
     rules: &[WindowRule],
     pending_scratchpad_app_ids: &[String],
 ) -> bool {
-    if window.0.user_data().get::<ForceFloating>().is_some() {
+    if window.0.user_data().get::<ForceFloating>().is_some() || window.is_float_type() {
         return true;
     }
     let app_id = window.app_id();
