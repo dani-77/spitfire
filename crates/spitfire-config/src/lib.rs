@@ -922,7 +922,9 @@ mod tests {
             assert(spitfire.unbind("Mod4", "x") == 0)
             "#,
         );
-        assert!(config.find_bind(Modifiers::parse("Mod4"), keysym("q")).is_none());
+        assert!(config
+            .find_bind(Modifiers::parse("Mod4"), keysym("q"))
+            .is_none());
         assert!(config
             .find_bind(Modifiers::parse("Mod4+Shift"), keysym("Q"))
             .is_some());
@@ -936,6 +938,8 @@ mod tests {
             spitfire.bind("Mod4", "t", function() end)
             "#,
         );
-        assert!(config.find_bind(Modifiers::parse("Mod4"), keysym("t")).is_some());
+        assert!(config
+            .find_bind(Modifiers::parse("Mod4"), keysym("t"))
+            .is_some());
     }
 }

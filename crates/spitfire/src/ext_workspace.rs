@@ -203,7 +203,10 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             return;
         };
         let tmp = path.with_extension("new");
-        if std::fs::write(&tmp, &body).and_then(|_| std::fs::rename(&tmp, &path)).is_ok() {
+        if std::fs::write(&tmp, &body)
+            .and_then(|_| std::fs::rename(&tmp, &path))
+            .is_ok()
+        {
             self.ext_workspace_state.published = body;
         }
     }
