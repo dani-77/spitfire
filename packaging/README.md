@@ -31,7 +31,7 @@ cd /path/to/void-packages
 
 ## Bumping the version
 
-Both files pin `version`/`pkgver` to `0.5.5` and a `checksum`/`sha256sums` for that
+Both files pin `version`/`pkgver` to `0.6.0` and a `checksum`/`sha256sums` for that
 tag's release tarball. When cutting a new release, update both and recompute the
 checksum, e.g.:
 
