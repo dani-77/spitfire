@@ -624,6 +624,25 @@ impl<BackendData: Backend> XdgActivationHandler for SpitfireState<BackendData> {
         token_data: XdgActivationTokenData,
         surface: WlSurface,
     ) {
+        // A window on a workspace that isn't shown can't be raised into
+        // view; mark it urgent instead (bars show its workspace in red), as
+        // wasp and whiplash do. It never moves focus or switches workspace.
+        let active = self.workspaces.active_index();
+        let elsewhere = self.workspaces.iter().enumerate().find_map(|(idx, ws)| {
+            ws.tiling
+                .windows()
+                .iter()
+                .find(|w| w.wl_surface().map(|s| *s == surface).unwrap_or(false))
+                .filter(|_| idx != active)
+                .cloned()
+        });
+        if let Some(window) = elsewhere {
+            if !self.ext_workspace_state.urgent.contains(&window) {
+                self.ext_workspace_state.urgent.push(window);
+                self.sync_ext_workspace_state();
+            }
+            return;
+        }
         if token_data.timestamp.elapsed().as_secs() < 10 {
             // Just grant the wish
             let w = self

@@ -94,6 +94,14 @@ impl WorkspaceSlide {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WorkspaceId(u64);
 
+impl std::fmt::Display for WorkspaceId {
+    /// The id sent in `ext-workspace-v1`'s `id` event and used as the key
+    /// in the d77 window-count file (`ext_workspace::publish_window_counts`).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "spitfire-{}", self.0)
+    }
+}
+
 /// One workspace: a name (shown by `ext-workspace-v1`'s `name` event and
 /// any bar) plus its own tiling state.
 #[derive(Debug)]

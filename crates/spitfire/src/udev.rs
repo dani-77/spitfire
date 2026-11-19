@@ -598,6 +598,7 @@ pub fn run_udev() {
             display_handle.flush_clients().unwrap();
         }
     }
+    state.unpublish_window_counts();
 }
 
 impl DrmLeaseHandler for SpitfireState<UdevData> {

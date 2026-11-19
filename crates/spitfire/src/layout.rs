@@ -321,6 +321,9 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// a single output (matches the winit-only backend), so there's one
     /// `WorkspaceSet` rather than one per output. See `crate::workspace`.
     pub fn arrange_tiling(&mut self) {
+        // Runs every frame, so it is also where the d77 window counts are
+        // kept current (written only when they change).
+        self.publish_window_counts();
         let Some(output) = self.space.outputs().next().cloned() else {
             return;
         };

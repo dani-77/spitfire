@@ -76,6 +76,18 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   hand-implemented — not provided by Smithay, see `../NOTICE.md`).
   `spitfire.workspace.focus(n)` / `spitfire.workspace.move_window(n)` / `.next()` /
   `.prev()` (1-based).
+  - Sends each workspace's `id` (`spitfire-<n>`) and the `urgent` state: a window on a
+    workspace that isn't shown asking for attention over xdg-activation marks it urgent
+    until it is switched to (a fresh token on the shown workspace still just raises).
+  - Occupied workspaces for the d77 shells: ext-workspace-v1 has no such state, so
+    spitfire (like wasp and whiplash) keeps `$XDG_RUNTIME_DIR/d77-workspaces-<socket>`,
+    one line per workspace, `<ext-workspace id> <window count>`, which Utumno,
+    quickshell-d77, fabric-d77 and helium-d77 read to dim empty workspaces. Written from
+    the per-frame `arrange_tiling` only when it changes, named after the listening
+    socket (spitfire never sets `WAYLAND_DISPLAY` in its own environment, so nested it
+    would otherwise name the parent session), removed when the main loop ends. A
+    SIGTERM still kills spitfire without that cleanup (no signal handling yet); the next
+    session rewrites the file and its ids match nothing else, so a stale one is harmless.
   - Verified end-to-end against a real Quickshell client (`Quickshell.WindowManager`,
     the same component Utumno's `Workspaces.qml` uses) in both directions:
     compositor-driven switches show up live in the client, and the client calling

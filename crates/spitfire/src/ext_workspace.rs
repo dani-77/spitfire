@@ -19,7 +19,10 @@
 //! - One workspace group, shared by every client (no per-output grouping,
 //!   no `output_enter`/`output_leave` — not needed until real multi-output
 //!   support exists).
-//! - No `id` event (optional in the protocol). `coordinates` *is* sent
+//! - The `id` event is sent (`spitfire-<n>`, see `WorkspaceId`'s
+//!   `Display`): the d77 shells use it as the key into the window counts
+//!   spitfire publishes (`publish_window_counts`), since ext-workspace has
+//!   no "occupied" state. `coordinates` *is* sent
 //!   (1D, just the workspace's index) — omitting it left clients that order
 //!   workspaces geometrically (e.g. Quickshell's `WindowManager`) with no
 //!   stable key to sort by, visibly reshuffling the list once it grew past
@@ -42,9 +45,11 @@ use smithay::reexports::{
         Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
     },
 };
+use smithay::utils::IsAlive;
 use tracing::warn;
 
 use crate::{
+    shell::WindowElement,
     state::{Backend, SpitfireState},
     workspace::WorkspaceId,
 };
@@ -79,6 +84,13 @@ pub struct ExtWorkspaceState {
     global: GlobalId,
     dh: DisplayHandle,
     clients: Vec<ClientState>,
+    /// Windows that asked for attention (xdg-activation) while their
+    /// workspace wasn't shown; their workspace is sent as urgent until it
+    /// is switched to or they close.
+    pub urgent: Vec<WindowElement>,
+    /// Last contents of the window-count file, so the per-frame
+    /// `publish_window_counts` only writes when something changed.
+    published: String,
 }
 
 impl std::fmt::Debug for ExtWorkspaceState {
@@ -108,6 +120,8 @@ impl ExtWorkspaceState {
             global,
             dh: dh.clone(),
             clients: Vec::new(),
+            urgent: Vec::new(),
+            published: String::new(),
         }
     }
 
@@ -122,6 +136,7 @@ pub struct WorkspaceSnapshot {
     pub id: WorkspaceId,
     pub name: String,
     pub active: bool,
+    pub urgent: bool,
     /// Its position in `WorkspaceSet`, sent to clients as 1D `coordinates`
     /// (see `ClientState::sync`) so anything that orders workspaces
     /// geometrically — e.g. Quickshell's `WindowManager`, which sorts its
@@ -138,6 +153,12 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// Call after any create/remove/rename/activate.
     pub fn sync_ext_workspace_state(&mut self) {
         let active_id = self.workspaces.active().id;
+        // Urgency ends when the window closes or its workspace is shown.
+        let active_windows: Vec<WindowElement> = self.workspaces.active().tiling.windows().to_vec();
+        self.ext_workspace_state
+            .urgent
+            .retain(|w| w.alive() && !active_windows.contains(w));
+        let urgent = &self.ext_workspace_state.urgent;
         let snapshot: Vec<WorkspaceSnapshot> = self
             .workspaces
             .iter()
@@ -146,6 +167,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                 id: ws.id,
                 name: ws.name.clone(),
                 active: ws.id == active_id,
+                urgent: ws.tiling.windows().iter().any(|w| urgent.contains(w)),
                 index,
             })
             .collect();
@@ -154,6 +176,53 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         for client in &mut self.ext_workspace_state.clients {
             client.sync::<BackendData>(&snapshot, &dh);
         }
+    }
+
+    /// Keeps the d77 window-count file up to date: ext-workspace-v1 has no
+    /// "occupied" state, so spitfire, like wasp and whiplash, writes
+    /// `$XDG_RUNTIME_DIR/d77-workspaces-<socket>`, one line per workspace,
+    /// "<ext-workspace id> <window count>", for the d77 shells (Utumno,
+    /// quickshell-d77, fabric-d77, helium-d77) to dim empty workspaces.
+    /// Called from the per-frame `arrange_tiling`, so it only writes when the
+    /// contents change, beside the file and renamed so readers never see half
+    /// of it. Dead windows linger in `TilingLayout` until its next prune and
+    /// are not counted.
+    pub fn publish_window_counts(&mut self) {
+        let body: String = self
+            .workspaces
+            .iter()
+            .map(|ws| {
+                let count = ws.tiling.windows().iter().filter(|w| w.alive()).count();
+                format!("{} {count}\n", ws.id)
+            })
+            .collect();
+        if body == self.ext_workspace_state.published {
+            return;
+        }
+        let Some(path) = self.window_counts_path() else {
+            return;
+        };
+        let tmp = path.with_extension("new");
+        if std::fs::write(&tmp, &body).and_then(|_| std::fs::rename(&tmp, &path)).is_ok() {
+            self.ext_workspace_state.published = body;
+        }
+    }
+
+    /// Removes the window-count file, so bars never read a stale one after
+    /// spitfire exits.
+    pub fn unpublish_window_counts(&mut self) {
+        if let Some(path) = self.window_counts_path() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    /// Named after the socket spitfire listens on, not `$WAYLAND_DISPLAY`:
+    /// spitfire never sets that in its own environment (only in its
+    /// children's), so nested it would still name the parent session.
+    fn window_counts_path(&self) -> Option<std::path::PathBuf> {
+        let socket = self.socket_name.as_ref()?;
+        let dir = std::env::var_os("XDG_RUNTIME_DIR")?;
+        Some(std::path::Path::new(&dir).join(format!("d77-workspaces-{socket}")))
     }
 
     fn request_workspace_activate(&mut self, id: WorkspaceId) {
@@ -232,6 +301,7 @@ impl ClientState {
                         continue;
                     };
                     self.manager.workspace(&handle);
+                    handle.id(ws.id.to_string());
                     self.group.workspace_enter(&handle);
                     handle.capabilities(
                         WorkspaceCapabilities::Activate | WorkspaceCapabilities::Remove,
@@ -242,11 +312,13 @@ impl ClientState {
             };
 
             handle.name(ws.name.clone());
-            let state = if ws.active {
-                WorkspaceState::Active
-            } else {
-                WorkspaceState::empty()
-            };
+            let mut state = WorkspaceState::empty();
+            if ws.active {
+                state |= WorkspaceState::Active;
+            }
+            if ws.urgent {
+                state |= WorkspaceState::Urgent;
+            }
             handle.state(state);
             // 1D coordinates — spitfire just numbers workspaces, no real
             // grid — but sending them at all is what lets a client that
@@ -303,6 +375,7 @@ impl<BackendData: Backend + 'static>
         };
 
         let active_id = state.workspaces.active().id;
+        let urgent = &state.ext_workspace_state.urgent;
         let snapshot: Vec<WorkspaceSnapshot> = state
             .workspaces
             .iter()
@@ -311,6 +384,7 @@ impl<BackendData: Backend + 'static>
                 id: ws.id,
                 name: ws.name.clone(),
                 active: ws.id == active_id,
+                urgent: ws.tiling.windows().iter().any(|w| urgent.contains(w)),
                 index,
             })
             .collect();
