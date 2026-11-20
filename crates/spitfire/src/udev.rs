@@ -1592,7 +1592,7 @@ impl SpitfireState<UdevData> {
         let bar_status_text = self.bar.status_text();
         let locked = self.locked;
         let locked_surface = locked
-            .then(|| self.lock_surfaces.first())
+            .then(|| crate::shell::lock_surface_for(&self.lock_surfaces, &output))
             .flatten()
             .map(|s| s.wl_surface().clone());
 
@@ -1652,7 +1652,7 @@ impl SpitfireState<UdevData> {
                 std::iter::empty::<CustomRenderElements<UdevRenderer<'_>>>(),
                 &mut renderer,
                 false,
-                locked_surface.as_ref(),
+                LockView::new(locked, locked_surface.as_ref()),
                 &border_rects,
                 border.width,
                 border.radius,
@@ -1746,7 +1746,7 @@ impl SpitfireState<UdevData> {
             &self.dnd_icon,
             &mut self.cursor_status,
             self.show_window_preview,
-            locked_surface.as_ref(),
+            LockView::new(locked, locked_surface.as_ref()),
             &border_rects,
             border.width,
             border.radius,
@@ -1792,7 +1792,7 @@ impl SpitfireState<UdevData> {
             &mut renderer,
             &self.space,
             &output,
-            locked_surface.as_ref(),
+            LockView::new(locked, locked_surface.as_ref()),
             frame_damage,
             self.pointer.current_location(),
             Some(&pointer_image),
@@ -1816,7 +1816,7 @@ impl SpitfireState<UdevData> {
             &mut renderer,
             &self.space,
             &output,
-            locked_surface.as_ref(),
+            LockView::new(locked, locked_surface.as_ref()),
             frame_damage,
             self.pointer.current_location(),
             Some(&pointer_image),
@@ -1934,7 +1934,7 @@ fn render_surface<'a>(
     dnd_icon: &Option<DndIcon>,
     cursor_status: &mut CursorImageStatus,
     show_window_preview: bool,
-    locked_surface: Option<&wl_surface::WlSurface>,
+    lock_view: LockView<'_>,
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -2029,7 +2029,7 @@ fn render_surface<'a>(
     // always sits on top with no occlusion-avoidance concerns. Hidden
     // while locked: it must never show live clock/workspace info over the
     // lock screen.
-    if locked_surface.is_none() {
+    if !lock_view.is_locked() {
         custom_elements.extend(crate::bar::bar_elements::<UdevRenderer<'a>>(
             bar_config,
             output_geometry.size.w,
@@ -2047,7 +2047,7 @@ fn render_surface<'a>(
         custom_elements,
         renderer,
         show_window_preview,
-        locked_surface,
+        lock_view,
         borders,
         border_width,
         border_radius,
@@ -2093,13 +2093,13 @@ fn render_surface<'a>(
         output,
         dnd_icon,
         cursor_status,
-        locked_surface,
+        lock_view.surface(),
         &states,
     );
 
     if rendered {
         let output_presentation_feedback =
-            take_presentation_feedback(output, space, locked_surface, &states);
+            take_presentation_feedback(output, space, lock_view.surface(), &states);
         surface
             .drm_output
             .queue_frame(Some(output_presentation_feedback))

@@ -785,7 +785,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             // that was never actually under the pointer. Use the output's
             // origin instead, matching where the fullscreen lock surface
             // is actually placed.
-            let output_loc = self
+            let output = self
                 .space
                 .outputs()
                 .find(|o| {
@@ -794,15 +794,22 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                         .is_some_and(|geo| geo.contains(pos.to_i32_round()))
                 })
                 .or_else(|| self.space.outputs().next())
-                .and_then(|o| self.space.output_geometry(o))
+                .cloned()?;
+            let output_loc = self
+                .space
+                .output_geometry(&output)
                 .map(|geo| geo.loc)
                 .unwrap_or_default();
-            return self.lock_surfaces.first().map(|lock_surface| {
-                (
-                    PointerFocusTarget::from(lock_surface.wl_surface().clone()),
-                    output_loc.to_f64(),
-                )
-            });
+            // The lock surface of the output under the pointer — each
+            // output shows only its own.
+            return crate::shell::lock_surface_for(&self.lock_surfaces, &output).map(
+                |lock_surface| {
+                    (
+                        PointerFocusTarget::from(lock_surface.wl_surface().clone()),
+                        output_loc.to_f64(),
+                    )
+                },
+            );
         }
 
         let output = self.space.outputs().find(|o| {

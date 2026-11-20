@@ -413,15 +413,48 @@ impl<BackendData: Backend> WlrLayerShellHandler for SpitfireState<BackendData> {
     }
 }
 
+/// The lock surface a session-lock client created for `output`, if it has
+/// one yet. Every output shows only its own lock surface; an output without
+/// one (hotplugged, or the lock client hasn't got to it) shows just the
+/// opaque locked clear colour, never the desktop.
+pub fn lock_surface_for<'a>(
+    lock_surfaces: &'a [(Output, LockSurface)],
+    output: &Output,
+) -> Option<&'a LockSurface> {
+    lock_surfaces
+        .iter()
+        .find(|(lock_output, surface)| lock_output == output && surface.alive())
+        .map(|(_, surface)| surface)
+}
+
 impl<BackendData: Backend> SessionLockHandler for SpitfireState<BackendData> {
     fn lock_state(&mut self) -> &mut SessionLockManagerState {
         &mut self.session_lock_state
     }
 
     fn lock(&mut self, confirmation: SessionLocker) {
+        // ext-session-lock-v1: while a live client holds the lock, any other
+        // lock request must fail with `finished` (dropping the confirmation
+        // sends it). Accepting it would let a second client take over the
+        // lock screen — and, since it could then unlock, end the session
+        // lock without the password. If the holder died without unlocking,
+        // the session stays locked and a new lock client may take over,
+        // which is how one recovers from a crashed locker.
+        if self.locked
+            && self
+                .active_lock
+                .as_ref()
+                .is_some_and(|lock| lock.is_alive())
+        {
+            tracing::warn!("Refusing session lock request: the session is already locked");
+            return;
+        }
+
         tracing::info!("Session lock requested");
         self.locked = true;
         self.lock_surfaces.clear();
+        self.pending_unlock = false;
+        self.active_lock = Some(confirmation.ext_session_lock().clone());
 
         // Until the lock client creates its surface (`new_surface` below),
         // nothing may keep the keyboard: `keyboard_key_to_action` forwards
@@ -440,37 +473,51 @@ impl<BackendData: Backend> SessionLockHandler for SpitfireState<BackendData> {
 
         // v1: no separate "cleared frame presented on every output" sync —
         // confirm right away. The render loop switches to lock-only
-        // rendering the instant `self.locked` flips (see render.rs), so the
-        // worst case is one stale frame still on screen before that.
+        // rendering the instant `self.locked` flips (see render.rs), and
+        // shows only the opaque locked clear colour on any output that has
+        // no lock surface yet, so nothing of the session is shown after
+        // this point.
         confirmation.lock();
     }
 
     fn unlock(&mut self) {
-        tracing::info!("Session unlocked");
-        self.locked = false;
-        self.lock_surfaces.clear();
-
-        // The keyboard is still on the (now dead) lock surface; drop it so
-        // `refocus_if_dangling` hands it back to the last focused window
-        // on the next `arrange_tiling`, and let the pointer find whatever
-        // is under it again.
-        if let Some(keyboard) = self.seat.get_keyboard() {
-            keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
+        // This smithay revision calls `unlock` for an `unlock_and_destroy`
+        // from *any* ext_session_lock_v1, even one that was refused with
+        // `finished` (it posts a protocol error to that client and then
+        // calls `unlock` anyway). So don't unlock here: only note the
+        // request, and let `apply_pending_unlock` decide once the dispatch
+        // is over. At this point the requesting lock object is still alive,
+        // so a request can only be genuine if the holder is still alive now.
+        if self
+            .active_lock
+            .as_ref()
+            .is_some_and(|lock| lock.is_alive())
+        {
+            self.pending_unlock = true;
+        } else {
+            tracing::warn!("Ignoring unlock: no live client holds the session lock");
         }
-        self.arrange_tiling();
-        self.refresh_pointer_focus();
     }
 
     fn new_surface(&mut self, surface: LockSurface, wl_output: wl_output::WlOutput) {
-        if let Some(output) = Output::from_resource(&wl_output) {
-            if let Some(geometry) = self.space.output_geometry(&output) {
-                surface.with_pending_state(|state| {
-                    state.size = Some(Size::from((
-                        geometry.size.w.max(0) as u32,
-                        geometry.size.h.max(0) as u32,
-                    )));
-                });
-            }
+        // Smithay hands over lock surfaces from any ext_session_lock_v1,
+        // including refused ones, so only take those from the client that
+        // holds the lock.
+        let holder = self.active_lock.as_ref().and_then(|lock| lock.client());
+        if !self.locked || holder.is_none() || surface.wl_surface().client() != holder {
+            tracing::warn!("Ignoring a lock surface from a client that doesn't hold the lock");
+            return;
+        }
+        let Some(output) = Output::from_resource(&wl_output) else {
+            return;
+        };
+        if let Some(geometry) = self.space.output_geometry(&output) {
+            surface.with_pending_state(|state| {
+                state.size = Some(Size::from((
+                    geometry.size.w.max(0) as u32,
+                    geometry.size.h.max(0) as u32,
+                )));
+            });
         }
         surface.send_configure();
 
@@ -484,8 +531,46 @@ impl<BackendData: Backend> SessionLockHandler for SpitfireState<BackendData> {
             );
         }
 
-        self.lock_surfaces.push(surface);
-        // `surface_under` returns the first lock surface from now on.
+        self.lock_surfaces
+            .retain(|(lock_output, existing)| lock_output != &output && existing.alive());
+        self.lock_surfaces.push((output, surface));
+        // `surface_under` returns this output's lock surface from now on.
+        self.refresh_pointer_focus();
+    }
+}
+
+impl<BackendData: Backend> SpitfireState<BackendData> {
+    /// Finishes an `unlock_and_destroy` noted by `SessionLockHandler::unlock`.
+    /// Called right after each client dispatch. The request was genuine iff
+    /// the lock holder's object is gone now (`unlock_and_destroy` destroys
+    /// it); if the holder is still alive, the request came from another,
+    /// refused lock object and is ignored, so the session stays locked.
+    pub fn apply_pending_unlock(&mut self) {
+        if !std::mem::take(&mut self.pending_unlock) {
+            return;
+        }
+        if self
+            .active_lock
+            .as_ref()
+            .is_some_and(|lock| lock.is_alive())
+        {
+            tracing::warn!("Ignoring unlock request from a client that doesn't hold the lock");
+            return;
+        }
+
+        tracing::info!("Session unlocked");
+        self.locked = false;
+        self.active_lock = None;
+        self.lock_surfaces.clear();
+
+        // The keyboard is still on the (now dead) lock surface; drop it so
+        // `refocus_if_dangling` hands it back to the last focused window
+        // on the next `arrange_tiling`, and let the pointer find whatever
+        // is under it again.
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
+        }
+        self.arrange_tiling();
         self.refresh_pointer_focus();
     }
 }

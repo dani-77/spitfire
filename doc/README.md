@@ -129,6 +129,18 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `pre_repaint`/`post_repaint`/`update_primary_scanout_output`/
   `take_presentation_feedback` (`state.rs`), which now treat the lock surface as a
   first-class surface alongside windows and layer-shell surfaces.
+  Only one client can hold the lock. While its `ext_session_lock_v1` is alive, any
+  other lock request gets `finished`, and an `unlock_and_destroy` from anything but
+  the holder is ignored. This smithay revision calls `unlock` for any lock object,
+  so `unlock` only records the request and `apply_pending_unlock` honours it after
+  the dispatch, if the holder's object is the one that was destroyed. Without this,
+  any client could lock and then unlock the session with no password. If the holder
+  dies without unlocking, the session stays locked and a new lock client may take
+  over. Each output shows its own lock surface (`shell::lock_surface_for`); an
+  output with none yet, including the moment between `locked` and the first lock
+  surface, shows only the opaque backdrop, on screen and in screencopy captures.
+  Verified nested (`--winit`) with helium-locker and a test client that requests a
+  lock and immediately sends `unlock_and_destroy`.
 - **The real Utumno shell**, autostarted and run inside spitfire end-to-end: loaded
   cleanly, no crashes, correctly fell back to the generic `ext-workspace-v1` workspaces
   widget (no niri/Hyprland/Sway misdetection). Confirmed via screenshot.

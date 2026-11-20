@@ -872,6 +872,37 @@ where
         .map(C::from)
 }
 
+/// How the session lock affects one output's frame.
+#[derive(Clone, Copy, Debug)]
+pub enum LockView<'a> {
+    /// Not locked: the normal desktop.
+    Unlocked,
+    /// Locked: only this output's own lock surface, or — while the output
+    /// has none yet — nothing but the opaque locked clear colour.
+    Locked(Option<&'a WlSurface>),
+}
+
+impl<'a> LockView<'a> {
+    pub fn new(locked: bool, lock_surface: Option<&'a WlSurface>) -> Self {
+        if locked {
+            Self::Locked(lock_surface)
+        } else {
+            Self::Unlocked
+        }
+    }
+
+    pub fn is_locked(self) -> bool {
+        matches!(self, Self::Locked(_))
+    }
+
+    pub fn surface(self) -> Option<&'a WlSurface> {
+        match self {
+            Self::Locked(surface) => surface,
+            Self::Unlocked => None,
+        }
+    }
+}
+
 /// `hidden_windows`: windows skipped entirely from this render — no
 /// content, no border, nothing left in their place but whatever's behind
 /// them. Always `&[]` for the real on-screen frame (winit.rs/udev.rs); only
@@ -895,7 +926,7 @@ pub fn output_elements<R>(
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
     show_window_preview: bool,
-    locked_surface: Option<&WlSurface>,
+    lock_view: LockView<'_>,
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -914,25 +945,29 @@ where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Send + Clone + 'static,
 {
-    if let Some(surface) = locked_surface {
-        // Session locked (Phase 4, ext-session-lock-v1): render only the
-        // lock surface, covering the whole output over an opaque black
-        // backdrop. Nothing else — not even a fullscreen app underneath —
-        // should ever be visible while locked. `custom_elements` (the
-        // cursor) still gets drawn, so the pointer stays visible.
+    if let LockView::Locked(lock_surface) = lock_view {
+        // Session locked (Phase 4, ext-session-lock-v1): render only this
+        // output's lock surface, covering the whole output over an opaque
+        // black backdrop — or just the backdrop while the output has no
+        // lock surface yet. Nothing else — not even a fullscreen app
+        // underneath — should ever be visible while locked. `custom_elements`
+        // (the cursor) still gets drawn, so the pointer stays visible.
         let scale = output.current_scale().fractional_scale().into();
         let mut elements: Vec<OutputRenderElements<R, WindowRenderElement<R>>> = custom_elements
             .into_iter()
             .map(OutputRenderElements::from)
             .collect();
-        let lock_elements: Vec<CustomRenderElements<R>> = AsRenderElements::<R>::render_elements(
-            &SurfaceTree::from_surface(surface),
-            renderer,
-            (0, 0).into(),
-            scale,
-            1.0,
-        );
-        elements.extend(lock_elements.into_iter().map(OutputRenderElements::from));
+        if let Some(surface) = lock_surface {
+            let lock_elements: Vec<CustomRenderElements<R>> =
+                AsRenderElements::<R>::render_elements(
+                    &SurfaceTree::from_surface(surface),
+                    renderer,
+                    (0, 0).into(),
+                    scale,
+                    1.0,
+                );
+            elements.extend(lock_elements.into_iter().map(OutputRenderElements::from));
+        }
         return (elements, CLEAR_COLOR_LOCKED);
     }
 
@@ -1225,7 +1260,7 @@ pub fn render_output<'a, 'd, R>(
     damage_tracker: &'d mut OutputDamageTracker,
     age: usize,
     show_window_preview: bool,
-    locked_surface: Option<&WlSurface>,
+    lock_view: LockView<'_>,
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -1246,7 +1281,7 @@ where
         custom_elements,
         renderer,
         show_window_preview,
-        locked_surface,
+        lock_view,
         borders,
         border_width,
         border_radius,

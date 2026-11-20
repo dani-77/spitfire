@@ -408,9 +408,10 @@ pub fn run_winit() {
                 }
 
                 let locked_surface = locked
-                    .then(|| lock_surfaces.first())
+                    .then(|| crate::shell::lock_surface_for(lock_surfaces, &output))
                     .flatten()
                     .map(|s| s.wl_surface());
+                let lock_view = LockView::new(locked, locked_surface);
 
                 // spitfire.rule({ blur = true }) — see `crate::blur`'s doc
                 // comment for the whole pipeline. Skipped entirely (no GL
@@ -442,7 +443,7 @@ pub fn run_winit() {
                         std::iter::empty::<CustomRenderElements<GlesRenderer>>(),
                         renderer,
                         false,
-                        locked_surface,
+                        lock_view,
                         &border_rects,
                         border.width,
                         border.radius,
@@ -498,7 +499,7 @@ pub fn run_winit() {
                     damage_tracker,
                     age,
                     show_window_preview,
-                    locked_surface,
+                    lock_view,
                     &border_rects,
                     border.width,
                     border.radius,
@@ -535,7 +536,7 @@ pub fn run_winit() {
                     renderer,
                     space,
                     &output,
-                    locked_surface,
+                    lock_view,
                     frame_damage.as_deref(),
                     cursor_pos,
                     None,
@@ -559,7 +560,7 @@ pub fn run_winit() {
                     renderer,
                     space,
                     &output,
-                    locked_surface,
+                    lock_view,
                     frame_damage.as_deref(),
                     cursor_pos,
                     None,
@@ -610,7 +611,7 @@ pub fn run_winit() {
                     let states = render_output_result.states;
                     if has_rendered {
                         let locked_surface = locked
-                            .then(|| lock_surfaces.first())
+                            .then(|| crate::shell::lock_surface_for(lock_surfaces, &output))
                             .flatten()
                             .map(|s| s.wl_surface());
                         let mut output_presentation_feedback = take_presentation_feedback(

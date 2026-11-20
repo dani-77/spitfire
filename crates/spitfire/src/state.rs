@@ -41,6 +41,7 @@ use smithay::{
     output::Output,
     reexports::{
         calloop::{generic::Generic, Interest, LoopHandle, Mode, PostAction},
+        wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1,
         wayland_protocols::xdg::decoration::{
             self as xdg_decoration,
             zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
@@ -235,9 +236,15 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     /// render loop switches to lock-surfaces-only while this is set, see
     /// `render.rs`/`winit.rs`.
     pub locked: bool,
-    /// The lock surfaces currently shown while `locked` — one per output,
-    /// normally. Cleared on `unlock`.
-    pub lock_surfaces: Vec<LockSurface>,
+    /// The lock surfaces currently shown while `locked`, each with the
+    /// output it covers (see `shell::lock_surface_for`). Cleared on unlock.
+    pub lock_surfaces: Vec<(Output, LockSurface)>,
+    /// The ext_session_lock_v1 that holds the lock while `locked`. Further
+    /// lock requests are refused while it's alive; see `shell/mod.rs`.
+    pub active_lock: Option<ExtSessionLockV1>,
+    /// Set by `SessionLockHandler::unlock`, resolved right after the client
+    /// dispatch by `apply_pending_unlock`.
+    pub pending_unlock: bool,
     /// ext-idle-notify-v1, for idle daemons such as swayidle; see `idle.rs`.
     pub idle_notifier_state:
         smithay::wayland::idle_notify::IdleNotifierState<SpitfireState<BackendData>>,
@@ -857,6 +864,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                     unsafe {
                         display.get_mut().dispatch_clients(data).unwrap();
                     }
+                    data.apply_pending_unlock();
                     Ok(PostAction::Continue)
                 },
             )
@@ -987,6 +995,8 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             session_lock_state,
             locked: false,
             lock_surfaces: Vec::new(),
+            active_lock: None,
+            pending_unlock: false,
             idle_notifier_state,
             idle_inhibit_manager_state,
             idle_inhibiting_surfaces: Vec::new(),
@@ -1197,8 +1207,8 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         }
 
         if self.locked {
-            if let Some(surface) = self.lock_surfaces.first().map(|s| s.wl_surface().clone()) {
-                with_surfaces_surface_tree(&surface, |surface, states| {
+            for (_, lock_surface) in &self.lock_surfaces {
+                with_surfaces_surface_tree(lock_surface.wl_surface(), |surface, states| {
                     if let Some(mut commit_timer_state) = states
                         .data_map
                         .get::<CommitTimerBarrierStateUserData>()
@@ -1409,7 +1419,9 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         // backend that (unlike winit's continuous redraw loop) only
         // repaints in response to real frame/vblank scheduling.
         if self.locked {
-            if let Some(surface) = self.lock_surfaces.first().map(|s| s.wl_surface().clone()) {
+            if let Some(surface) = crate::shell::lock_surface_for(&self.lock_surfaces, output)
+                .map(|s| s.wl_surface().clone())
+            {
                 with_surfaces_surface_tree(&surface, |surface, states| {
                     let primary_scanout_output = surface_primary_scanout_output(surface, states);
 
