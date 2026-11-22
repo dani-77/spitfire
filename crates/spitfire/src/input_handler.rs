@@ -13,10 +13,12 @@ use crate::udev::UdevData;
 #[cfg(feature = "udev")]
 use smithay::backend::renderer::DebugFlags;
 
+#[cfg(feature = "udev")]
+use smithay::input::tablet::{self, TabletDescriptor, TabletSeatTrait};
 use smithay::{
     backend::input::{
-        self, Axis, AxisSource, Event, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
-        PointerAxisEvent, PointerButtonEvent,
+        self, Axis, AxisSource, Event, InputBackend, InputEvent, InputTime, KeyState,
+        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     },
     desktop::{layer_map_for_output, space::SpaceElement, WindowSurfaceType},
     input::{
@@ -68,7 +70,6 @@ use smithay::{
     wayland::{
         pointer_constraints::{with_pointer_constraint, PointerConstraint},
         seat::WaylandFocus,
-        tablet_manager::{TabletDescriptor, TabletSeatTrait},
     },
 };
 
@@ -408,7 +409,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let state = evt.state();
         debug!(?keycode, ?state, "key");
         let serial = SCOUNTER.next_serial();
-        let time = Event::time_msec(&evt);
+        let time = Event::time(&evt);
         let mut suppressed_keys = self.suppressed_keys.clone();
         let keyboard = self.seat.get_keyboard().unwrap();
 
@@ -579,7 +580,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 button,
                 state: state.try_into().unwrap(),
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
             },
         );
         pointer.frame(self);
@@ -1000,7 +1001,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         }
 
         {
-            let mut frame = AxisFrame::new(evt.time_msec()).source(evt.source());
+            let mut frame = AxisFrame::new(evt.time()).source(evt.source());
             if horizontal_amount != 0.0 && !horizontal_consumed {
                 frame = frame
                     .relative_direction(Axis::Horizontal, evt.relative_direction(Axis::Horizontal));
@@ -1158,7 +1159,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             &MotionEvent {
                 location: pos,
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
             },
         );
         pointer.frame(self);
@@ -1178,7 +1179,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 keycode,
                 KeyState::Released,
                 SCOUNTER.next_serial(),
-                0,
+                InputTime::now(),
                 |_, _, _| FilterResult::Forward::<bool>,
             );
         }
@@ -1221,7 +1222,7 @@ impl SpitfireState<UdevData> {
                             &MotionEvent {
                                 location,
                                 serial: SCOUNTER.next_serial(),
-                                time: self.clock.now().as_millis(),
+                                time: InputTime::now(),
                             },
                         );
                         pointer.frame(self);
@@ -1265,7 +1266,7 @@ impl SpitfireState<UdevData> {
                             &MotionEvent {
                                 location: pointer_location,
                                 serial: SCOUNTER.next_serial(),
-                                time: self.clock.now().as_millis(),
+                                time: InputTime::now(),
                             },
                         );
                         pointer.frame(self);
@@ -1310,7 +1311,7 @@ impl SpitfireState<UdevData> {
                             &MotionEvent {
                                 location: pointer_location,
                                 serial: SCOUNTER.next_serial(),
-                                time: self.clock.now().as_millis(),
+                                time: InputTime::now(),
                             },
                         );
                         pointer.frame(self);
@@ -1405,7 +1406,7 @@ impl SpitfireState<UdevData> {
                 if device.has_capability(DeviceCapability::TabletTool) {
                     self.seat
                         .tablet_seat()
-                        .add_tablet::<Self>(dh, &TabletDescriptor::from(&device));
+                        .add_wp_tablet(dh, &TabletDescriptor::from(&device));
                 }
                 if device.has_capability(DeviceCapability::Touch) && self.seat.get_touch().is_none()
                 {
@@ -1476,7 +1477,7 @@ impl SpitfireState<UdevData> {
             &RelativeMotionEvent {
                 delta: evt.delta(),
                 delta_unaccel: evt.delta_unaccel(),
-                utime: evt.time(),
+                time: evt.time(),
             },
         );
 
@@ -1519,7 +1520,7 @@ impl SpitfireState<UdevData> {
             &MotionEvent {
                 location: pointer_location,
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
             },
         );
         pointer.frame(self);
@@ -1578,7 +1579,7 @@ impl SpitfireState<UdevData> {
             &MotionEvent {
                 location: pointer_location,
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
             },
         );
         pointer.frame(self);
@@ -1590,8 +1591,8 @@ impl SpitfireState<UdevData> {
         if let Some(pointer_location) = self.touch_location_transformed(&evt) {
             let pointer = self.pointer.clone();
             let under = self.surface_under(pointer_location);
-            let tablet = tablet_seat.get_tablet(&TabletDescriptor::from(&evt.device()));
             let tool = tablet_seat.get_tool(&evt.tool());
+            let time = InputTime::now();
 
             pointer.motion(
                 self,
@@ -1599,37 +1600,35 @@ impl SpitfireState<UdevData> {
                 &MotionEvent {
                     location: pointer_location,
                     serial: SCOUNTER.next_serial(),
-                    time: self.clock.now().as_millis(),
+                    time,
                 },
             );
 
-            if let (Some(tablet), Some(tool)) = (tablet, tool) {
-                if evt.pressure_has_changed() {
-                    tool.pressure(evt.pressure());
-                }
-                if evt.distance_has_changed() {
-                    tool.distance(evt.distance());
-                }
-                if evt.tilt_has_changed() {
-                    tool.tilt(evt.tilt());
-                }
-                if evt.slider_has_changed() {
-                    tool.slider_position(evt.slider_position());
-                }
-                if evt.rotation_has_changed() {
-                    tool.rotation(evt.rotation());
-                }
-                if evt.wheel_has_changed() {
-                    tool.wheel(evt.wheel_delta(), evt.wheel_delta_discrete());
-                }
+            if let Some(tool) = tool {
+                let frame = tablet::tool::AxisFrame {
+                    pressure: evt.pressure_has_changed().then(|| evt.pressure()),
+                    distance: evt.distance_has_changed().then(|| evt.distance()),
+                    tilt: evt.tilt_has_changed().then(|| evt.tilt()),
+                    rotation: evt.rotation_has_changed().then(|| evt.rotation()),
+                    slider: evt.slider_has_changed().then(|| evt.slider_position()),
+                    wheel: evt
+                        .wheel_has_changed()
+                        .then(|| (evt.wheel_delta(), evt.wheel_delta_discrete())),
+                };
+
+                tool.axis(self, frame);
 
                 tool.motion(
-                    pointer_location,
-                    under.and_then(|(f, loc)| f.wl_surface().map(|s| (s.into_owned(), loc))),
-                    &tablet,
-                    SCOUNTER.next_serial(),
-                    evt.time_msec(),
+                    self,
+                    under,
+                    &tablet::tool::MotionEvent {
+                        location: pointer_location,
+                        serial: SCOUNTER.next_serial(),
+                        time,
+                    },
                 );
+
+                tool.frame(self, time);
             }
 
             pointer.frame(self);
@@ -1645,12 +1644,13 @@ impl SpitfireState<UdevData> {
 
         if let Some(pointer_location) = self.touch_location_transformed(&evt) {
             let tool = evt.tool();
-            tablet_seat.add_tool::<Self>(self, dh, &tool);
 
             let pointer = self.pointer.clone();
             let under = self.surface_under(pointer_location);
             let tablet = tablet_seat.get_tablet(&TabletDescriptor::from(&evt.device()));
-            let tool = tablet_seat.get_tool(&tool);
+            let tool = tablet_seat
+                .get_tool(&tool)
+                .unwrap_or_else(|| tablet_seat.add_wp_tool(self, dh, &tool));
 
             pointer.motion(
                 self,
@@ -1658,26 +1658,52 @@ impl SpitfireState<UdevData> {
                 &MotionEvent {
                     location: pointer_location,
                     serial: SCOUNTER.next_serial(),
-                    time: evt.time_msec(),
+                    time: evt.time(),
                 },
             );
             pointer.frame(self);
 
-            if let (Some(under), Some(tablet), Some(tool)) = (
-                under.and_then(|(f, loc)| f.wl_surface().map(|s| (s.into_owned(), loc))),
-                tablet,
-                tool,
-            ) {
+            if let Some(tablet) = tablet {
+                let frame = tablet::tool::AxisFrame {
+                    pressure: evt.pressure_has_changed().then(|| evt.pressure()),
+                    distance: evt.distance_has_changed().then(|| evt.distance()),
+                    tilt: evt.tilt_has_changed().then(|| evt.tilt()),
+                    rotation: evt.rotation_has_changed().then(|| evt.rotation()),
+                    slider: evt.slider_has_changed().then(|| evt.slider_position()),
+                    wheel: evt
+                        .wheel_has_changed()
+                        .then(|| (evt.wheel_delta(), evt.wheel_delta_discrete())),
+                };
+
                 match evt.state() {
-                    ProximityState::In => tool.proximity_in(
-                        pointer_location,
-                        under,
-                        &tablet,
-                        SCOUNTER.next_serial(),
-                        evt.time_msec(),
-                    ),
-                    ProximityState::Out => tool.proximity_out(evt.time_msec()),
+                    ProximityState::In => {
+                        tool.proximity_in(
+                            self,
+                            under,
+                            tablet,
+                            &tablet::tool::ProximityInEvent {
+                                location: pointer_location,
+                                axis: Some(frame),
+                                serial: SCOUNTER.next_serial(),
+                                time: evt.time(),
+                            },
+                        );
+                    }
+                    ProximityState::Out => {
+                        tool.proximity_out(
+                            self,
+                            &tablet::tool::ProximityOutEvent {
+                                serial: SCOUNTER.next_serial(),
+                                time: evt.time(),
+                            },
+                        );
+                    }
                 }
+
+                // Doing this in an idle handler would allow other events (e.g. buttons) to be
+                // sent as part of the same frame, which is closer to what the protocol
+                // expect, and let well behaved clients accumulate events.
+                tool.frame(self, evt.time());
             }
         }
     }
@@ -1686,18 +1712,33 @@ impl SpitfireState<UdevData> {
         let tool = self.seat.tablet_seat().get_tool(&evt.tool());
 
         if let Some(tool) = tool {
+            let serial = SCOUNTER.next_serial();
+
             match evt.tip_state() {
                 TabletToolTipState::Down => {
-                    let serial = SCOUNTER.next_serial();
-                    tool.tip_down(serial, evt.time_msec());
+                    tool.down(
+                        self,
+                        &tablet::tool::DownEvent {
+                            serial,
+                            time: evt.time(),
+                        },
+                    );
 
                     // change the keyboard focus
                     self.update_keyboard_focus(self.pointer.current_location(), serial);
                 }
                 TabletToolTipState::Up => {
-                    tool.tip_up(evt.time_msec());
+                    tool.up(
+                        self,
+                        &tablet::tool::UpEvent {
+                            serial,
+                            time: evt.time(),
+                        },
+                    );
                 }
             }
+
+            tool.frame(self, evt.time());
         }
     }
 
@@ -1706,11 +1747,16 @@ impl SpitfireState<UdevData> {
 
         if let Some(tool) = tool {
             tool.button(
-                evt.button(),
-                evt.button_state(),
-                SCOUNTER.next_serial(),
-                evt.time_msec(),
+                self,
+                &tablet::tool::ButtonEvent {
+                    serial: SCOUNTER.next_serial(),
+                    button: evt.button(),
+                    state: evt.button_state(),
+                    time: evt.time(),
+                },
             );
+
+            tool.frame(self, evt.time());
         }
     }
 
@@ -1743,7 +1789,7 @@ impl SpitfireState<UdevData> {
             self,
             &GestureSwipeBeginEvent {
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
                 fingers,
             },
         );
@@ -1765,7 +1811,7 @@ impl SpitfireState<UdevData> {
         pointer.gesture_swipe_update(
             self,
             &GestureSwipeUpdateEvent {
-                time: evt.time_msec(),
+                time: evt.time(),
                 delta: evt.delta(),
             },
         );
@@ -1802,7 +1848,7 @@ impl SpitfireState<UdevData> {
             self,
             &GestureSwipeEndEvent {
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
                 cancelled: evt.cancelled(),
             },
         );
@@ -1815,7 +1861,7 @@ impl SpitfireState<UdevData> {
             self,
             &GesturePinchBeginEvent {
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
                 fingers: evt.fingers(),
             },
         );
@@ -1826,7 +1872,7 @@ impl SpitfireState<UdevData> {
         pointer.gesture_pinch_update(
             self,
             &GesturePinchUpdateEvent {
-                time: evt.time_msec(),
+                time: evt.time(),
                 delta: evt.delta(),
                 scale: evt.scale(),
                 rotation: evt.rotation(),
@@ -1841,7 +1887,7 @@ impl SpitfireState<UdevData> {
             self,
             &GesturePinchEndEvent {
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
                 cancelled: evt.cancelled(),
             },
         );
@@ -1854,7 +1900,7 @@ impl SpitfireState<UdevData> {
             self,
             &GestureHoldBeginEvent {
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
                 fingers: evt.fingers(),
             },
         );
@@ -1867,7 +1913,7 @@ impl SpitfireState<UdevData> {
             self,
             &GestureHoldEndEvent {
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
                 cancelled: evt.cancelled(),
             },
         );
@@ -1914,7 +1960,7 @@ impl SpitfireState<UdevData> {
                 slot: evt.slot(),
                 location: touch_location,
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
             },
         );
     }
@@ -1928,7 +1974,7 @@ impl SpitfireState<UdevData> {
             &UpEvent {
                 slot: evt.slot(),
                 serial,
-                time: evt.time_msec(),
+                time: evt.time(),
             },
         )
     }
@@ -1947,7 +1993,7 @@ impl SpitfireState<UdevData> {
             &smithay::input::touch::MotionEvent {
                 slot: evt.slot(),
                 location: touch_location,
-                time: evt.time_msec(),
+                time: evt.time(),
             },
         );
     }
@@ -2043,5 +2089,58 @@ fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Optio
         Some(KeyAction::ToggleDecorations)
     } else {
         None
+    }
+}
+
+/// zwp_virtual_keyboard_v1 (wtype and the like): smithay hands its events
+/// over like a regular keyboard's, so they go through the same bindings.
+/// Actions that only make sense for real hardware (VT switch, output scale
+/// and rotation) are ignored.
+impl<BackendData: Backend> smithay::wayland::virtual_keyboard::VirtualKeyboardHandler
+    for SpitfireState<BackendData>
+{
+    fn process_virtual_keyboard_event(
+        &mut self,
+        event: InputEvent<smithay::wayland::virtual_keyboard::VirtualKeyboardBackend>,
+    ) {
+        use smithay::wayland::virtual_keyboard::{
+            VirtualKeyboardBackend, VirtualKeyboardSpecialEvent,
+        };
+
+        let keyboard = self.seat.get_keyboard().unwrap();
+        match event {
+            // The device's keycodes only mean anything under its own keymap.
+            InputEvent::DeviceAdded { device }
+            | InputEvent::Special(VirtualKeyboardSpecialEvent::KeymapChanged { device }) => {
+                let Some(keymap) = device.keymap() else {
+                    return;
+                };
+                if let Err(err) = keyboard.set_keymap_from_keymap_file(self, keymap) {
+                    warn!(?err, "Failed to apply virtual keyboard keymap");
+                }
+            }
+            InputEvent::Keyboard { event } => {
+                match self.keyboard_key_to_action::<VirtualKeyboardBackend>(event) {
+                    action @ (KeyAction::None
+                    | KeyAction::Quit
+                    | KeyAction::TogglePreview
+                    | KeyAction::ToggleDecorations
+                    | KeyAction::LuaBind(_)) => self.process_common_key_action(action),
+                    action => debug!(?action, "ignoring key action from a virtual keyboard"),
+                }
+            }
+            InputEvent::Special(VirtualKeyboardSpecialEvent::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+                ..
+            }) => {
+                keyboard.with_xkb_state(self, |mut context| {
+                    context.set_modifier_mask(mods_depressed, mods_latched, mods_locked, group)
+                });
+            }
+            _ => (),
+        }
     }
 }

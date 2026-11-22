@@ -20,14 +20,13 @@ use smithay::{
         winit::{self, WinitEvent, WinitGraphicsBackend},
         SwapBuffersError,
     },
-    delegate_dmabuf,
     input::{keyboard::LedState, pointer::CursorImageStatus},
     output::{Mode, Output, PhysicalProperties, Scale as OutputScale, Subpixel},
     reexports::{
         calloop::EventLoop,
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::{protocol::wl_surface, Display},
-        winit::platform::pump_events::PumpStatus,
+        winit::event_loop::pump_events::PumpStatus,
     },
     utils::{IsAlive, Physical, Rectangle, Scale, Transform},
     wayland::{
@@ -85,8 +84,6 @@ impl DmabufHandler for SpitfireState<WinitData> {
         }
     }
 }
-delegate_dmabuf!(SpitfireState<WinitData>);
-
 impl Backend for WinitData {
     fn seat_name(&self) -> String {
         String::from("winit")

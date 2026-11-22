@@ -55,7 +55,6 @@ use smithay::{
         udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent},
         SwapBuffersError,
     },
-    delegate_dmabuf, delegate_drm_lease,
     desktop::{
         space::{Space, SurfaceTree},
         utils::OutputPresentationFeedback,
@@ -189,8 +188,6 @@ impl DmabufHandler for SpitfireState<UdevData> {
         }
     }
 }
-delegate_dmabuf!(SpitfireState<UdevData>);
-
 impl Backend for UdevData {
     const HAS_RELATIVE_MOTION: bool = true;
     const HAS_GESTURES: bool = true;
@@ -673,16 +670,11 @@ impl DrmLeaseHandler for SpitfireState<UdevData> {
         backend.active_leases.retain(|l| l.id() != lease);
     }
 }
-
-delegate_drm_lease!(SpitfireState<UdevData>);
-
 impl DrmSyncobjHandler for SpitfireState<UdevData> {
     fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
         self.backend_data.syncobj_state.as_mut()
     }
 }
-smithay::delegate_drm_syncobj!(SpitfireState<UdevData>);
-
 pub type RenderSurface =
     GbmBufferedSurface<GbmAllocator<DrmDeviceFd>, Option<OutputPresentationFeedback>>;
 
@@ -802,7 +794,12 @@ fn get_surface_dmabuf_feedback(
     let render_feedback = if let Some(render_node) = render_node {
         builder
             .clone()
-            .add_preference_tranche(render_node.dev_id(), None, render_formats.clone())
+            .add_preference_tranche(
+                render_node.dev_id(),
+                zwp_linux_dmabuf_feedback_v1::TrancheFlags::Sampling,
+                render_formats.clone(),
+                3u32..=6,
+            )
             .build()
             .unwrap()
     } else {
@@ -812,10 +809,16 @@ fn get_surface_dmabuf_feedback(
     let scanout_feedback = builder
         .add_preference_tranche(
             surface.device_fd().dev_id().unwrap(),
-            Some(zwp_linux_dmabuf_feedback_v1::TrancheFlags::Scanout),
+            zwp_linux_dmabuf_feedback_v1::TrancheFlags::Scanout,
             planes_formats,
+            4u32..=6,
         )
-        .add_preference_tranche(scanout_node.dev_id(), None, render_formats)
+        .add_preference_tranche(
+            scanout_node.dev_id(),
+            zwp_linux_dmabuf_feedback_v1::TrancheFlags::Sampling,
+            render_formats,
+            4u32..=6,
+        )
         .build()
         .unwrap();
 

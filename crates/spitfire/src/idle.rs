@@ -12,7 +12,6 @@
 //! or not that surface is visible right now.
 
 use smithay::{
-    delegate_idle_inhibit, delegate_idle_notify,
     reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource},
     wayland::{
         idle_inhibit::IdleInhibitHandler,
@@ -27,8 +26,6 @@ impl<BackendData: Backend + 'static> IdleNotifierHandler for SpitfireState<Backe
         &mut self.idle_notifier_state
     }
 }
-delegate_idle_notify!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend + 'static> IdleInhibitHandler for SpitfireState<BackendData> {
     fn inhibit(&mut self, surface: WlSurface) {
         self.idle_inhibiting_surfaces.push(surface);
@@ -40,8 +37,6 @@ impl<BackendData: Backend + 'static> IdleInhibitHandler for SpitfireState<Backen
         self.update_idle_inhibit();
     }
 }
-delegate_idle_inhibit!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// Inhibited while any surface that asked for it is still alive.
     pub fn update_idle_inhibit(&mut self) {

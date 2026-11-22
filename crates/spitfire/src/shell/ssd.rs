@@ -169,7 +169,6 @@ impl HeaderBar {
         _seat: &Seat<SpitfireState<BackendData>>,
         _state: &mut SpitfireState<BackendData>,
         window: &WindowElement,
-        _serial: Serial,
     ) {
         if is_close_hover(self.pointer_loc.as_ref(), self.width) {
             match window.0.underlying_surface() {

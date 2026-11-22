@@ -5,7 +5,7 @@ use smithay::xwayland::xwm::XwmOfferData;
 #[cfg(feature = "xwayland")]
 use smithay::xwayland::X11Surface;
 pub use smithay::{
-    backend::input::KeyState,
+    backend::input::{InputTime, KeyState},
     desktop::{LayerSurface, PopupKind},
     input::{
         keyboard::{KeyboardTarget, KeysymHandle, ModifiersState},
@@ -25,7 +25,8 @@ use smithay::{
             GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
             GestureSwipeEndEvent, GestureSwipeUpdateEvent,
         },
-        touch::TouchTarget,
+        tablet::tool::TabletToolTarget,
+        touch::{FrameMarker, TouchTarget},
     },
     reexports::wayland_server::DisplayHandle,
     utils::{Logical, Point},
@@ -176,7 +177,7 @@ impl<BackendData: Backend> PointerTarget<SpitfireState<BackendData>> for Pointer
         seat: &Seat<SpitfireState<BackendData>>,
         data: &mut SpitfireState<BackendData>,
         serial: Serial,
-        time: u32,
+        time: InputTime,
     ) {
         match self {
             PointerFocusTarget::WlSurface(w) => PointerTarget::leave(w, seat, data, serial, time),
@@ -382,7 +383,7 @@ impl<BackendData: Backend> KeyboardTarget<SpitfireState<BackendData>> for Keyboa
         key: KeysymHandle<'_>,
         state: KeyState,
         serial: Serial,
-        time: u32,
+        time: InputTime,
     ) {
         match self {
             KeyboardFocusTarget::Window(w) => match w.underlying_surface() {
@@ -441,13 +442,12 @@ impl<BackendData: Backend> TouchTarget<SpitfireState<BackendData>> for PointerFo
         seat: &Seat<SpitfireState<BackendData>>,
         data: &mut SpitfireState<BackendData>,
         event: &smithay::input::touch::DownEvent,
-        seq: Serial,
     ) {
         match self {
-            PointerFocusTarget::WlSurface(w) => TouchTarget::down(w, seat, data, event, seq),
+            PointerFocusTarget::WlSurface(w) => TouchTarget::down(w, seat, data, event),
             #[cfg(feature = "xwayland")]
-            PointerFocusTarget::X11Surface(w) => TouchTarget::down(w, seat, data, event, seq),
-            PointerFocusTarget::SSD(w) => TouchTarget::down(w, seat, data, event, seq),
+            PointerFocusTarget::X11Surface(w) => TouchTarget::down(w, seat, data, event),
+            PointerFocusTarget::SSD(w) => TouchTarget::down(w, seat, data, event),
         }
     }
 
@@ -456,13 +456,12 @@ impl<BackendData: Backend> TouchTarget<SpitfireState<BackendData>> for PointerFo
         seat: &Seat<SpitfireState<BackendData>>,
         data: &mut SpitfireState<BackendData>,
         event: &smithay::input::touch::UpEvent,
-        seq: Serial,
     ) {
         match self {
-            PointerFocusTarget::WlSurface(w) => TouchTarget::up(w, seat, data, event, seq),
+            PointerFocusTarget::WlSurface(w) => TouchTarget::up(w, seat, data, event),
             #[cfg(feature = "xwayland")]
-            PointerFocusTarget::X11Surface(w) => TouchTarget::up(w, seat, data, event, seq),
-            PointerFocusTarget::SSD(w) => TouchTarget::up(w, seat, data, event, seq),
+            PointerFocusTarget::X11Surface(w) => TouchTarget::up(w, seat, data, event),
+            PointerFocusTarget::SSD(w) => TouchTarget::up(w, seat, data, event),
         }
     }
 
@@ -471,13 +470,12 @@ impl<BackendData: Backend> TouchTarget<SpitfireState<BackendData>> for PointerFo
         seat: &Seat<SpitfireState<BackendData>>,
         data: &mut SpitfireState<BackendData>,
         event: &smithay::input::touch::MotionEvent,
-        seq: Serial,
     ) {
         match self {
-            PointerFocusTarget::WlSurface(w) => TouchTarget::motion(w, seat, data, event, seq),
+            PointerFocusTarget::WlSurface(w) => TouchTarget::motion(w, seat, data, event),
             #[cfg(feature = "xwayland")]
-            PointerFocusTarget::X11Surface(w) => TouchTarget::motion(w, seat, data, event, seq),
-            PointerFocusTarget::SSD(w) => TouchTarget::motion(w, seat, data, event, seq),
+            PointerFocusTarget::X11Surface(w) => TouchTarget::motion(w, seat, data, event),
+            PointerFocusTarget::SSD(w) => TouchTarget::motion(w, seat, data, event),
         }
     }
 
@@ -485,13 +483,13 @@ impl<BackendData: Backend> TouchTarget<SpitfireState<BackendData>> for PointerFo
         &self,
         seat: &Seat<SpitfireState<BackendData>>,
         data: &mut SpitfireState<BackendData>,
-        seq: Serial,
+        marker: FrameMarker,
     ) {
         match self {
-            PointerFocusTarget::WlSurface(w) => TouchTarget::frame(w, seat, data, seq),
+            PointerFocusTarget::WlSurface(w) => TouchTarget::frame(w, seat, data, marker),
             #[cfg(feature = "xwayland")]
-            PointerFocusTarget::X11Surface(w) => TouchTarget::frame(w, seat, data, seq),
-            PointerFocusTarget::SSD(w) => TouchTarget::frame(w, seat, data, seq),
+            PointerFocusTarget::X11Surface(w) => TouchTarget::frame(w, seat, data, marker),
+            PointerFocusTarget::SSD(w) => TouchTarget::frame(w, seat, data, marker),
         }
     }
 
@@ -499,13 +497,13 @@ impl<BackendData: Backend> TouchTarget<SpitfireState<BackendData>> for PointerFo
         &self,
         seat: &Seat<SpitfireState<BackendData>>,
         data: &mut SpitfireState<BackendData>,
-        seq: Serial,
+        marker: FrameMarker,
     ) {
         match self {
-            PointerFocusTarget::WlSurface(w) => TouchTarget::cancel(w, seat, data, seq),
+            PointerFocusTarget::WlSurface(w) => TouchTarget::cancel(w, seat, data, marker),
             #[cfg(feature = "xwayland")]
-            PointerFocusTarget::X11Surface(w) => TouchTarget::cancel(w, seat, data, seq),
-            PointerFocusTarget::SSD(w) => TouchTarget::cancel(w, seat, data, seq),
+            PointerFocusTarget::X11Surface(w) => TouchTarget::cancel(w, seat, data, marker),
+            PointerFocusTarget::SSD(w) => TouchTarget::cancel(w, seat, data, marker),
         }
     }
 
@@ -514,13 +512,12 @@ impl<BackendData: Backend> TouchTarget<SpitfireState<BackendData>> for PointerFo
         seat: &Seat<SpitfireState<BackendData>>,
         data: &mut SpitfireState<BackendData>,
         event: &smithay::input::touch::ShapeEvent,
-        seq: Serial,
     ) {
         match self {
-            PointerFocusTarget::WlSurface(w) => TouchTarget::shape(w, seat, data, event, seq),
+            PointerFocusTarget::WlSurface(w) => TouchTarget::shape(w, seat, data, event),
             #[cfg(feature = "xwayland")]
-            PointerFocusTarget::X11Surface(w) => TouchTarget::shape(w, seat, data, event, seq),
-            PointerFocusTarget::SSD(w) => TouchTarget::shape(w, seat, data, event, seq),
+            PointerFocusTarget::X11Surface(w) => TouchTarget::shape(w, seat, data, event),
+            PointerFocusTarget::SSD(w) => TouchTarget::shape(w, seat, data, event),
         }
     }
 
@@ -529,16 +526,129 @@ impl<BackendData: Backend> TouchTarget<SpitfireState<BackendData>> for PointerFo
         seat: &Seat<SpitfireState<BackendData>>,
         data: &mut SpitfireState<BackendData>,
         event: &smithay::input::touch::OrientationEvent,
-        seq: Serial,
     ) {
         match self {
-            PointerFocusTarget::WlSurface(w) => TouchTarget::orientation(w, seat, data, event, seq),
+            PointerFocusTarget::WlSurface(w) => TouchTarget::orientation(w, seat, data, event),
             #[cfg(feature = "xwayland")]
-            PointerFocusTarget::X11Surface(w) => {
-                TouchTarget::orientation(w, seat, data, event, seq)
-            }
-            PointerFocusTarget::SSD(w) => TouchTarget::orientation(w, seat, data, event, seq),
+            PointerFocusTarget::X11Surface(w) => TouchTarget::orientation(w, seat, data, event),
+            PointerFocusTarget::SSD(w) => TouchTarget::orientation(w, seat, data, event),
         }
+    }
+
+    fn last_frame(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+    ) -> Option<FrameMarker> {
+        match self {
+            PointerFocusTarget::WlSurface(w) => TouchTarget::last_frame(w, seat, data),
+            #[cfg(feature = "xwayland")]
+            PointerFocusTarget::X11Surface(w) => TouchTarget::last_frame(w, seat, data),
+            PointerFocusTarget::SSD(w) => TouchTarget::last_frame(w, seat, data),
+        }
+    }
+}
+
+impl PointerFocusTarget {
+    fn inner_tablet_tool_target<BackendData: Backend>(
+        &self,
+    ) -> &dyn TabletToolTarget<SpitfireState<BackendData>> {
+        match self {
+            Self::WlSurface(w) => w,
+            #[cfg(feature = "xwayland")]
+            Self::X11Surface(w) => w,
+            Self::SSD(w) => w,
+        }
+    }
+}
+
+impl<BackendData: Backend> TabletToolTarget<SpitfireState<BackendData>> for PointerFocusTarget {
+    fn proximity_in(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+        tool_descriptor: &smithay::backend::input::TabletToolDescriptor,
+        tablet: &smithay::input::tablet::Tablet,
+        serial: Serial,
+    ) {
+        self.inner_tablet_tool_target()
+            .proximity_in(seat, data, tool_descriptor, tablet, serial);
+    }
+
+    fn proximity_out(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+        tool_descriptor: &smithay::backend::input::TabletToolDescriptor,
+    ) {
+        self.inner_tablet_tool_target()
+            .proximity_out(seat, data, tool_descriptor);
+    }
+
+    fn down(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+        tool_descriptor: &smithay::backend::input::TabletToolDescriptor,
+        event: &smithay::input::tablet::tool::DownEvent,
+    ) {
+        self.inner_tablet_tool_target()
+            .down(seat, data, tool_descriptor, event);
+    }
+
+    fn up(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+        tool_descriptor: &smithay::backend::input::TabletToolDescriptor,
+        event: &smithay::input::tablet::tool::UpEvent,
+    ) {
+        self.inner_tablet_tool_target()
+            .up(seat, data, tool_descriptor, event);
+    }
+
+    fn motion(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+        tool_descriptor: &smithay::backend::input::TabletToolDescriptor,
+        event: &smithay::input::tablet::tool::MotionEvent,
+    ) {
+        self.inner_tablet_tool_target()
+            .motion(seat, data, tool_descriptor, event);
+    }
+
+    fn button(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+        tool_descriptor: &smithay::backend::input::TabletToolDescriptor,
+        event: &smithay::input::tablet::tool::ButtonEvent,
+    ) {
+        self.inner_tablet_tool_target()
+            .button(seat, data, tool_descriptor, event);
+    }
+
+    fn axis(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+        tool_descriptor: &smithay::backend::input::TabletToolDescriptor,
+        frame: smithay::input::tablet::tool::AxisFrame,
+    ) {
+        self.inner_tablet_tool_target()
+            .axis(seat, data, tool_descriptor, frame);
+    }
+
+    fn frame(
+        &self,
+        seat: &Seat<SpitfireState<BackendData>>,
+        data: &mut SpitfireState<BackendData>,
+        tool_descriptor: &smithay::backend::input::TabletToolDescriptor,
+        time: InputTime,
+    ) {
+        self.inner_tablet_tool_target()
+            .frame(seat, data, tool_descriptor, time);
     }
 }
 
@@ -648,7 +758,7 @@ impl<BackendData: Backend> DndFocus<SpitfireState<BackendData>> for PointerFocus
         offer: Option<&mut SpitfireOfferData<S>>,
         seat: &Seat<SpitfireState<BackendData>>,
         location: Point<f64, Logical>,
-        time: u32,
+        time: InputTime,
     ) {
         match self {
             PointerFocusTarget::WlSurface(surface) => {

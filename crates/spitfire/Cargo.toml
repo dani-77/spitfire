@@ -25,11 +25,11 @@ xcursor = { version = "0.3.3", optional = true }
 # Only pulled in by "udev" below — DRM connector/EDID helpers (output
 # naming, mode scanning) that live in the same Smithay repo as a sibling
 # crate to "smithay" itself rather than as one of its own features.
-smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", rev = "ff5fa7df392cecfba049ffed55cdaa4e98a8e7ef", optional = true }
+smithay-drm-extras = { git = "https://github.com/Smithay/smithay.git", rev = "a38bb709a0400759b6a4fab6129e0f1dd72808c3", optional = true }
 
 [dependencies.smithay]
 git = "https://github.com/Smithay/smithay.git"
-rev = "ff5fa7df392cecfba049ffed55cdaa4e98a8e7ef"
+rev = "a38bb709a0400759b6a4fab6129e0f1dd72808c3"
 default-features = false
 features = ["desktop", "wayland_frontend", "backend_winit", "backend_drm", "use_system_lib"]
 
