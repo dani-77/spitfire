@@ -8,15 +8,25 @@ PREFIX := /usr
 # installed, login-screen-selectable spitfire needs it. xwayland comes
 # along too: X11 app support is cheap to include and there's no good
 # reason an installed build shouldn't have it.
-build:
+build: target/release/spitfire
+
+# install depends on the binaries, not on `build`'s cargo run: after `make`,
+# `sudo make install` finds them up to date and never runs cargo as root
+# (which left root-owned files in target/). Rebuilt when any source is newer.
+SOURCES := $(shell find crates -name '*.rs' -o -name 'Cargo.toml') Cargo.toml Cargo.lock
+
+target/release/spitfire: $(SOURCES)
 	cargo build --release --features udev,xwayland
+	@touch $@ target/release/spitfirectl
+
+target/release/spitfirectl: target/release/spitfire
 
 # The .desktop session entry launches packaging/spitfire-session, a thin
 # wrapper (not `spitfire --udev` directly) so its stderr/stdout ends up
 # somewhere findable ($XDG_STATE_HOME/spitfire/session.log) instead of
 # wherever the display manager sends an Exec= command's output by
 # default — see that script for why.
-install: build
+install: target/release/spitfire target/release/spitfirectl
 	install -Dm755 target/release/spitfire $(DESTDIR)$(PREFIX)/bin/spitfire
 	install -Dm755 target/release/spitfirectl $(DESTDIR)$(PREFIX)/bin/spitfirectl
 	install -Dm755 packaging/spitfire-session $(DESTDIR)$(PREFIX)/bin/spitfire-session

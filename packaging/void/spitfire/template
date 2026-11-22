@@ -29,9 +29,8 @@ repository=d77
 do_install() {
 	# Reuses the project's own install rules (binaries, session entry,
 	# portal config, icons) instead of duplicating them here. `install:`
-	# depends on `build:` in the Makefile, but the cargo invocation is a
-	# no-op at this point — build_style=cargo already produced
-	# target/release/ with the same feature flags via make_build_args.
+	# depends on target/release/spitfire in the Makefile, which runs cargo
+	# with the same feature flags as make_build_args when it isn't there.
 	make install DESTDIR="${DESTDIR}" PREFIX=/usr
 	vlicense LICENSE
 }
