@@ -106,10 +106,11 @@ Then clone and install:
 ```sh
 git clone https://github.com/dani-77/spitfire.git
 cd spitfire
+make
 sudo make install
 ```
 
-This builds spitfire in release mode and installs the `spitfire`/`spitfirectl` binaries,
+`make` builds spitfire in release mode as your user, and `sudo make install` installs the `spitfire`/`spitfirectl` binaries,
 an app icon, and a session entry so your login screen (greetd, GDM, SDDM, ...) can offer
 **spitfire** as a login option, the same way it already offers GNOME, Hyprland, etc. It
 also drops in a small config file that tells your system which app to use for things

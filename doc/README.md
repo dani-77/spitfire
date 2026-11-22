@@ -1002,7 +1002,7 @@ Config file: `$XDG_CONFIG_HOME/spitfire/config.lua` (falls back to
 
 ## Packaging
 
-`sudo make install` builds in release mode (with `udev,xwayland` — see `Makefile`) and
+`make` builds in release mode (with `udev,xwayland` — see `Makefile`) and `sudo make install`
 installs `spitfire`/`spitfirectl`/`spitfire-session` to `$PREFIX/bin`, the icon
 (`assets/logo/`) into the `hicolor` theme, a
 [`packaging/spitfire.desktop`](../packaging/spitfire.desktop) session entry into

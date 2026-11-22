@@ -50,8 +50,8 @@ check() {
 
 package() {
     cd "$pkgname-$pkgver"
-    # The Makefile's install target depends on build, which is a no-op here
-    # since build() already produced target/release with the same features.
+    # The Makefile's install target depends on target/release/spitfire,
+    # already up to date here since build() produced it with the same features.
     make install DESTDIR="$pkgdir" PREFIX=/usr
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
