@@ -15,13 +15,6 @@ use smithay::{
             RenderElementStates,
         },
     },
-    delegate_compositor, delegate_data_control, delegate_data_device, delegate_fractional_scale,
-    delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
-    delegate_output, delegate_pointer_constraints, delegate_pointer_gestures,
-    delegate_presentation, delegate_primary_selection, delegate_relative_pointer, delegate_seat,
-    delegate_security_context, delegate_session_lock, delegate_shm, delegate_tablet_manager,
-    delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager,
-    delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_shell,
     desktop::{
         space::SpaceElement,
         utils::{
@@ -101,8 +94,8 @@ use smithay::{
         shm::{ShmHandler, ShmState},
         single_pixel_buffer::SinglePixelBufferState,
         socket::ListeningSocketSource,
-        tablet_manager::{TabletManagerState, TabletSeatHandler},
-        text_input::TextInputManagerState,
+        tablet_manager::TabletManagerState,
+        text_input::{TextInputActivation, TextInputManagerState},
         viewporter::ViewporterState,
         virtual_keyboard::VirtualKeyboardManagerState,
         xdg_activation::{
@@ -120,7 +113,6 @@ use crate::{
 };
 #[cfg(feature = "xwayland")]
 use smithay::{
-    delegate_xwayland_keyboard_grab, delegate_xwayland_shell,
     utils::Size,
     wayland::selection::{SelectionSource, SelectionTarget},
     wayland::xwayland_keyboard_grab::{XWaylandKeyboardGrabHandler, XWaylandKeyboardGrabState},
@@ -338,8 +330,12 @@ pub struct PendingGesture {
     pub dy: f64,
     pub intercepted: bool,
 }
+// text-input-v3 activation with smithay's default behaviour.
+impl<BackendData: Backend> TextInputActivation for SpitfireState<BackendData> {}
 
-delegate_compositor!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
+// Every smithay protocol's Dispatch/GlobalDispatch, through its resource's
+// user data (replaces the per-protocol delegate_* macros).
+smithay::delegate_dispatch2!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
 
 impl<BackendData: Backend> DataDeviceHandler for SpitfireState<BackendData> {
     fn data_device_state(&mut self) -> &mut DataDeviceState {
@@ -409,11 +405,7 @@ impl<BackendData: Backend> DndGrabHandler for SpitfireState<BackendData> {
         self.dnd_icon = None;
     }
 }
-delegate_data_device!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> OutputHandler for SpitfireState<BackendData> {}
-delegate_output!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> SelectionHandler for SpitfireState<BackendData> {
     type SelectionUserData = ();
 
@@ -453,23 +445,16 @@ impl<BackendData: Backend> PrimarySelectionHandler for SpitfireState<BackendData
         &mut self.primary_selection_state
     }
 }
-delegate_primary_selection!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> DataControlHandler for SpitfireState<BackendData> {
     fn data_control_state(&mut self) -> &mut DataControlState {
         &mut self.data_control_state
     }
 }
-
-delegate_data_control!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> ShmHandler for SpitfireState<BackendData> {
     fn shm_state(&self) -> &ShmState {
         &self.shm_state
     }
 }
-delegate_shm!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> SeatHandler for SpitfireState<BackendData> {
     type KeyboardFocus = KeyboardFocusTarget;
     type PointerFocus = PointerFocusTarget;
@@ -509,18 +494,16 @@ impl<BackendData: Backend> SeatHandler for SpitfireState<BackendData> {
         self.backend_data.update_led_state(led_state)
     }
 }
-delegate_seat!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
+impl<BackendData: Backend> smithay::input::tablet::TabletSeatHandler
+    for SpitfireState<BackendData>
+{
+    type ToolFocus = crate::focus::PointerFocusTarget;
 
-impl<BackendData: Backend> TabletSeatHandler for SpitfireState<BackendData> {
     fn tablet_tool_image(&mut self, _tool: &TabletToolDescriptor, image: CursorImageStatus) {
         // TODO: tablet tools should have their own cursors
         self.cursor_status = image;
     }
 }
-delegate_tablet_manager!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-delegate_text_input_manager!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> InputMethodHandler for SpitfireState<BackendData> {
     fn new_popup(&mut self, surface: PopupSurface) {
         if let Err(err) = self.popups.track_popup(PopupKind::from(surface)) {
@@ -545,9 +528,6 @@ impl<BackendData: Backend> InputMethodHandler for SpitfireState<BackendData> {
             .unwrap_or_default()
     }
 }
-
-delegate_input_method_manager!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> KeyboardShortcutsInhibitHandler for SpitfireState<BackendData> {
     fn keyboard_shortcuts_inhibit_state(&mut self) -> &mut KeyboardShortcutsInhibitState {
         &mut self.keyboard_shortcuts_inhibit_state
@@ -558,15 +538,6 @@ impl<BackendData: Backend> KeyboardShortcutsInhibitHandler for SpitfireState<Bac
         inhibitor.activate();
     }
 }
-
-delegate_keyboard_shortcuts_inhibit!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-delegate_virtual_keyboard_manager!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-delegate_pointer_gestures!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-delegate_relative_pointer!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> PointerConstraintsHandler for SpitfireState<BackendData> {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
         // XXX region
@@ -603,10 +574,6 @@ impl<BackendData: Backend> PointerConstraintsHandler for SpitfireState<BackendDa
         }
     }
 }
-delegate_pointer_constraints!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-delegate_viewporter!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> XdgActivationHandler for SpitfireState<BackendData> {
     fn activation_state(&mut self) -> &mut XdgActivationState {
         &mut self.xdg_activation_state
@@ -663,8 +630,6 @@ impl<BackendData: Backend> XdgActivationHandler for SpitfireState<BackendData> {
         }
     }
 }
-delegate_xdg_activation!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> XdgDecorationHandler for SpitfireState<BackendData> {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
         use xdg_decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
@@ -697,14 +662,17 @@ impl<BackendData: Backend> XdgDecorationHandler for SpitfireState<BackendData> {
             toplevel.send_pending_configure();
         }
     }
+    fn decoration_destroyed(&mut self, toplevel: ToplevelSurface) {
+        // The client goes back to drawing its own decorations.
+        if let Some(window) = self
+            .space
+            .elements()
+            .find(|window| window.wl_surface().as_deref() == Some(toplevel.wl_surface()))
+        {
+            window.set_ssd(false);
+        }
+    }
 }
-delegate_xdg_decoration!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-delegate_xdg_shell!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-delegate_layer_shell!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-delegate_session_lock!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-delegate_presentation!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> FractionalScaleHandler for SpitfireState<BackendData> {
     fn new_fractional_scale(
         &mut self,
@@ -753,8 +721,6 @@ impl<BackendData: Backend> FractionalScaleHandler for SpitfireState<BackendData>
         });
     }
 }
-delegate_fractional_scale!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend + 'static> SecurityContextHandler for SpitfireState<BackendData> {
     fn context_created(
         &mut self,
@@ -777,8 +743,6 @@ impl<BackendData: Backend + 'static> SecurityContextHandler for SpitfireState<Ba
             .expect("Failed to init wayland socket source");
     }
 }
-delegate_security_context!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 #[cfg(feature = "xwayland")]
 impl<BackendData: Backend + 'static> XWaylandKeyboardGrabHandler for SpitfireState<BackendData> {
     fn keyboard_focus_for_xsurface(&self, surface: &WlSurface) -> Option<KeyboardFocusTarget> {
@@ -789,25 +753,11 @@ impl<BackendData: Backend + 'static> XWaylandKeyboardGrabHandler for SpitfireSta
         Some(KeyboardFocusTarget::Window(elem.0.clone()))
     }
 }
-#[cfg(feature = "xwayland")]
-delegate_xwayland_keyboard_grab!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-#[cfg(feature = "xwayland")]
-delegate_xwayland_shell!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend> XdgForeignHandler for SpitfireState<BackendData> {
     fn xdg_foreign_state(&mut self) -> &mut XdgForeignState {
         &mut self.xdg_foreign_state
     }
 }
-smithay::delegate_xdg_foreign!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-smithay::delegate_single_pixel_buffer!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-smithay::delegate_fifo!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
-smithay::delegate_commit_timing!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 /// `spitfire.keyboard = { layout, variant, model, options, rules }` →
 /// smithay/xkbcommon's own `XkbConfig` — same fields, just borrowed
 /// instead of owned (`XkbConfig` borrows its strings, so this can't be a
@@ -1053,6 +1003,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             &self.display_handle,
             None,
             std::iter::empty::<(String, String)>(),
+            std::iter::empty::<String>(),
             true,
             Stdio::null(),
             Stdio::null(),

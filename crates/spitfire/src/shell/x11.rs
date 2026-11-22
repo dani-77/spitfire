@@ -223,9 +223,27 @@ impl<BackendData: Backend + 'static> XwmHandler for SpitfireState<BackendData> {
             return;
         }
 
-        // Just set the new size, but don't let windows move themselves
-        // around freely — same tiling-friendly restriction xdg-shell
-        // windows are already under.
+        // A tiled window keeps its slot: answer with its current geometry
+        // (ICCCM lets the window manager refuse a ConfigureRequest that
+        // way). Accepting the new size only got undone by the next `arrange`,
+        // which re-sends the tile's geometry: CEF/Electron clients such as
+        // Steam ask again on pointer motion, and their menus kept jumping
+        // between the two.
+        if let Some(elem) = self
+            .space
+            .elements()
+            .find(|e| matches!(e.0.x11_surface(), Some(w) if w == &window))
+            .cloned()
+        {
+            if self.is_tiled(&elem) {
+                let _ = window.configure(window.geometry());
+                return;
+            }
+        }
+
+        // Floating: just set the new size, but don't let windows move
+        // themselves around freely — same tiling-friendly restriction
+        // xdg-shell windows are already under.
         let mut geo = window.geometry();
         if let Some(w) = w {
             geo.size.w = w as i32;

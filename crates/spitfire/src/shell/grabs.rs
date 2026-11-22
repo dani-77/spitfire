@@ -236,7 +236,6 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
             Point<f64, Logical>,
         )>,
         _event: &smithay::input::touch::DownEvent,
-        _seq: Serial,
     ) {
     }
 
@@ -245,13 +244,12 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         data: &mut SpitfireState<BackendData>,
         handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
         event: &smithay::input::touch::UpEvent,
-        seq: Serial,
     ) {
         if event.slot != self.start_data.slot {
             return;
         }
 
-        handle.up(data, event, seq);
+        handle.up(data, event);
         handle.unset_grab(self, data);
     }
 
@@ -264,7 +262,6 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
             Point<f64, Logical>,
         )>,
         event: &smithay::input::touch::MotionEvent,
-        _seq: Serial,
     ) {
         if event.slot != self.start_data.slot {
             return;
@@ -280,7 +277,6 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         &mut self,
         _data: &mut SpitfireState<BackendData>,
         _handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
-        _seq: Serial,
     ) {
     }
 
@@ -288,9 +284,8 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         &mut self,
         data: &mut SpitfireState<BackendData>,
         handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
-        seq: Serial,
     ) {
-        handle.cancel(data, seq);
+        handle.cancel(data);
         handle.unset_grab(self, data);
     }
 
@@ -299,9 +294,8 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         data: &mut SpitfireState<BackendData>,
         handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
         event: &smithay::input::touch::ShapeEvent,
-        seq: Serial,
     ) {
-        handle.shape(data, event, seq);
+        handle.shape(data, event);
     }
 
     fn orientation(
@@ -309,9 +303,8 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         data: &mut SpitfireState<BackendData>,
         handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
         event: &smithay::input::touch::OrientationEvent,
-        seq: Serial,
     ) {
-        handle.orientation(data, event, seq);
+        handle.orientation(data, event);
     }
 
     fn start_data(&self) -> &smithay::input::touch::GrabStartData<SpitfireState<BackendData>> {
@@ -483,7 +476,7 @@ impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>>
             #[cfg(feature = "xwayland")]
             WindowSurface::X11(x11) => {
                 let location = data.space.element_location(&self.window).unwrap();
-                x11.configure(Rectangle::new(location, self.last_window_size))
+                x11.configure_with_sync(Rectangle::new(location, self.last_window_size), None)
                     .unwrap();
             }
         }
@@ -569,7 +562,7 @@ impl<BackendData: Backend> PointerGrab<SpitfireState<BackendData>>
 
                         data.space.map_element(self.window.clone(), location, true);
                     }
-                    x11.configure(Rectangle::new(location, self.last_window_size))
+                    x11.configure_with_sync(Rectangle::new(location, self.last_window_size), None)
                         .unwrap();
 
                     let Some(surface) = self.window.wl_surface() else {
@@ -710,7 +703,6 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
             Point<f64, Logical>,
         )>,
         _event: &smithay::input::touch::DownEvent,
-        _seq: Serial,
     ) {
     }
 
@@ -719,7 +711,6 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         data: &mut SpitfireState<BackendData>,
         handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
         event: &smithay::input::touch::UpEvent,
-        _seq: Serial,
     ) {
         if event.slot != self.start_data.slot {
             return;
@@ -785,7 +776,7 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
 
                     data.space.map_element(self.window.clone(), location, true);
                 }
-                x11.configure(Rectangle::new(location, self.last_window_size))
+                x11.configure_with_sync(Rectangle::new(location, self.last_window_size), None)
                     .unwrap();
 
                 let Some(surface) = self.window.wl_surface() else {
@@ -817,7 +808,6 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
             Point<f64, Logical>,
         )>,
         event: &smithay::input::touch::MotionEvent,
-        _seq: Serial,
     ) {
         if event.slot != self.start_data.slot {
             return;
@@ -892,7 +882,7 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
             #[cfg(feature = "xwayland")]
             WindowSurface::X11(x11) => {
                 let location = data.space.element_location(&self.window).unwrap();
-                x11.configure(Rectangle::new(location, self.last_window_size))
+                x11.configure_with_sync(Rectangle::new(location, self.last_window_size), None)
                     .unwrap();
             }
         }
@@ -902,7 +892,6 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         &mut self,
         _data: &mut SpitfireState<BackendData>,
         _handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
-        _seq: Serial,
     ) {
     }
 
@@ -910,9 +899,8 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         &mut self,
         data: &mut SpitfireState<BackendData>,
         handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
-        seq: Serial,
     ) {
-        handle.cancel(data, seq);
+        handle.cancel(data);
         handle.unset_grab(self, data);
     }
 
@@ -921,9 +909,8 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         data: &mut SpitfireState<BackendData>,
         handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
         event: &smithay::input::touch::ShapeEvent,
-        seq: Serial,
     ) {
-        handle.shape(data, event, seq);
+        handle.shape(data, event);
     }
 
     fn orientation(
@@ -931,9 +918,8 @@ impl<BackendData: Backend> TouchGrab<SpitfireState<BackendData>>
         data: &mut SpitfireState<BackendData>,
         handle: &mut smithay::input::touch::TouchInnerHandle<'_, SpitfireState<BackendData>>,
         event: &smithay::input::touch::OrientationEvent,
-        seq: Serial,
     ) {
-        handle.orientation(data, event, seq);
+        handle.orientation(data, event);
     }
 
     fn start_data(&self) -> &smithay::input::touch::GrabStartData<SpitfireState<BackendData>> {

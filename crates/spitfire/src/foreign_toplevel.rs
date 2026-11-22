@@ -52,9 +52,6 @@ impl<BackendData: Backend + 'static> ForeignToplevelListHandler for SpitfireStat
         &mut self.foreign_toplevel_list_state
     }
 }
-
-smithay::delegate_foreign_toplevel_list!(@<BackendData: Backend + 'static> SpitfireState<BackendData>);
-
 impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// Every currently-open window, regardless of which workspace it's on
     /// or whether it's stashed in a scratchpad slot — see this module's doc

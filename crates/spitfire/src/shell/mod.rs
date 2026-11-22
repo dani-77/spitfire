@@ -467,7 +467,7 @@ impl<BackendData: Backend> SessionLockHandler for SpitfireState<BackendData> {
         }
         let pointer = self.pointer.clone();
         if pointer.is_grabbed() {
-            pointer.unset_grab(self, serial, self.clock.now().as_millis());
+            pointer.unset_grab(self, serial, smithay::backend::input::InputTime::now());
         }
         self.refresh_pointer_focus();
 
@@ -589,7 +589,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             &MotionEvent {
                 location,
                 serial: SERIAL_COUNTER.next_serial(),
-                time: self.clock.now().as_millis(),
+                time: smithay::backend::input::InputTime::now(),
             },
         );
         pointer.frame(self);
