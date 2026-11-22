@@ -216,6 +216,19 @@ impl TilingLayout {
                     }
                 }
             }
+            // An X11 client is its own coordinate system: XWayland places its
+            // menus and popups from the geometry the window was last
+            // configured with. Without this, a tiled X11 window kept the
+            // position it was mapped at, before tiling moved it, and Steam's
+            // menus opened at the screen's top-left instead of under their
+            // button. Only sent when the geometry actually changes, since
+            // `arrange` runs every frame.
+            if let Some(xsurface) = window.0.x11_surface() {
+                let geometry = Rectangle::new(target_loc, size);
+                if xsurface.geometry() != geometry {
+                    let _ = xsurface.configure(Some(geometry));
+                }
+            }
             if space.element_location(&window) != Some(target_loc) {
                 debug!(?rect, "placing window");
                 space.map_element(window, target_loc, false);
@@ -369,6 +382,20 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// commits a buffer delta (`shell::commit`), is configured, or is placed by
     /// `TilingLayout::arrange`. Calling this re-raises floating elements in
     /// their existing relative z-order so they stay on top of all tiled windows.
+    /// Whether `window` is laid out by the tiling layout (as opposed to
+    /// floating), by the same rules `arrange` applies.
+    pub(crate) fn is_tiled(&self, window: &WindowElement) -> bool {
+        let pending_scratchpad_app_ids: Vec<String> = self
+            .named_scratchpads
+            .values()
+            .filter_map(|slot| match slot {
+                crate::workspace::NamedScratchpad::Pending { app_id, .. } => Some(app_id.clone()),
+                _ => None,
+            })
+            .collect();
+        !matches_floating_rule(window, &self.config.rules(), &pending_scratchpad_app_ids)
+    }
+
     pub fn raise_floating_windows(&mut self) {
         let rules = self.config.rules().clone();
         let pending_scratchpad_app_ids: Vec<String> = self

@@ -915,13 +915,14 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   center/right rows on narrow outputs (its own `Math.max`/`Math.min` collision math
   doesn't account for not enough width for both) — only shows up on a narrow nested test
   window, not a real display; left for Utumno to fix.
-- Steam's own menus/submenus (see the XWayland bullet above) are clickable but land
-  roughly 15-20% off from where they actually asked to be — `configure_notify` keeps
-  `self.space` in sync with whatever the X server reports, so this looks like it's
-  Steam/CEF itself computing that position from a wrong idea of the X11 screen's size
-  rather than something `configure_request`/`configure_notify` are getting wrong
-  server-side. Not chased further — the menus are usable now, which is the part that
-  mattered.
+- Steam's menus (see the XWayland bullet above) mostly open in the right place now,
+  but can still shift when the pointer moves down into them. Most of the old offset
+  was spitfire's: a tiled X11 window was only ever configured with the spot it was
+  mapped at, before tiling moved it, so XWayland (and Steam's menu placement) kept
+  that stale position. `arrange` now configures X11 windows with their tile geometry
+  whenever it changes, and `configure_request` answers a tiled window with its current
+  geometry instead of accepting a new size the next `arrange` would undo. What's left
+  happens while hovering the menu; not chased further yet.
 - The bar's bitmap font only has uppercase A-Z — text is uppercased before drawing, so
   an SSID (or anything else routed through it) always displays in caps, not necessarily
   matching its real casing.
