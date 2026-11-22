@@ -429,8 +429,18 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                 let window = WindowElement(w);
                 window.alive() && self.workspaces.active().tiling.windows().contains(&window)
             }
-            // Non-window focus (a layer-shell surface, a popup, the lock
-            // screen, ...) is left alone — this is only about windows.
+            // A layer-shell surface that no longer asks for the keyboard
+            // (a panel kept mapped and hidden by resizing, like helium-d77's
+            // launcher and session menu) gives it back: otherwise keys would
+            // keep going to the hidden panel.
+            Some(KeyboardFocusTarget::LayerSurface(layer))
+                if layer.cached_state().keyboard_interactivity
+                    == smithay::wayland::shell::wlr_layer::KeyboardInteractivity::None =>
+            {
+                false
+            }
+            // Other non-window focus (a layer-shell surface that wants the
+            // keyboard, a popup, the lock screen, ...) is left alone.
             Some(_) => return,
             None => false,
         };
