@@ -1602,7 +1602,7 @@ dependencies = [
 
 [[package]]
 name = "spitfire"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "bitflags",
  "profiling",
@@ -1622,7 +1622,7 @@ dependencies = [
 
 [[package]]
 name = "spitfire-config"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "mlua",
  "spitfire-layout",
@@ -1632,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "spitfire-ipc"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "spitfire-layout"
-version = "0.6.1"
+version = "0.7.0"
 
 [[package]]
 name = "syn"
