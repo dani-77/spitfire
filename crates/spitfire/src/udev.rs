@@ -575,8 +575,7 @@ pub fn run_udev() {
     // already sees a real `DISPLAY`. The X server itself may still be
     // finishing startup in the background; a client connecting early just
     // queues on the socket until it gets there.
-    #[cfg(feature = "xwayland")]
-    state.start_xwayland();
+    state.start_x11();
 
     state.spawn_autostart();
 

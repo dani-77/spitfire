@@ -236,8 +236,7 @@ pub fn run_winit() {
     // `DISPLAY`) synchronously before returning — see the matching comment
     // in udev.rs. Autostart below already sees a real `DISPLAY`, no need to
     // pump the event loop and wait for `XWaylandEvent::Ready` first.
-    #[cfg(feature = "xwayland")]
-    state.start_xwayland();
+    state.start_x11();
 
     state.spawn_autostart();
 

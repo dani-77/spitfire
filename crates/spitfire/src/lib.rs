@@ -27,5 +27,6 @@ pub mod udev;
 #[cfg(feature = "winit")]
 pub mod winit;
 pub mod workspace;
+pub mod xwayland_satellite;
 
 pub use state::{ClientState, SpitfireState};
