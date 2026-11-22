@@ -61,8 +61,10 @@ the window manager.
   the first time, shows/hides that exact instance every time after).
 - **A lock screen that actually works** (`ext-session-lock-v1`) — compatible with
   `swaylock` and any other standard Wayland lock screen.
-- **Runs your existing Linux apps**, X11 ones included — spitfire supports XWayland, so
-  older/non-Wayland-native applications still work.
+- **Runs your existing Linux apps**, X11 ones included — through
+  [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) when it's installed
+  (as niri does), so X11 apps such as Steam get their menus and popups right; spitfire's
+  built-in XWayland support is the fallback.
 - Works as a real login-screen session (via `greetd` and similar) or nested inside
   another desktop session for trying it out first.
 - **Your apps' file-open dialogs, notifications, and system prompts just work** — the

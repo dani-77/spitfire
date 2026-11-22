@@ -11,7 +11,8 @@ depends=('wayland' 'libxkbcommon' 'mesa' 'seatd' 'libinput' 'libdisplay-info'
          'pixman' 'dbus' 'gcc-libs' 'glibc')
 makedepends=('cargo' 'git' 'wayland-protocols')
 optdepends=(
-  'xorg-xwayland: run X11-only apps (XWayland support)'
+  'xwayland-satellite: run X11-only apps (preferred: menus and popups behave like native ones)'
+  'xorg-xwayland: run X11-only apps with the built-in XWayland support'
   'xdg-desktop-portal: file-open dialogs, notifications and other portal prompts'
   'iw: wifi widget in the bar'
   'alacritty: terminal bound to Mod4+Return in the example config'

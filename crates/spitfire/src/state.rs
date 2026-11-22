@@ -988,6 +988,28 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         }
     }
 
+    /// X11 application support: through `xwayland-satellite` when it's
+    /// installed (see `xwayland_satellite.rs`), with the built-in Xwayland
+    /// below as the fallback when compiled in.
+    pub fn start_x11(&mut self) {
+        if let (Some(binary), Some(socket)) = (
+            crate::xwayland_satellite::binary(),
+            self.socket_name.clone(),
+        ) {
+            if let Some(_display) =
+                crate::xwayland_satellite::start(binary, &socket, self.running.clone())
+            {
+                #[cfg(feature = "xwayland")]
+                {
+                    self.xdisplay = Some(_display);
+                }
+                return;
+            }
+        }
+        #[cfg(feature = "xwayland")]
+        self.start_xwayland();
+    }
+
     /// Starts XWayland (X11 application support) if the `xwayland` feature
     /// is compiled in. Not fatal if it can't: this only ever runs the
     /// `Xwayland` binary lazily, on demand, so a system that doesn't have

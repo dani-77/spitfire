@@ -762,6 +762,18 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
     Confirmed on real hardware: Steam's menus went from unusable (opening off in the
     corner) to clickable, though not pixel-perfectly positioned — see
     [Known limitations](#known-limitations--pending-work).
+- **X11 apps through xwayland-satellite** (`xwayland_satellite.rs`, 2026-11-22), as niri
+  does: when `xwayland-satellite` is in `$PATH`, spitfire starts it on the first free X
+  display at session start, exports `DISPLAY` for everything it launches, and restarts
+  it if it exits (up to 5 times in a row). The satellite is the X11 window manager and
+  presents each X11 window as an ordinary Wayland client (`xdg_toplevel`) and X11
+  menus/popups as `xdg_popup`s, so they take the same path as native Wayland clients
+  instead of the built-in XWM's (`shell/x11.rs`), whose X11 coordinates kept drifting
+  from the tiling layout. Confirmed on real hardware with Steam: menus open and stay
+  where they should. Without the satellite (or with `SPITFIRE_XWAYLAND=builtin`) the
+  built-in XWayland below is used, when compiled in. Upstream-documented trade-off: X11
+  clients that place windows at absolute screen coordinates (Steam's slide-in
+  notifications) can't, since every toplevel believes it sits at 0,0.
 - **DRM/KMS backend** (opt-in `udev` cargo feature, `spitfire --udev`): runs as the real
   login session instead of nested inside one — session handling via libseat, GPU/output
   enumeration via udev, real input devices via libinput (including tap-to-click, enabled
@@ -915,8 +927,10 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   center/right rows on narrow outputs (its own `Math.max`/`Math.min` collision math
   doesn't account for not enough width for both) — only shows up on a narrow nested test
   window, not a real display; left for Utumno to fix.
-- Steam's menus (see the XWayland bullet above) mostly open in the right place now,
-  but can still shift when the pointer moves down into them. Most of the old offset
+- With the built-in XWayland only (no xwayland-satellite, or
+  `SPITFIRE_XWAYLAND=builtin`), Steam's menus mostly open in the right place now,
+  but can still shift when the pointer moves down into them. xwayland-satellite (see
+  [What's implemented](#whats-implemented)) doesn't have this problem. Most of the old offset
   was spitfire's: a tiled X11 window was only ever configured with the spot it was
   mapped at, before tiling moved it, so XWayland (and Steam's menu placement) kept
   that stale position. `arrange` now configures X11 windows with their tile geometry

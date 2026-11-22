@@ -223,6 +223,7 @@ impl TilingLayout {
             // menus opened at the screen's top-left instead of under their
             // button. Only sent when the geometry actually changes, since
             // `arrange` runs every frame.
+            #[cfg(feature = "xwayland")]
             if let Some(xsurface) = window.0.x11_surface() {
                 let geometry = Rectangle::new(target_loc, size);
                 if xsurface.geometry() != geometry {
