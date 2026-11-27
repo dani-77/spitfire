@@ -174,8 +174,9 @@ these is just a line in `config.lua`, so rebind anything to anything.
 The overview shows a scaled view of the selected workspace and its neighbours.
 Scroll or press Up/Down to browse, press Enter or click a preview to switch,
 and press Esc to return to the current workspace. Drag a window onto an
-adjacent workspace preview to move it. The example config also binds an upward
-four-finger swipe on the native backend.
+adjacent workspace preview to move it. The window preview follows the pointer
+and the destination workspace is highlighted. The example config also binds
+an upward four-finger swipe on the native backend.
 
 To enable it in an existing config, add:
 

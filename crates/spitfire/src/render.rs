@@ -735,6 +735,25 @@ where
         &[Layer::Top, Layer::Overlay],
     ));
 
+    let mut render_preview = |preview: &crate::overview::PreviewWindow, clip| {
+        let origin = preview.origin.to_physical_precise_round(scale);
+        let tree: Vec<WindowRenderElement<R>> =
+            preview
+                .window
+                .render_elements(renderer, Point::default(), scale, 1.0);
+        tree.into_iter().filter_map(move |element| {
+            let scaled = RescaleRenderElement::from_element(element, Point::default(), scene.zoom);
+            let moved = RelocateRenderElement::from_element(scaled, origin, Relocate::Relative);
+            CropRenderElement::from_element(moved, scale, clip).map(OutputRenderElements::Preview)
+        })
+    };
+    if let Some(preview) = &scene.dragged {
+        elements.extend(render_preview(
+            preview,
+            scene.viewport.to_physical_precise_round(scale),
+        ));
+    }
+
     let mut solid = |rect: Rectangle<i32, Logical>, color| {
         let buffer = cache.next(rect.size, color);
         OutputRenderElements::Custom(CustomRenderElements::Solid(
@@ -757,18 +776,7 @@ where
         };
         let clip = visible.to_physical_precise_round(scale);
         for preview in &card.windows {
-            let origin = preview.origin.to_physical_precise_round(scale);
-            let offset = card.rect.loc.to_physical_precise_round(scale);
-            let tree: Vec<WindowRenderElement<R>> =
-                preview.window.render_elements(renderer, origin, scale, 1.0);
-            elements.extend(tree.into_iter().filter_map(|element| {
-                let scaled =
-                    RescaleRenderElement::from_element(element, Point::default(), card.zoom);
-                let positioned =
-                    RelocateRenderElement::from_element(scaled, offset, Relocate::Relative);
-                CropRenderElement::from_element(positioned, scale, clip)
-                    .map(OutputRenderElements::Preview)
-            }));
+            elements.extend(render_preview(preview, clip));
         }
 
         elements.push(solid(visible, Color32F::new(0.09, 0.10, 0.13, 1.0)));

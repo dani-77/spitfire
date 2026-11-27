@@ -939,9 +939,13 @@ is used for drawing and pointer hit testing.
 
 Both winit and DRM/KMS pass the scene to `render::overview_elements` for
 display. It scales and clips normal Smithay window render elements to each
-card. The cursor, built-in bar and top/overlay layers are drawn above the
-cards. The lower layers stay behind a dim backdrop. Capture protocols use
-their existing render path and window filters, independently of this view.
+card. During a drag, the window is drawn once above the cards. Its projected
+origin follows the pointer delta from the initial press in global logical
+coordinates. The hovered destination card is highlighted, and releasing
+outside a destination leaves the window on its source workspace. The cursor,
+built-in bar and top/overlay layers are drawn above the cards. The lower
+layers stay behind a dim backdrop. Capture protocols use their existing render
+path and window filters, independently of this view.
 
 While the overview is open, the compositor handles pointer buttons and scroll.
 Lua shortcuts still work, and unbound keys stay with the compositor. The
@@ -955,7 +959,9 @@ mapped, which preserves fullscreen when returning to that workspace.
 Verified in winit under Xvfb with Alacritty and swaylock. The test covered
 previews of inactive workspaces, cancellation and confirmation, wheel
 navigation, click selection, dragging between workspaces, and locking while
-the overview was open. Switching away from and returning to fullscreen and
+the overview was open. At scales 1.0 and 1.25, the dragged preview followed
+the pointer outside its card and returned on a cancelled drop. Switching
+away from and returning to fullscreen and
 floating windows was also verified. The DRM/KMS path builds with the `udev`
 feature.
 

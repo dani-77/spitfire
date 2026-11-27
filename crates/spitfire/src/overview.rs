@@ -30,29 +30,39 @@ pub(crate) struct Overview {
 #[derive(Debug)]
 struct Press {
     workspace: WorkspaceId,
-    window: Option<WindowElement>,
+    window: Option<PreviewWindow>,
     location: Point<f64, Logical>,
 }
 
 pub(crate) struct Scene {
     pub viewport: Rectangle<i32, Logical>,
+    pub zoom: f64,
     pub cards: Vec<Card>,
+    pub dragged: Option<PreviewWindow>,
 }
 
 pub(crate) struct Card {
     pub rect: Rectangle<i32, Logical>,
-    pub zoom: f64,
     pub selected: bool,
     pub highlighted: bool,
     workspace: WorkspaceId,
     pub windows: Vec<PreviewWindow>,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct PreviewWindow {
     pub window: WindowElement,
-    /// Surface-tree origin relative to the unscaled output.
+    /// Surface-tree origin in the projected overview scene.
     pub origin: Point<i32, Logical>,
     pub rect: Rectangle<i32, Logical>,
+}
+
+impl PreviewWindow {
+    fn translated(mut self, offset: Point<i32, Logical>) -> Self {
+        self.origin += offset;
+        self.rect.loc += offset;
+        self
+    }
 }
 
 impl<BackendData: Backend> SpitfireState<BackendData> {
@@ -170,15 +180,19 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let location = self.pointer.current_location();
         let hit = self.space.output_under(location).next().and_then(|output| {
             let scene = self.overview_scene(output)?;
-            let point =
-                (location - self.space.output_geometry(output)?.loc.to_f64()).to_i32_floor();
+            let output_origin = self.space.output_geometry(output)?.loc;
+            let point = (location - output_origin.to_f64()).to_i32_floor();
             let card = scene.cards.iter().find(|card| card.rect.contains(point))?;
             let window = card
                 .windows
                 .iter()
                 .find(|window| window.rect.contains(point));
-            Some((card.workspace, window.map(|preview| preview.window.clone())))
+            let window = window
+                .cloned()
+                .map(|preview| preview.translated(output_origin));
+            Some((card.workspace, window))
         });
+        let dragging = !pressed && self.overview_drag(location).is_some();
         if pressed {
             self.overview.press = hit.map(|(workspace, window)| Press {
                 workspace,
@@ -191,28 +205,46 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             };
             if workspace == press.workspace {
                 if distance_squared(location, press.location) < DRAG_THRESHOLD_SQUARED {
-                    self.activate_overview_workspace(target, press.window);
+                    self.activate_overview_workspace(
+                        target,
+                        press.window.map(|preview| preview.window),
+                    );
                 }
-            } else if let (Some(window), Some(source)) =
-                (press.window, self.workspaces.index_of(press.workspace))
-            {
-                let fullscreen = self.space.outputs().any(|output| {
-                    output
-                        .user_data()
-                        .get::<FullscreenSurface>()
-                        .and_then(FullscreenSurface::get)
-                        .as_ref()
-                        == Some(&window)
-                });
-                if distance_squared(location, press.location) >= DRAG_THRESHOLD_SQUARED
-                    && !fullscreen
+            } else if dragging {
+                if let (Some(window), Some(source)) =
+                    (press.window, self.workspaces.index_of(press.workspace))
                 {
-                    self.move_window_between_workspaces(&window, source, target);
+                    self.move_window_between_workspaces(&window.window, source, target);
                     self.overview.selected = Some(workspace);
                 }
             }
         }
         true
+    }
+
+    fn overview_drag(&self, location: Point<f64, Logical>) -> Option<(&Press, &PreviewWindow)> {
+        let press = self.overview.press.as_ref()?;
+        let preview = press.window.as_ref()?;
+        if distance_squared(location, press.location) < DRAG_THRESHOLD_SQUARED
+            || !preview.window.alive()
+        {
+            return None;
+        }
+        let workspace = self
+            .workspaces
+            .get(self.workspaces.index_of(press.workspace)?)?;
+        if !workspace.tiling.windows().contains(&preview.window) {
+            return None;
+        }
+        let fullscreen = self.space.outputs().any(|output| {
+            output
+                .user_data()
+                .get::<FullscreenSurface>()
+                .and_then(FullscreenSurface::get)
+                .as_ref()
+                == Some(&preview.window)
+        });
+        (!fullscreen).then_some((press, preview))
     }
 
     pub(crate) fn overview_scene(&self, output: &Output) -> Option<Scene> {
@@ -226,25 +258,30 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let card_size = geo.size.to_f64().upscale(zoom).to_i32_round();
         let center = (geo.size.to_point() - card_size.to_point()).downscale(2);
         let spacing = card_size.h + (geo.size.h / 32).clamp(10, 32);
-        let pointer = (self.pointer.current_location() - geo.loc.to_f64()).to_i32_floor();
-        let dragging = self.overview.press.as_ref().and_then(|press| {
-            press.window.as_ref().filter(|_| {
-                distance_squared(self.pointer.current_location(), press.location)
-                    >= DRAG_THRESHOLD_SQUARED
-            })?;
-            Some(press.workspace)
+        let location = self.pointer.current_location();
+        let pointer = (location - geo.loc.to_f64()).to_i32_floor();
+        let dragging = self.overview_drag(location);
+        let dragged = dragging.and_then(|(press, preview)| {
+            let offset = (location - press.location).to_i32_round() - geo.loc;
+            let visible = Rectangle::new(preview.rect.loc + offset, preview.rect.size)
+                .intersection(viewport)?;
+            (!visible.is_empty()).then(|| preview.clone().translated(offset))
         });
         let cards = (selected.saturating_sub(1)..=(selected + 1).min(self.workspaces.len() - 1))
             .filter_map(|index| {
                 let workspace = self.workspaces.get(index)?;
                 let offset = (index as isize - selected as isize) as i32 * spacing;
                 let rect = Rectangle::new(center + Point::from((0, offset)), card_size);
-                let highlighted = dragging.is_some_and(|source| workspace.id != source)
+                let highlighted = dragging
+                    .is_some_and(|(press, _)| workspace.id != press.workspace)
                     && viewport.contains(pointer)
                     && rect.contains(pointer);
                 let windows = self
                     .overview_windows(index, output, geo)
                     .into_iter()
+                    .filter(|(window, _)| {
+                        dragging.is_none_or(|(_, preview)| preview.window != *window)
+                    })
                     .filter_map(|(window, origin)| {
                         let origin = origin - geo.loc;
                         let geometry = window.geometry();
@@ -255,13 +292,14 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                         } else {
                             geometry
                         };
-                        let window_rect = Rectangle::new(origin + bounds.loc, bounds.size);
+                        let origin = rect.loc + origin.to_f64().upscale(zoom).to_i32_round();
                         let window_rect = Rectangle::new(
-                            rect.loc + window_rect.loc.to_f64().upscale(zoom).to_i32_round(),
-                            window_rect.size.to_f64().upscale(zoom).to_i32_round(),
-                        )
-                        .intersection(rect)
-                        .filter(|rect| !rect.is_empty())?;
+                            origin + bounds.loc.to_f64().upscale(zoom).to_i32_round(),
+                            bounds.size.to_f64().upscale(zoom).to_i32_round(),
+                        );
+                        window_rect
+                            .intersection(rect)
+                            .filter(|visible| !visible.is_empty())?;
                         Some(PreviewWindow {
                             window,
                             origin,
@@ -271,7 +309,6 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                     .collect();
                 Some(Card {
                     rect,
-                    zoom,
                     selected: index == selected,
                     highlighted,
                     workspace: workspace.id,
@@ -279,7 +316,12 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 })
             })
             .collect();
-        Some(Scene { viewport, cards })
+        Some(Scene {
+            viewport,
+            zoom,
+            cards,
+            dragged,
+        })
     }
 
     fn overview_windows(
