@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::HashSet};
+use std::collections::HashSet;
 
 use smithay::{
     backend::input::InputTime,
@@ -12,7 +12,7 @@ use spitfire_layout::Rect;
 use crate::{
     shell::{FullscreenSurface, WindowElement},
     state::Backend,
-    workspace::WorkspaceId,
+    workspace::{last_window_location, WorkspaceId},
     SpitfireState,
 };
 
@@ -53,19 +53,6 @@ pub(crate) struct PreviewWindow {
     /// Surface-tree origin relative to the unscaled output.
     pub origin: Point<i32, Logical>,
     pub rect: Rectangle<i32, Logical>,
-}
-
-// Only used to position inactive previews. The normal layout retains control
-// over which windows are mapped and where they appear on activation.
-#[derive(Default)]
-struct LastLocation(Cell<Option<Point<i32, Logical>>>);
-
-pub(crate) fn remember_location(window: &WindowElement, location: Option<Point<i32, Logical>>) {
-    if let Some(location) = location {
-        let data = window.0.user_data();
-        data.insert_if_missing(LastLocation::default);
-        data.get::<LastLocation>().unwrap().0.set(Some(location));
-    }
 }
 
 impl<BackendData: Backend> SpitfireState<BackendData> {
@@ -375,13 +362,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 let position = self
                     .space
                     .element_location(window)
-                    .or_else(|| {
-                        window
-                            .0
-                            .user_data()
-                            .get::<LastLocation>()
-                            .and_then(|last| last.0.get())
-                    })
+                    .or_else(|| last_window_location(window))
                     .unwrap_or_else(|| {
                         area.loc
                             + (area.size.to_point() - window.geometry().size.to_point())

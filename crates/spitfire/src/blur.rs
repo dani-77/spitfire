@@ -237,7 +237,7 @@ pub fn blur_windows_for_output(
     if output
         .user_data()
         .get::<FullscreenSurface>()
-        .and_then(|f| f.get())
+        .and_then(|f| f.mapped_window(space))
         .is_some()
     {
         return Vec::new();

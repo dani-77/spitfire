@@ -659,7 +659,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 if let Some(window) = output
                     .user_data()
                     .get::<FullscreenSurface>()
-                    .and_then(|f| f.get())
+                    .and_then(|f| f.mapped_window(&self.space))
                 {
                     if let Some((_, _)) = window
                         .surface_under(location - output_geo.loc.to_f64(), WindowSurfaceType::ALL)
@@ -762,7 +762,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 output
                     .user_data()
                     .get::<FullscreenSurface>()
-                    .and_then(|f| f.get())
+                    .and_then(|f| f.mapped_window(&self.space))
                     .filter(|window| {
                         window
                             .surface_under(
@@ -845,7 +845,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let fullscreen = output
             .user_data()
             .get::<FullscreenSurface>()
-            .and_then(|f| f.get());
+            .and_then(|f| f.mapped_window(&self.space));
 
         let mut under = None;
         // Over a fullscreen window, the overlay layer and X11

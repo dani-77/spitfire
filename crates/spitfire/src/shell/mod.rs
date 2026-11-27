@@ -97,6 +97,12 @@ impl FullscreenSurface {
         window.clone()
     }
 
+    /// The fullscreen marker survives hiding its workspace.
+    pub(crate) fn mapped_window(&self, space: &Space<WindowElement>) -> Option<WindowElement> {
+        self.get()
+            .filter(|window| space.element_location(window).is_some())
+    }
+
     pub fn clear(&self) -> Option<WindowElement> {
         self.0.borrow_mut().take()
     }

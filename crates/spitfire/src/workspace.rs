@@ -9,21 +9,24 @@
 //! so that moving to real multi-output later means keying a
 //! `HashMap<Output, WorkspaceSet>` instead of rewriting this.
 
-use std::time::{Duration, Instant};
+use std::{
+    cell::Cell,
+    time::{Duration, Instant},
+};
 
 use smithay::{
     desktop::{space::SpaceElement, WindowSurface},
     output::Output,
     utils::{IsAlive, Logical, Point, Size, SERIAL_COUNTER},
 };
-use spitfire_layout::Gaps;
+use spitfire_layout::{Gaps, LayoutMode};
 use tracing::info;
 
 use crate::{
     anim::ease_out_cubic,
     focus::KeyboardFocusTarget,
     layout::{usable_area, ForceFloating, TilingLayout},
-    shell::{center_on_output, center_on_output_with_size, WindowElement},
+    shell::{center_on_output, center_on_output_with_size, FullscreenSurface, WindowElement},
     state::{Backend, SpitfireState},
 };
 
@@ -302,14 +305,32 @@ pub enum NamedScratchpad {
     Hidden(WindowElement),
 }
 
+#[derive(Default)]
+struct LastWorkspaceLocation(Cell<Option<Point<i32, Logical>>>);
+
+fn remember_window_location(window: &WindowElement, location: Option<Point<i32, Logical>>) {
+    if let Some(location) = location {
+        let data = window.0.user_data();
+        data.insert_if_missing(LastWorkspaceLocation::default);
+        data.get::<LastWorkspaceLocation>()
+            .unwrap()
+            .0
+            .set(Some(location));
+    }
+}
+
+pub(crate) fn last_window_location(window: &WindowElement) -> Option<Point<i32, Logical>> {
+    window.0.user_data().get::<LastWorkspaceLocation>()?.0.get()
+}
+
 impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// `spitfire.workspace.focus(n)` — switches to workspace `idx` (0-based
     /// here; the Lua API is 1-based and subtracts 1 before calling this),
     /// creating it if it doesn't exist yet (niri-style dynamic growth).
     ///
-    /// With `spitfire.anim` disabled (or `duration <= 0`), the outgoing
-    /// workspace is hidden immediately and the incoming one shown/re-tiled
-    /// — an instant cut, exactly as before this animation existed.
+    /// A switch away from a fullscreen window, or with the workspace
+    /// animation disabled, hides the outgoing workspace immediately and
+    /// then shows and lays out the incoming workspace.
     /// Otherwise, the outgoing workspace's windows are deliberately *not*
     /// hidden here: they stay mapped in `Space`, and a `WorkspaceSlide` is
     /// registered so both workspaces render simultaneously, offset
@@ -328,7 +349,14 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         if let Some(old) = self.workspace_slide.take() {
             self.hide_workspace(old.from_idx);
         }
-        if self.config.anim.duration().is_zero() {
+        let leaving_fullscreen = self.space.outputs().any(|output| {
+            output
+                .user_data()
+                .get::<FullscreenSurface>()
+                .and_then(|fullscreen| fullscreen.mapped_window(&self.space))
+                .is_some_and(|window| !self.workspaces.active().tiling.windows().contains(&window))
+        });
+        if leaving_fullscreen || self.config.anim.duration().is_zero() {
             self.hide_inactive_workspaces();
         } else {
             self.workspace_slide = Some(WorkspaceSlide::new(
@@ -337,8 +365,23 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
                 self.config.anim.duration(),
             ));
         }
+        self.restore_floating_locations();
         self.arrange_tiling();
         self.sync_ext_workspace_state();
+    }
+
+    fn restore_floating_locations(&mut self) {
+        let layout = &self.workspaces.active().tiling;
+        let floating: Vec<_> = layout
+            .windows()
+            .iter()
+            .filter(|window| window.alive() && self.space.element_location(window).is_none())
+            .filter(|window| layout.params.mode == LayoutMode::Floating || !self.is_tiled(window))
+            .filter_map(|window| Some((window.clone(), last_window_location(window)?)))
+            .collect();
+        for (window, location) in floating {
+            self.space.map_element(window, location, false);
+        }
     }
 
     /// Moves `window` to workspace `idx` (0-based) without switching the
@@ -372,8 +415,11 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
         if let Some(workspace) = self.workspaces.get_mut(target) {
             workspace.tiling.push(window.clone());
         }
-        crate::overview::remember_location(window, self.space.element_location(window));
+        remember_window_location(window, self.space.element_location(window));
         self.space.unmap_elem(window);
+        if target == self.workspaces.active_index() {
+            self.restore_floating_locations();
+        }
         self.arrange_tiling();
         self.sync_ext_workspace_state();
     }
@@ -800,7 +846,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             return;
         };
         for window in windows {
-            crate::overview::remember_location(&window, self.space.element_location(&window));
+            remember_window_location(&window, self.space.element_location(&window));
             self.space.unmap_elem(&window);
         }
     }

@@ -1,8 +1,12 @@
+#[cfg(feature = "winit")]
+use smithay::backend::renderer::damage::{
+    Error as OutputDamageTrackerError, OutputDamageTracker, RenderOutputResult,
+};
+
 use smithay::{
     backend::{
         allocator::Fourcc,
         renderer::{
-            damage::{Error as OutputDamageTrackerError, OutputDamageTracker, RenderOutputResult},
             element::{
                 memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
                 solid::{SolidColorBuffer, SolidColorRenderElement},
@@ -1071,7 +1075,7 @@ where
     if let Some(window) = output
         .user_data()
         .get::<FullscreenSurface>()
-        .and_then(|f| f.get())
+        .and_then(|f| f.mapped_window(space))
     {
         let scale: Scale<f64> = output.current_scale().fractional_scale().into();
         let window_render_elements: Vec<WindowRenderElement<R>> =
@@ -1348,6 +1352,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(feature = "winit")]
 pub(crate) fn render_output<'a, 'd, R>(
     output: &'a Output,
     space: &'a Space<WindowElement>,
