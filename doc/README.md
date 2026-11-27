@@ -82,7 +82,7 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   - Occupied workspaces for the d77 shells: ext-workspace-v1 has no such state, so
     spitfire (like wasp and whiplash) keeps `$XDG_RUNTIME_DIR/d77-workspaces-<socket>`,
     one line per workspace, `<ext-workspace id> <window count>`, which Utumno,
-    quickshell-d77, fabric-d77 and helium-d77 read to dim empty workspaces. Written from
+    quickshell-d77 (archived; superseded by Utumno), fabric-d77 and helium-d77 read to dim empty workspaces. Written from
     the per-frame `arrange_tiling` only when it changes, named after the listening
     socket (spitfire never sets `WAYLAND_DISPLAY` in its own environment, so nested it
     would otherwise name the parent session), removed when the main loop ends. A
