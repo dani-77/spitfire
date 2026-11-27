@@ -1,9 +1,8 @@
 # Distro packaging
 
-Both of these build tag [`v0.5.5`](https://github.com/dani-77/spitfire/releases/tag/v0.5.5)
-from source and simply call the project's own `make install` (see the top-level
-`Makefile`) for the actual install step, so the file list here doesn't drift from
-what `sudo make install` already does.
+The Arch and Void recipes build the release tag pinned in each recipe and use
+the top-level `make install` target. Both currently target
+[`v0.7.0`](https://github.com/dani-77/spitfire/releases/tag/v0.7.0).
 
 ## Arch Linux
 
@@ -31,9 +30,9 @@ cd /path/to/void-packages
 
 ## Bumping the version
 
-Both files pin `version`/`pkgver` to `0.6.0` and a `checksum`/`sha256sums` for that
-tag's release tarball. When cutting a new release, update both and recompute the
-checksum, e.g.:
+The Void `version` and Arch `pkgver` fields select the release tag. When
+cutting a release, update both and recompute the tarball checksum for
+`checksum` and `sha256sums` with this command.
 
 ```sh
 curl -sL https://github.com/dani-77/spitfire/archive/refs/tags/vX.Y.Z.tar.gz | sha256sum

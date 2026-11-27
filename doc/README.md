@@ -70,10 +70,10 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   `$XDG_RUNTIME_DIR/spitfire.sock`, one request/response per connection — niri
   msg/hyprctl-style): `reload`, `quit`, `layout <mode>`, `workspace focus <n>`,
   `list-windows`, `list-outputs`, `list-workspaces`.
-- **Dynamic per-output workspaces** (`crate::workspace`, niri-style growth — focusing
-  workspace 5 when only 2 exist just creates 3, 4, and 5; nothing exists until it's
-  actually asked for), advertised live over `ext-workspace-v1` (`crate::ext_workspace`,
-  hand-implemented — not provided by Smithay, see `../NOTICE.md`).
+- **Dynamic workspaces** (`crate::workspace`). A single `WorkspaceSet` is shared
+  across outputs and advertised as one group over `ext-workspace-v1`
+  (`crate::ext_workspace`, see `../NOTICE.md`). Focusing workspace 5 with two
+  workspaces creates 3, 4 and 5.
   `spitfire.workspace.focus(n)` / `spitfire.workspace.move_window(n)` / `.next()` /
   `.prev()` (1-based).
   - Sends each workspace's `id` (`spitfire-<n>`) and the `urgent` state: a window on a
@@ -568,10 +568,10 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   spitfire's own windows.
 
   The one real design decision: **the source of truth is deliberately not `Space::elements()`**
-  — switching workspaces unmaps every window that isn't on the newly active one, so
-  `Space::elements()` only ever holds the *active* workspace's windows. Sourcing from it would
-  have `send_closed()`ed every other workspace's windows on each switch, then handed out a
-  *new* identifier for the same window switching back — a real protocol violation (identifiers
+  — `Space::elements()` tracks mapped windows, which include the outgoing
+  workspace during a slide and omit hidden workspaces after it ends. Using that
+  list would send a close event for each hidden window and assign it a new
+  identifier on return — a real protocol violation (identifiers
   must stay unique and never be reused for as long as a toplevel is mapped). The real source
   is every workspace's own tiling list (tiled and floating windows both live there) plus the
   two scratchpad slots, which pull a window out of every workspace's tiling list while stashed
@@ -924,8 +924,10 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
 ## Workspace overview
 
 `spitfire.workspace.toggle_overview()` queues a Lua command through the same
-path as workspace bindings and touchpad gestures. `crate::overview` keeps the
-selected workspace ID and the current pointer interaction. Selection is
+path as workspace bindings and touchpad gestures. The
+[example config](../examples/config.lua) uses Super+O and an upward four-finger
+swipe. Gesture recognition runs on the DRM/KMS backend. `crate::overview`
+keeps the selected workspace ID and the current pointer interaction. Selection is
 separate from the active workspace, so browsing does not remap clients or
 publish workspace changes. Confirmation uses `switch_workspace` and dropping
 a window uses the same workspace-move path as the existing Lua command.
@@ -960,10 +962,9 @@ Verified in winit under Xvfb with Alacritty and swaylock. The test covered
 previews of inactive workspaces, cancellation and confirmation, wheel
 navigation, click selection, dragging between workspaces, and locking while
 the overview was open. At scales 1.0 and 1.25, the dragged preview followed
-the pointer outside its card and returned on a cancelled drop. Switching
-away from and returning to fullscreen and
-floating windows was also verified. The DRM/KMS path builds with the `udev`
-feature.
+the pointer outside its card and returned on a cancelled drop. The tests also
+covered leaving and returning to workspaces with fullscreen and floating
+windows. The DRM/KMS path builds with the `udev` feature.
 
 ## Known limitations / pending work
 
@@ -1046,8 +1047,9 @@ cargo run -p spitfire --features udev -- --udev
 
 Needs `wayland-client`/`wayland-server`, `xkbcommon`, EGL, and GBM installed (dev
 packages) at minimum; `--features udev` additionally needs `libseat`, `libinput`, and
-`libdisplay-info` development packages (`libseat-devel`/`libinput-devel`/
-`libdisplay-info-devel` on Void, `-dev` on Debian/Ubuntu, no suffix on Arch).
+`libdisplay-info` and Pixman development packages. The
+[source build instructions](../README.md#build-from-source) list the packages
+for Void, Arch and Debian/Ubuntu.
 
 The crate's own `winit`/`udev`/`xwayland` cargo features are independent of each
 other (`--no-default-features --features udev,xwayland` builds and runs fine with no
@@ -1056,8 +1058,9 @@ to `--udev` in that case) — verified across all four combinations (`winit,egl`
 default; `winit,xwayland,egl`; `udev,xwayland,egl`; `udev,xwayland,winit,egl`, the
 real packaging build).
 
-Config file: `$XDG_CONFIG_HOME/spitfire/config.lua` (falls back to
-`~/.config/spitfire/config.lua`). See `../examples/config.lua` for the default.
+Spitfire reads `$XDG_CONFIG_HOME/spitfire/config.lua` when `XDG_CONFIG_HOME` is
+nonempty and falls back to `~/.config/spitfire/config.lua`. Start with the
+[example config](../examples/config.lua) from your build.
 
 ## Packaging
 
@@ -1076,4 +1079,6 @@ redirects its stdout/stderr to `$XDG_STATE_HOME/spitfire/session.log` (a bare `E
 line otherwise has nowhere obvious to send that output) — this log is what made
 diagnosing the DRM/KMS-only bugs above possible, and the D-Bus activation ones. Both the
 `.desktop` entry and the DRM/KMS backend it launches have now had a real hands-on pass on
-real hardware (see above), including through `greetd`.
+real hardware (see above), including through `greetd`. The example Lua config
+is installed to `$PREFIX/share/spitfire/config.lua`. The
+[distro packaging recipes](../packaging/README.md) use the same install target.

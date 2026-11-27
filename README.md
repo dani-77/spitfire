@@ -29,9 +29,11 @@ the window manager.
   `spitfire.workspace.next()`/`.prev()` (capped at `spitfire.workspace.max`, default 9,
   so a repeated swipe doesn't just keep going), or pin an app to always open on a given
   one with `spitfire.rule({ app_id = "...", workspace = n })`.
-- **Built-in status bar**, on by default: workspace list, active layout, CPU/RAM/
-  battery/network, clock and date. No extra program to install or configure — turn
-  it off with one line if you'd rather run your own (waybar, eww, ...).
+- **Workspace overview** — browse scaled previews with the keyboard or mouse
+  and drag windows between workspaces.
+- **Built-in status bar** — the example config enables the workspace list, active
+  layout, CPU/RAM, battery, network, clock and date. Set `spitfire.bar.enable` to
+  `false` in the example config to use your own bar.
 - **Window borders and gaps**, colored however you like — with optional rounded
   corners.
 - **Blur-behind for translucent windows** — a terminal with real opacity set
@@ -67,22 +69,28 @@ the window manager.
   built-in XWayland support is the fallback.
 - Works as a real login-screen session (via `greetd` and similar) or nested inside
   another desktop session for trying it out first.
-- **Your apps' file-open dialogs, notifications, and system prompts just work** — the
-  behind-the-scenes plumbing apps use for those (D-Bus, "portals") is set up
-  automatically as part of installing spitfire, nothing to configure yourself.
+- **Desktop integration** — the installed session launcher starts a D-Bus
+  session. The included portal configuration selects the GTK backend for general
+  requests and the wlroots backend for screenshots and screen sharing when the
+  corresponding portal packages are installed.
 
 ## Installing
 
-There are no prebuilt packages yet — spitfire is built from source. You'll need a Rust
-toolchain (get one at [rustup.rs](https://rustup.rs) if you don't have one already) and
-a handful of development packages:
+On Arch, install [`spitfire` from the AUR](https://aur.archlinux.org/packages/spitfire).
+On Void with the [d77void package repository](https://sourceforge.net/projects/d77void/files/d77void-repo/)
+configured, run `sudo xbps-install -S spitfire`. See the
+[packaging notes](packaging/README.md) for the recipes.
+
+### Build from source
+
+You'll need a [Rust toolchain](https://rustup.rs/) and development packages:
 
 <details>
 <summary><b>Void Linux</b></summary>
 
 ```sh
 sudo xbps-install -S base-devel wayland-devel libxkbcommon-devel MesaLib-devel \
-    libseat-devel libinput-devel libdisplay-info-devel
+    libseat-devel libinput-devel libdisplay-info-devel pixman-devel wayland-protocols
 ```
 </details>
 
@@ -90,7 +98,8 @@ sudo xbps-install -S base-devel wayland-devel libxkbcommon-devel MesaLib-devel \
 <summary><b>Arch Linux</b></summary>
 
 ```sh
-sudo pacman -S base-devel wayland libxkbcommon mesa seatd libinput libdisplay-info
+sudo pacman -S base-devel wayland libxkbcommon mesa seatd libinput libdisplay-info \
+    pixman wayland-protocols
 ```
 </details>
 
@@ -98,8 +107,9 @@ sudo pacman -S base-devel wayland libxkbcommon mesa seatd libinput libdisplay-in
 <summary><b>Debian / Ubuntu</b></summary>
 
 ```sh
-sudo apt install build-essential libwayland-dev libxkbcommon-dev libegl1-mesa-dev \
-    libgbm-dev libseat-dev libinput-dev libdisplay-info-dev
+sudo apt install build-essential pkg-config libwayland-dev libxkbcommon-dev \
+    libegl1-mesa-dev libgbm-dev libseat-dev libinput-dev libdisplay-info-dev \
+    libpixman-1-dev wayland-protocols
 ```
 </details>
 
@@ -115,10 +125,9 @@ sudo make install
 `make` builds spitfire in release mode as your user, and `sudo make install` installs the `spitfire`/`spitfirectl` binaries,
 an app icon, and a session entry so your login screen (greetd, GDM, SDDM, ...) can offer
 **spitfire** as a login option, the same way it already offers GNOME, Hyprland, etc. It
-also drops in a small config file that tells your system which app to use for things
-like file-open dialogs and notifications while running spitfire — you don't need to
-touch it, it's just there so those keep working out of the box. Log out, pick spitfire
-from the session list, log back in.
+also installs the portal configuration and an example Lua config under
+`/usr/share/spitfire/config.lua`. To start the installed session, log out and pick
+spitfire from the session list.
 
 To try it out first without logging out — nested inside your current desktop session,
 in a window:
@@ -131,14 +140,17 @@ To uninstall later: `sudo make uninstall`.
 
 ## Getting started
 
-The first time spitfire runs, it looks for `~/.config/spitfire/config.lua` and, finding
-nothing, starts with no keybindings at all — not even a way to open a terminal. Copy the
-example config to get a sensible starting point:
+Spitfire reads `${XDG_CONFIG_HOME:-$HOME/.config}/spitfire/config.lua`.
+The shortcuts below come from the example config. With a fresh install, copy
+the example shipped with the installed binary:
 
 ```sh
-mkdir -p ~/.config/spitfire
-cp examples/config.lua ~/.config/spitfire/config.lua
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/spitfire"
+mkdir -p "$config_dir"
+cp -n /usr/share/spitfire/config.lua "$config_dir/config.lua"
 ```
+
+When running a build from the checkout, use `examples/config.lua` as the source.
 
 Open it in an editor and change the one line that spawns a terminal (`alacritty` by
 default — swap it for whatever terminal you actually have installed), then reload
@@ -178,10 +190,12 @@ adjacent workspace preview to move it. The window preview follows the pointer
 and the destination workspace is highlighted. The example config also binds
 an upward four-finger swipe on the native backend.
 
-To enable it in an existing config, add:
+The overview was added after v0.7.0. With a build that includes it, add
+these bindings to an existing config:
 
 ```lua
 spitfire.bind("Mod4", "o", function() spitfire.workspace.toggle_overview() end)
+spitfire.gesture(4, "up", function() spitfire.workspace.toggle_overview() end)
 ```
 
 ## Configuring
@@ -225,7 +239,7 @@ spitfire.keyboard = {
   repeat_rate = 25,
 }
 
--- The built-in bar (on by default)
+-- The built-in bar (enabled in the example config)
 spitfire.bar = { enable = true, height = 28 }
 
 -- Whatever you want started with the session — a bar, wallpaper, launcher, etc.
