@@ -2,7 +2,7 @@
 
 The Arch and Void recipes build the release tag pinned in each recipe and use
 the top-level `make install` target. Both currently target
-[`v0.7.0`](https://github.com/dani-77/spitfire/releases/tag/v0.7.0).
+[`v0.8.0`](https://github.com/dani-77/spitfire/releases/tag/v0.8.0).
 
 ## Arch Linux
 
