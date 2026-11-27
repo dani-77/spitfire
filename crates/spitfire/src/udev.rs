@@ -1579,6 +1579,7 @@ impl SpitfireState<UdevData> {
         // tiling order, same as it does under winit.
         self.arrange_tiling();
 
+        let overview = self.overview_scene(&output);
         let border_rects = self.border_rects();
         let border = self.config.border;
         let anims = self.animated_windows();
@@ -1645,7 +1646,7 @@ impl SpitfireState<UdevData> {
         // — see winit.rs's identical call site for why.
         crate::blur::sync_blur_flags(&self.space, &output, &blur_windows);
         let mut blur_backdrops: Vec<crate::blur::BlurBackdrop> = Vec::new();
-        if !blur_windows.is_empty() {
+        if overview.is_none() && !blur_windows.is_empty() {
             let mut backdrop_border_cache = RectCache::default();
             let mut backdrop_corner_masks = crate::render::CornerMaskCache::default();
             let (backdrop_elements, _clear_color) = output_elements(
@@ -1749,6 +1750,7 @@ impl SpitfireState<UdevData> {
             &mut self.cursor_status,
             self.show_window_preview,
             LockView::new(locked, locked_surface.as_ref()),
+            overview.as_ref(),
             &border_rects,
             border.width,
             border.radius,
@@ -1937,6 +1939,7 @@ fn render_surface<'a>(
     cursor_status: &mut CursorImageStatus,
     show_window_preview: bool,
     lock_view: LockView<'_>,
+    overview: Option<&crate::overview::Scene>,
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -2043,27 +2046,38 @@ fn render_surface<'a>(
         ));
     }
 
-    let (elements, clear_color) = output_elements(
-        output,
-        space,
-        custom_elements,
-        renderer,
-        show_window_preview,
-        lock_view,
-        borders,
-        border_width,
-        border_radius,
-        border_active,
-        border_inactive,
-        &mut surface.border_cache,
-        &mut surface.corner_masks,
-        anims,
-        // The real on-screen frame never hides a window — only
-        // `crate::screencopy`'s own direct `output_elements` call populates
-        // this, from `hide_from_capture` rule matches.
-        &[],
-        blur_backdrops,
-    );
+    let (elements, clear_color) = if let Some(scene) = overview.filter(|_| !lock_view.is_locked()) {
+        crate::render::overview_elements(
+            output,
+            renderer,
+            custom_elements,
+            scene,
+            border_active,
+            &mut surface.border_cache,
+        )
+    } else {
+        output_elements(
+            output,
+            space,
+            custom_elements,
+            renderer,
+            show_window_preview,
+            lock_view,
+            borders,
+            border_width,
+            border_radius,
+            border_active,
+            border_inactive,
+            &mut surface.border_cache,
+            &mut surface.corner_masks,
+            anims,
+            // The real on-screen frame never hides a window — only
+            // `crate::screencopy`'s own direct `output_elements` call populates
+            // this, from `hide_from_capture` rule matches.
+            &[],
+            blur_backdrops,
+        )
+    };
 
     let frame_mode = if surface.disable_direct_scanout {
         FrameFlags::empty()

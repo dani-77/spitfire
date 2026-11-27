@@ -296,6 +296,7 @@ pub struct SpitfireState<BackendData: Backend + 'static> {
     pub renderdoc: Option<renderdoc::RenderDoc<renderdoc::V141>>,
 
     pub show_window_preview: bool,
+    pub(crate) overview: crate::overview::Overview,
 }
 
 #[derive(Debug)]
@@ -985,6 +986,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             #[cfg(feature = "debug")]
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
+            overview: Default::default(),
         }
     }
 

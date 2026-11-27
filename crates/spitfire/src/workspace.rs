@@ -349,15 +349,30 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
     /// the moment a window first maps, before it could have been moved
     /// anywhere else). No-op if `window` is already on `idx`.
     pub fn move_window_to_workspace(&mut self, window: &WindowElement, idx: usize) {
-        let current = self.workspaces.active_index();
-        if current == idx {
+        self.move_window_between_workspaces(window, self.workspaces.active_index(), idx);
+    }
+
+    pub(crate) fn move_window_between_workspaces(
+        &mut self,
+        window: &WindowElement,
+        source: usize,
+        target: usize,
+    ) {
+        if source == target {
             return;
         }
-        self.workspaces.active_mut().tiling.remove(window);
-        self.workspaces.ensure(idx);
-        if let Some(ws) = self.workspaces.get_mut(idx) {
-            ws.tiling.push(window.clone());
+        let Some(workspace) = self.workspaces.get_mut(source) else {
+            return;
+        };
+        if !window.alive() || !workspace.tiling.windows().contains(window) {
+            return;
         }
+        workspace.tiling.remove(window);
+        self.workspaces.ensure(target);
+        if let Some(workspace) = self.workspaces.get_mut(target) {
+            workspace.tiling.push(window.clone());
+        }
+        crate::overview::remember_location(window, self.space.element_location(window));
         self.space.unmap_elem(window);
         self.arrange_tiling();
         self.sync_ext_workspace_state();
@@ -785,6 +800,7 @@ impl<BackendData: Backend + 'static> SpitfireState<BackendData> {
             return;
         };
         for window in windows {
+            crate::overview::remember_location(&window, self.space.element_location(&window));
             self.space.unmap_elem(&window);
         }
     }

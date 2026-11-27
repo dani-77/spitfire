@@ -18,6 +18,7 @@ pub mod idle;
 pub mod input_handler;
 pub mod ipc;
 pub mod layout;
+mod overview;
 pub mod render;
 pub mod screencopy;
 pub mod shell;

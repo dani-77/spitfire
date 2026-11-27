@@ -158,6 +158,7 @@ these is just a line in `config.lua`, so rebind anything to anything.
 | `Mod` + `L` / `H` | Grow / shrink the master area |
 | `Mod` + `I` / `D` | More / fewer windows in the master area |
 | `Mod` + `1`-`9` | Switch to workspace 1-9 |
+| `Mod` + `O` | Toggle the workspace overview |
 | `Alt` + `1`-`9` | Move the focused window to workspace 1-9 |
 | `Mod` + `Q` | Close the focused window |
 | `Mod` + `J` / `K` | Move keyboard focus to the next / previous window |
@@ -167,6 +168,20 @@ these is just a line in `config.lua`, so rebind anything to anything.
 | `Mod` + `Shift` + `Q` | Quit spitfire (ends the session) |
 | `Mod` + `Shift` + `R` | Reload `config.lua` — no logout needed |
 | `Mod` + `Shift` + `P` / `M` | Scale the output up / down live (see `spitfire.output` below for a starting value instead of always `1.0`) |
+
+### Workspace overview
+
+The overview shows a scaled view of the selected workspace and its neighbours.
+Scroll or press Up/Down to browse, press Enter or click a preview to switch,
+and press Esc to return to the current workspace. Drag a window onto an
+adjacent workspace preview to move it. The example config also binds an upward
+four-finger swipe on the native backend.
+
+To enable it in an existing config, add:
+
+```lua
+spitfire.bind("Mod4", "o", function() spitfire.workspace.toggle_overview() end)
+```
 
 ## Configuring
 

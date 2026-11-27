@@ -251,6 +251,14 @@ pub(crate) fn install(
             })?;
             workspace_table.set("prev", prev_fn)?;
         }
+        {
+            let commands = Rc::clone(&commands);
+            let toggle_overview = lua.create_function(move |_, ()| {
+                commands.borrow_mut().push(Command::WorkspaceToggleOverview);
+                Ok(())
+            })?;
+            workspace_table.set("toggle_overview", toggle_overview)?;
+        }
         spitfire.set("workspace", workspace_table)?;
     }
 

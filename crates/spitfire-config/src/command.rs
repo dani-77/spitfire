@@ -19,6 +19,8 @@ pub enum Command {
     /// `spitfire.workspace.focus(n)` — 1-based, switches the view;
     /// creates workspace `n` if it doesn't exist yet.
     WorkspaceFocus(usize),
+    /// `spitfire.workspace.toggle_overview()`.
+    WorkspaceToggleOverview,
     /// `spitfire.workspace.next()`/`.prev()` — relative to whichever
     /// workspace is *currently* active (`+1`/`-1`), not a fixed target —
     /// what `spitfire.workspace.focus(n)` can't express, since Lua has no

@@ -102,6 +102,7 @@ for i = 1, 9 do
   spitfire.bind("Mod4", tostring(i), function() spitfire.workspace.focus(i) end)
   spitfire.bind("Mod1", tostring(i), function() spitfire.workspace.move_window(i) end)
 end
+spitfire.bind("Mod4", "o", function() spitfire.workspace.toggle_overview() end)
 -- Ceiling for the gesture-bound next()/prev() below (a repeated swipe has
 -- no natural "stop" the way typing a number does) — not a startup floor,
 -- workspaces still only ever exist once asked for. A field on the
@@ -143,6 +144,7 @@ spitfire.gesture(3, "up", function() spitfire.window.toggle_scratchpad() end)
 spitfire.gesture(3, "down", function() spitfire.layout.cycle() end)
 spitfire.gesture(4, "left", function() spitfire.window.focus_prev() end)
 spitfire.gesture(4, "right", function() spitfire.window.focus_next() end)
+spitfire.gesture(4, "up", function() spitfire.workspace.toggle_overview() end)
 
 -- Mouse wheel ----------------------------------------------------------
 -- spitfire.wheel(mods, direction, fn) — direction is "up"/"down" (or

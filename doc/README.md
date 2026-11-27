@@ -921,6 +921,37 @@ covers and [Known limitations](#known-limitations--pending-work) for what's stil
   worth matching wasp's over. `max` stays purely a ceiling on `.next()`'s growth (see
   above) — never also a startup floor.
 
+## Workspace overview
+
+`spitfire.workspace.toggle_overview()` queues a Lua command through the same
+path as workspace bindings and touchpad gestures. `crate::overview` keeps the
+selected workspace ID and the current pointer interaction. Selection is
+separate from the active workspace, so browsing does not remap clients or
+publish workspace changes. Confirmation uses `switch_workspace` and dropping
+a window uses the same workspace-move path as the existing Lua command.
+
+The scene projects the selected workspace and its immediate neighbours into
+vertical cards using each output's logical geometry. Active previews use
+the mapped windows in stacking order. Inactive previews reuse the pure
+tiling engine and the last mapped locations of floating windows. They use
+the most recent client buffers available. The same card and window geometry
+is used for drawing and pointer hit testing.
+
+Both winit and DRM/KMS pass the scene to `render::overview_elements` for
+display. It scales and clips normal Smithay window render elements to each
+card. The cursor, built-in bar and top/overlay layers are drawn above the
+cards. The lower layers stay behind a dim backdrop. Capture protocols use
+their existing render path and window filters, independently of this view.
+
+While the overview is open, the compositor handles pointer buttons and scroll.
+Lua shortcuts still work, and unbound keys stay with the compositor. The
+session lock dismisses the overview and retains its own input and render paths.
+
+Verified in winit under Xvfb with Alacritty and swaylock. The test covered
+previews of inactive workspaces, cancellation and confirmation, wheel
+navigation, click selection, dragging between workspaces, and locking while
+the overview was open. The DRM/KMS path builds with the `udev` feature.
+
 ## Known limitations / pending work
 
 - Not a spitfire bug, but worth knowing: Utumno's `modules/Bar.qml` overlaps its

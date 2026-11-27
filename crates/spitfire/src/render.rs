@@ -704,6 +704,103 @@ where
         })
 }
 
+pub(crate) fn overview_elements<R>(
+    output: &Output,
+    renderer: &mut R,
+    custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
+    scene: &crate::overview::Scene,
+    accent: Color32F,
+    cache: &mut RectCache,
+) -> (
+    Vec<OutputRenderElements<R, WindowRenderElement<R>>>,
+    Color32F,
+)
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + 'static,
+{
+    let scale: Scale<f64> = output.current_scale().fractional_scale().into();
+    let mut elements: Vec<_> = custom_elements
+        .into_iter()
+        .map(OutputRenderElements::from)
+        .collect();
+    elements.extend(layer_shell_elements(
+        renderer,
+        output,
+        scale,
+        &[Layer::Top, Layer::Overlay],
+    ));
+
+    let mut solid = |rect: Rectangle<i32, Logical>, color| {
+        let buffer = cache.next(rect.size, color);
+        OutputRenderElements::Custom(CustomRenderElements::Solid(
+            SolidColorRenderElement::from_buffer(
+                buffer,
+                rect.loc.to_physical_precise_round(scale),
+                scale,
+                1.0,
+                Kind::Unspecified,
+            ),
+        ))
+    };
+    for card in &scene.cards {
+        let Some(visible) = card
+            .rect
+            .intersection(scene.viewport)
+            .filter(|rect| !rect.is_empty())
+        else {
+            continue;
+        };
+        let clip = visible.to_physical_precise_round(scale);
+        for preview in &card.windows {
+            let origin = preview.origin.to_physical_precise_round(scale);
+            let offset = card.rect.loc.to_physical_precise_round(scale);
+            let tree: Vec<WindowRenderElement<R>> =
+                preview.window.render_elements(renderer, origin, scale, 1.0);
+            elements.extend(tree.into_iter().filter_map(|element| {
+                let scaled =
+                    RescaleRenderElement::from_element(element, Point::default(), card.zoom);
+                let positioned =
+                    RelocateRenderElement::from_element(scaled, offset, Relocate::Relative);
+                CropRenderElement::from_element(positioned, scale, clip)
+                    .map(OutputRenderElements::Preview)
+            }));
+        }
+
+        elements.push(solid(visible, Color32F::new(0.09, 0.10, 0.13, 1.0)));
+        let width = if card.selected || card.highlighted {
+            3
+        } else {
+            1
+        };
+        let frame = Rectangle::new(
+            card.rect.loc - Point::from((width, width)),
+            card.rect.size + Size::from((2 * width, 2 * width)),
+        );
+        if let Some(frame) = frame
+            .intersection(scene.viewport)
+            .filter(|rect| !rect.is_empty())
+        {
+            let color = if card.selected || card.highlighted {
+                accent
+            } else {
+                Color32F::new(0.33, 0.36, 0.43, 1.0)
+            };
+            elements.push(solid(frame, color));
+        }
+    }
+
+    elements.push(solid(scene.viewport, Color32F::new(0.0, 0.0, 0.0, 0.55)));
+    cache.finish_frame();
+    elements.extend(layer_shell_elements(
+        renderer,
+        output,
+        scale,
+        &[Layer::Bottom, Layer::Background],
+    ));
+    (elements, CLEAR_COLOR_FULLSCREEN)
+}
+
 /// Render elements for the `wlr-layer-shell-v1` surfaces on `output` whose
 /// `Layer` is in `bands` — e.g. `[Top, Overlay]` for the always-in-front
 /// band (an on-screen keyboard, a panel), or `[Bottom, Background]` for the
@@ -1251,7 +1348,7 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn render_output<'a, 'd, R>(
+pub(crate) fn render_output<'a, 'd, R>(
     output: &'a Output,
     space: &'a Space<WindowElement>,
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
@@ -1261,6 +1358,7 @@ pub fn render_output<'a, 'd, R>(
     age: usize,
     show_window_preview: bool,
     lock_view: LockView<'_>,
+    overview: Option<&crate::overview::Scene>,
     borders: &[BorderRect],
     border_width: i32,
     border_radius: i32,
@@ -1275,26 +1373,37 @@ where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Send + Clone + 'static,
 {
-    let (elements, clear_color) = output_elements(
-        output,
-        space,
-        custom_elements,
-        renderer,
-        show_window_preview,
-        lock_view,
-        borders,
-        border_width,
-        border_radius,
-        border_active,
-        border_inactive,
-        border_cache,
-        corner_masks,
-        anims,
-        // The real on-screen frame never hides a window — only
-        // `crate::screencopy`'s own direct `output_elements` call populates
-        // this, from `hide_from_capture` rule matches.
-        &[],
-        blur_backdrops,
-    );
+    let (elements, clear_color) = if let Some(scene) = overview.filter(|_| !lock_view.is_locked()) {
+        overview_elements(
+            output,
+            renderer,
+            custom_elements,
+            scene,
+            border_active,
+            border_cache,
+        )
+    } else {
+        output_elements(
+            output,
+            space,
+            custom_elements,
+            renderer,
+            show_window_preview,
+            lock_view,
+            borders,
+            border_width,
+            border_radius,
+            border_active,
+            border_inactive,
+            border_cache,
+            corner_masks,
+            anims,
+            // The real on-screen frame never hides a window — only
+            // `crate::screencopy`'s own direct `output_elements` call populates
+            // this, from `hide_from_capture` rule matches.
+            &[],
+            blur_backdrops,
+        )
+    };
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

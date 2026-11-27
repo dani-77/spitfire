@@ -452,6 +452,7 @@ impl<BackendData: Backend> SessionLockHandler for SpitfireState<BackendData> {
 
         tracing::info!("Session lock requested");
         self.locked = true;
+        self.dismiss_overview();
         self.lock_surfaces.clear();
         self.pending_unlock = false;
         self.active_lock = Some(confirmation.ext_session_lock().clone());

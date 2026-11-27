@@ -83,6 +83,10 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 self.running.store(false, Ordering::SeqCst);
             }
 
+            KeyAction::OverviewDismiss => self.close_overview(),
+            KeyAction::OverviewActivate => self.activate_overview_selection(),
+            KeyAction::OverviewStep(delta) => self.step_overview(delta),
+
             KeyAction::TogglePreview => {
                 self.show_window_preview = !self.show_window_preview;
             }
@@ -206,6 +210,8 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 );
                 self.arrange_tiling();
             }
+
+            ConfigCommand::WorkspaceToggleOverview => self.toggle_overview(),
 
             ConfigCommand::WorkspaceFocus(n) => {
                 self.switch_workspace(n.saturating_sub(1));
@@ -419,7 +425,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         // this, the loop right below would happily hand every keypress —
         // including whatever's being typed into the lock screen's password
         // field — to that layer surface instead.
-        if !self.locked {
+        if !self.locked && !self.overview_open() {
             for layer in self.layer_shell_state.layer_surfaces().rev() {
                 let data = with_states(layer.wl_surface(), |states| {
                     *states
@@ -505,7 +511,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                                 .unwrap_or(FilterResult::Forward);
                         }
 
-                        if !inhibited {
+                        if !inhibited || cstate.overview_open() {
                             // A `spitfire.bind(...)` from the Lua config takes
                             // priority over the built-in fallbacks below, so a
                             // user config can freely redefine any of them.
@@ -534,7 +540,18 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                                         .and_then(|raw| cstate.config.find_bind(config_mods, raw))
                                 })
                                 .map(KeyAction::LuaBind)
-                                .or_else(|| process_keyboard_shortcut(*modifiers, keysym));
+                                .or_else(|| process_keyboard_shortcut(*modifiers, keysym))
+                                .or_else(|| {
+                                    cstate.overview_open().then(|| match keysym.raw() {
+                                        xkb::KEY_Escape => KeyAction::OverviewDismiss,
+                                        xkb::KEY_Return | xkb::KEY_KP_Enter => {
+                                            KeyAction::OverviewActivate
+                                        }
+                                        xkb::KEY_Up => KeyAction::OverviewStep(-1),
+                                        xkb::KEY_Down => KeyAction::OverviewStep(1),
+                                        _ => KeyAction::None,
+                                    })
+                                });
 
                             if action.is_some() {
                                 suppressed_keys.push(handle.raw_code());
@@ -569,6 +586,9 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         let button = evt.button_code();
 
         let state = wl_pointer::ButtonState::from(evt.state());
+        if self.overview_button(button, state == wl_pointer::ButtonState::Pressed) {
+            return;
+        }
 
         if wl_pointer::ButtonState::Pressed == state {
             self.update_keyboard_focus(self.pointer.current_location(), serial);
@@ -591,7 +611,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
         // surface (set once in the SessionLockHandler::new_surface — see
         // shell/mod.rs) and must never be stolen back by a click on
         // whatever's still mapped underneath it.
-        if self.locked {
+        if self.locked || self.overview_open() {
             return;
         }
 
@@ -717,7 +737,7 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
     /// like a bar) is a deliberate no-op — it leaves whatever was focused
     /// before untouched rather than focusing nothing.
     fn update_keyboard_focus_hover(&mut self, location: Point<f64, Logical>, serial: Serial) {
-        if !self.config.focus_follows_mouse || self.locked {
+        if !self.config.focus_follows_mouse || self.locked || self.overview_open() {
             return;
         }
 
@@ -813,6 +833,9 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
             );
         }
 
+        if self.overview_open() {
+            return None;
+        }
         let output = self.space.outputs().find(|o| {
             let geometry = self.space.output_geometry(o).unwrap();
             geometry.contains(pos.to_i32_round())
@@ -980,6 +1003,15 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
     }
 
     fn on_pointer_axis<B: InputBackend>(&mut self, evt: B::PointerAxisEvent) {
+        if self.overview_open() {
+            if let Some(amount) = evt.amount_v120(Axis::Vertical) {
+                self.scroll_overview(amount, 120.0);
+            } else if let Some(amount) = evt.amount(Axis::Vertical) {
+                self.scroll_overview(amount, 45.0);
+            }
+            return;
+        }
+
         let [vertical_consumed, horizontal_consumed] = self.run_wheel_bind::<B>(&evt);
 
         let horizontal_amount = evt.amount(input::Axis::Horizontal).unwrap_or_else(|| {
@@ -1113,6 +1145,9 @@ impl<BackendData: Backend> SpitfireState<BackendData> {
                 action => match action {
                     KeyAction::None
                     | KeyAction::Quit
+                    | KeyAction::OverviewDismiss
+                    | KeyAction::OverviewActivate
+                    | KeyAction::OverviewStep(_)
                     | KeyAction::TogglePreview
                     | KeyAction::ToggleDecorations
                     | KeyAction::LuaBind(_) => self.process_common_key_action(action),
@@ -1355,6 +1390,9 @@ impl SpitfireState<UdevData> {
                 action => match action {
                     KeyAction::None
                     | KeyAction::Quit
+                    | KeyAction::OverviewDismiss
+                    | KeyAction::OverviewActivate
+                    | KeyAction::OverviewStep(_)
                     | KeyAction::TogglePreview
                     | KeyAction::ToggleDecorations
                     | KeyAction::LuaBind(_) => self.process_common_key_action(action),
@@ -2051,6 +2089,9 @@ enum KeyAction {
     ScaleUp,
     ScaleDown,
     TogglePreview,
+    OverviewDismiss,
+    OverviewActivate,
+    OverviewStep(isize),
     RotateOutput,
     ToggleTint,
     ToggleDecorations,
@@ -2123,6 +2164,9 @@ impl<BackendData: Backend> smithay::wayland::virtual_keyboard::VirtualKeyboardHa
                 match self.keyboard_key_to_action::<VirtualKeyboardBackend>(event) {
                     action @ (KeyAction::None
                     | KeyAction::Quit
+                    | KeyAction::OverviewDismiss
+                    | KeyAction::OverviewActivate
+                    | KeyAction::OverviewStep(_)
                     | KeyAction::TogglePreview
                     | KeyAction::ToggleDecorations
                     | KeyAction::LuaBind(_)) => self.process_common_key_action(action),

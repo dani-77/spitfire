@@ -298,6 +298,7 @@ pub fn run_winit() {
                 .unwrap_or(0);
             state.bar.tick();
             let bar_status_text = state.bar.status_text();
+            let overview = state.overview_scene(&output);
             let bar_mut = &mut state.bar;
 
             let backend = &mut state.backend_data.backend;
@@ -425,7 +426,7 @@ pub fn run_winit() {
                 // touches every window, not just `blur_windows`.
                 crate::blur::sync_blur_flags(space, &output, &blur_windows);
                 let mut blur_backdrops: Vec<crate::blur::BlurBackdrop> = Vec::new();
-                if !blur_windows.is_empty() {
+                if overview.is_none() && !blur_windows.is_empty() {
                     // Own throwaway caches, not `border_cache`/`corner_masks`
                     // above — same reasoning `crate::screencopy::capture_one`
                     // already gives for its own fresh ones: this is a second,
@@ -496,6 +497,7 @@ pub fn run_winit() {
                     age,
                     show_window_preview,
                     lock_view,
+                    overview.as_ref(),
                     &border_rects,
                     border.width,
                     border.radius,
