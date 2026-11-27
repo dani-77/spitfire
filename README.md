@@ -190,8 +190,8 @@ adjacent workspace preview to move it. The window preview follows the pointer
 and the destination workspace is highlighted. The example config also binds
 an upward four-finger swipe on the native backend.
 
-The overview was added after v0.7.0. With a build that includes it, add
-these bindings to an existing config:
+The overview arrived in v0.8.0. To use it with an existing config, add
+these bindings:
 
 ```lua
 spitfire.bind("Mod4", "o", function() spitfire.workspace.toggle_overview() end)
